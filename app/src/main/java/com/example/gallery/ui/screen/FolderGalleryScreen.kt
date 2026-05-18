@@ -178,56 +178,56 @@ fun FolderGalleryScreen(
     ) { page ->
         when (GalleryViewMode.entries[page]) {
             GalleryViewMode.FOLDER -> {
-            val categories = folderData.map { (name, images) ->
-                // 現在の年齢制限フィルタに合う画像のみ抽出
-                val filteredImages = images.filter { item ->
-                    val meta = metadataMap[item.uri]
-                    val rating = meta?.ageRating ?: "SFW"
-                    when (galleryState.ageRatingFilter) {
-                        AgeRatingFilter.ALL -> true
-                        AgeRatingFilter.SFW -> rating == "SFW"
-                        AgeRatingFilter.R15 -> rating == "R15"
-                        AgeRatingFilter.R18 -> rating == "R18"
+                val categories = folderData.map { (name, images) ->
+                    // 現在の年齢制限フィルタに合う画像のみ抽出
+                    val filteredImages = images.filter { item ->
+                        val meta = metadataMap[item.uri]
+                        val rating = meta?.ageRating ?: "SFW"
+                        when (galleryState.ageRatingFilter) {
+                            AgeRatingFilter.ALL -> true
+                            AgeRatingFilter.SFW -> rating == "SFW"
+                            AgeRatingFilter.R15 -> rating == "R15"
+                            AgeRatingFilter.R18 -> rating == "R18"
+                        }
                     }
-                }
-                
-                CategoryData(
-                    id = name,
-                    title = name,
-                    count = filteredImages.size,
-                    thumbnail = filteredImages.firstOrNull()?.uri
-                )
-            }.filter { it.count > 0 }.sortedBy { it.title }
+                    
+                    CategoryData(
+                        id = name,
+                        title = name,
+                        count = filteredImages.size,
+                        thumbnail = filteredImages.firstOrNull()?.uri
+                    )
+                }.filter { it.count > 0 }.sortedBy { it.title }
 
-            CategoryScreen(
-                title = "フォルダ",
-                categories = categories,
-                isLoading = isLoading,
-                galleryState = galleryState,
-                onCategoryClick = { 
-                    selectedFolderName = it.id 
-                    isSubCategorySelected = true
-                },
-                onShowViewer = onShowViewer,
-                onHideViewer = onHideViewer,
-                selectedCategoryTitle = selectedFolderName,
-                selectedCategoryMedia = folderData[selectedFolderName]?.filter { item ->
-                    val meta = metadataMap[item.uri]
-                    val rating = meta?.ageRating ?: "SFW"
-                    when (galleryState.ageRatingFilter) {
-                        AgeRatingFilter.ALL -> true
-                        AgeRatingFilter.SFW -> rating == "SFW"
-                        AgeRatingFilter.R15 -> rating == "R15"
-                        AgeRatingFilter.R18 -> rating == "R18"
-                    }
-                } ?: emptyList(),
-                onBackFromCategory = { 
-                    selectedFolderName = null
-                    isSubCategorySelected = false
-                },
-                onTabIconClick = { onBackToFolders() }
-            )
-        }
+                CategoryScreen(
+                    title = "フォルダ",
+                    categories = categories,
+                    isLoading = isLoading,
+                    galleryState = galleryState,
+                    onCategoryClick = { 
+                        selectedFolderName = it.id 
+                        isSubCategorySelected = true
+                    },
+                    onShowViewer = onShowViewer,
+                    onHideViewer = onHideViewer,
+                    selectedCategoryTitle = selectedFolderName,
+                    selectedCategoryMedia = folderData[selectedFolderName]?.filter { item ->
+                        val meta = metadataMap[item.uri]
+                        val rating = meta?.ageRating ?: "SFW"
+                        when (galleryState.ageRatingFilter) {
+                            AgeRatingFilter.ALL -> true
+                            AgeRatingFilter.SFW -> rating == "SFW"
+                            AgeRatingFilter.R15 -> rating == "R15"
+                            AgeRatingFilter.R18 -> rating == "R18"
+                        }
+                    } ?: emptyList(),
+                    onBackFromCategory = { 
+                        selectedFolderName = null
+                        isSubCategorySelected = false
+                    },
+                    onTabIconClick = { onBackToFolders() }
+                )
+            }
             GalleryViewMode.MYLIST -> {
                 MyListScreen(
                     onShowViewer = onShowViewer,

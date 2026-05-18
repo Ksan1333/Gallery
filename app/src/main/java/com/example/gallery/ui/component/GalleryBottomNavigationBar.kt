@@ -57,7 +57,7 @@ fun GalleryBottomNavigationBar(
 
     val items = listOf(
         NavigationItem("home", "すべて", Icons.Default.Home),
-        NavigationItem("folders", currentGalleryTitle, currentGalleryIcon, enabled = !galleryState.isMockMode),
+        NavigationItem("folders", currentGalleryTitle, currentGalleryIcon, enabled = true),
         NavigationItem("pinterest", "Pinterest", Icons.Default.PushPin),
         NavigationItem("books", "本", Icons.AutoMirrored.Filled.MenuBook)
     )
@@ -213,12 +213,19 @@ fun GalleryBottomNavigationBar(
                         if (isFoldersItem && !isDraggingGallery) {
                             Icon(
                                 imageVector = Icons.Default.ArrowDropUp,
-                                contentDescription = null,
+                                contentDescription = "メニュー展開",
                                 tint = Color.White.copy(alpha = 0.5f),
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(top = 4.dp, end = 8.dp)
                                     .size(16.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        isDraggingGallery = true
+                                        dragAmountY = 0f
+                                    }
                             )
                         }
                     }
@@ -264,20 +271,26 @@ fun GalleryBottomNavigationBar(
             }
         }
 
-        // クイックスイッチャーメニュー (Popup を使ってレイアウトから完全に切り離す)
-        if (isDraggingGallery) {
-            Popup(
-                alignment = Alignment.BottomCenter,
-                offset = IntOffset(0, -64), // ナビゲーションバーの高さ分だけ上へ
-                properties = PopupProperties(focusable = false, clippingEnabled = false)
-            ) {
-                // itemsの幅（1/4ずつ）に合わせて「フォルダ」アイコンの位置に配置
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Spacer(modifier = Modifier.weight(0.25f)) // "すべて"
-                    Box(
-                        modifier = Modifier.weight(0.25f), // "フォルダ"
-                        contentAlignment = Alignment.BottomCenter
-                    ) {
+    // クイックスイッチャーメニュー (Popup を使ってレイアウトから完全に切り離す)
+    if (isDraggingGallery) {
+        Popup(
+            alignment = Alignment.BottomCenter,
+            offset = IntOffset(0, -64), // ナビゲーションバーの高さ分だけ上へ
+            onDismissRequest = { isDraggingGallery = false },
+            properties = PopupProperties(
+                focusable = true, // タップイベントを受け取るために必要
+                dismissOnClickOutside = true,
+                dismissOnBackPress = true,
+                clippingEnabled = false
+            )
+        ) {
+            // itemsの幅（1/4ずつ）に合わせて「フォルダ」アイコンの位置に配置
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.weight(0.25f)) // "すべて"
+                Box(
+                    modifier = Modifier.weight(0.25f), // "フォルダ"
+                    contentAlignment = Alignment.BottomCenter
+                ) {
                         Surface(
                             color = Color.Black.copy(alpha = 0.95f),
                             shape = RoundedCornerShape(28.dp),
@@ -303,7 +316,24 @@ fun GalleryBottomNavigationBar(
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center,
-                                        modifier = Modifier.size(60.dp)
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = ripple(bounded = false, radius = 30.dp)
+                                            ) {
+                                                // アイコンタップで即時遷移
+                                                galleryState.galleryViewMode = mode
+                                                isDraggingGallery = false
+                                                if (currentRoute != "folders") {
+                                                    navController.navigate("folders") {
+                                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                                        launchSingleTop = true
+                                                        restoreState = true
+                                                    }
+                                                }
+                                                onIconClick("folders")
+                                            }
                                     ) {
                                         Icon(
                                             imageVector = icon,
@@ -325,11 +355,11 @@ fun GalleryBottomNavigationBar(
                                 }
                             }
                         }
-                    }
-                    Spacer(modifier = Modifier.weight(0.5f)) // Pinterest, 本
                 }
+                Spacer(modifier = Modifier.weight(0.5f)) // Pinterest, 本
             }
         }
+    }
     }
 }
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -55,6 +56,7 @@ import java.util.*
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
+import android.app.Activity
 import kotlin.math.roundToInt
 
 @Composable
@@ -110,44 +112,15 @@ fun GalleryGridView(
     val totalTopBarHeightPx = with(LocalDensity.current) { totalTopBarHeight.toPx() }
     var topBarOffsetHeightPx by remember { mutableFloatStateOf(0f) }
 
-    // オーバースクロール（画面全体を動かす）ための状態
-    val overscrollTranslationY = remember { Animatable(0f) }
-
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
                 val newOffset = topBarOffsetHeightPx + delta
-                if (!isSelectionMode && overscrollTranslationY.value == 0f) {
+                if (!isSelectionMode) {
                     topBarOffsetHeightPx = newOffset.coerceIn(-totalTopBarHeightPx, 0f)
                 }
                 return Offset.Zero
-            }
-
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (available.y != 0f) {
-                    // 消費されなかったスクロール量で画面全体を移動させる
-                    // 指を動かすほど抵抗が大きくなる（対数的な挙動）
-                    scope.launch {
-                        val current = overscrollTranslationY.value
-                        val delta = available.y * 0.4f
-                        val newTranslation = if (current * delta > 0) {
-                            // 同じ方向に動かしている場合、距離に応じて減衰
-                            current + delta * (1f / (1f + Math.abs(current) / 100f))
-                        } else {
-                            // 逆方向に戻している場合
-                            current + delta
-                        }
-                        overscrollTranslationY.snapTo(newTranslation)
-                    }
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                // 指を離した時に元の位置に戻る
-                overscrollTranslationY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
-                return super.onPostFling(consumed, available)
             }
         }
     }
@@ -176,6 +149,7 @@ fun GalleryGridView(
 
     val configuration = LocalConfiguration.current
     val deviceAspectRatio = configuration.screenHeightDp.toFloat() / configuration.screenWidthDp.toFloat()
+    val activity = LocalContext.current as? Activity
 
     val filteredList by remember(galleryState.mediaTypeFilter, galleryState.ageRatingFilter, galleryState.deviceFilter, metadataMap, imageList) {
         derivedStateOf {
@@ -259,7 +233,6 @@ fun GalleryGridView(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(animatedColumns.coerceAtLeast(1)), 
                 modifier = Modifier.fillMaxSize()
-                    .graphicsLayer { translationY = overscrollTranslationY.value } // リスト部分のみ動かす
                     .pointerInput(currentColumnIndex, filteredList) {
                         detectTransformGestures { _, _, zoom, _ ->
                             if (!isSelectionMode) {
@@ -432,67 +405,6 @@ fun GalleryGridView(
 
         if (showBulkEditDialog) {
             UnifiedMediaEditDialog(uris = selectedUris.toList(), repository = galleryState.repository, onDismiss = { showBulkEditDialog = false; isSelectionMode = false; selectedUris.clear() })
-        }
-
-        // ドラッグ可能なスクロールバー
-        val layoutInfo = gridState.layoutInfo
-        val totalItems = layoutInfo.totalItemsCount
-        if (totalItems > 0 && !isSelectionMode) {
-            val visibleItemsInfo = layoutInfo.visibleItemsInfo
-            if (visibleItemsInfo.isNotEmpty()) {
-                val firstVisibleItem = visibleItemsInfo.first()
-                val visibleCountInGrid = visibleItemsInfo.size
-                
-                // スクロールバーのパラメータ
-                val thumbHeightPercent = (visibleCountInGrid.toFloat() / totalItems).coerceIn(0.1f, 1f)
-                val scrollPositionPercent = (firstVisibleItem.index.toFloat() / (totalItems - visibleCountInGrid).coerceAtLeast(1)).coerceIn(0f, 1f)
-                
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(32.dp) // タップ領域を広めに
-                        .padding(top = totalTopBarHeight + 16.dp, bottom = totalBottomPadding + 16.dp)
-                        .align(Alignment.CenterEnd)
-                ) {
-                    val availableHeight = maxHeight
-                    val availableHeightPx = with(LocalDensity.current) { availableHeight.toPx() }
-                    val thumbHeight = availableHeight * thumbHeightPercent
-                    val thumbHeightPx = with(LocalDensity.current) { thumbHeight.toPx() }
-
-                    // トラック（背景ライン）
-                    Box(
-                        modifier = Modifier
-                            .width(4.dp)
-                            .fillMaxHeight()
-                            .padding(end = 4.dp)
-                            .align(Alignment.CenterEnd)
-                            .background(Color.White.copy(alpha = 0.1f), CircleShape)
-                    )
-
-                    // スクロールバーのつまみ
-                    Box(
-                        modifier = Modifier
-                            .width(8.dp)
-                            .height(thumbHeight)
-                            .offset(y = (availableHeight - thumbHeight) * scrollPositionPercent)
-                            .padding(end = 4.dp)
-                            .align(Alignment.TopEnd)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.5f))
-                            .pointerInput(totalItems, visibleCountInGrid) {
-                                detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    val newScrollPosPx = (availableHeightPx - thumbHeightPx) * scrollPositionPercent + dragAmount.y
-                                    val newPercent = (newScrollPosPx / (availableHeightPx - thumbHeightPx)).coerceIn(0f, 1f)
-                                    val targetIndex = (newPercent * (totalItems - visibleCountInGrid)).toInt()
-                                    scope.launch {
-                                        gridState.scrollToItem(targetIndex)
-                                    }
-                                }
-                            }
-                    )
-                }
-            }
         }
     }
 }

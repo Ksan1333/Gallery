@@ -84,32 +84,6 @@ fun CategoryScreen(
     val columnOptions = listOf(10, 7, 4, 3, 1)
     var currentColumnIndex by remember { mutableIntStateOf(2) }
 
-    // オーバースクロール用の状態
-    val overscrollTranslationY = remember { Animatable(0f) }
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPostScroll(consumed: androidx.compose.ui.geometry.Offset, available: androidx.compose.ui.geometry.Offset, source: NestedScrollSource): androidx.compose.ui.geometry.Offset {
-                if (available.y != 0f) {
-                    scope.launch {
-                        val current = overscrollTranslationY.value
-                        val delta = available.y * 0.4f
-                        val newTranslation = if (current * delta > 0) {
-                            current + delta * (1f / (1f + Math.abs(current) / 100f))
-                        } else {
-                            current + delta
-                        }
-                        overscrollTranslationY.snapTo(newTranslation)
-                    }
-                }
-                return androidx.compose.ui.geometry.Offset.Zero
-            }
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                overscrollTranslationY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
-                return super.onPostFling(consumed, available)
-            }
-        }
-    }
-
     BackHandler(selectedCategoryTitle != null || selectedImageIndex != null || isSelectionModeActive) {
         if (selectedImageIndex != null) {
             selectedImageIndex = null
@@ -125,7 +99,6 @@ fun CategoryScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AppConstants.BackgroundColor)
-            .nestedScroll(nestedScrollConnection)
     ) {
         if (selectedCategoryTitle == null) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -166,7 +139,7 @@ fun CategoryScreen(
                 }
 
                 // グリッド部分
-                Box(modifier = Modifier.fillMaxSize().graphicsLayer { translationY = overscrollTranslationY.value }) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     if (isLoading) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             loadingContent()

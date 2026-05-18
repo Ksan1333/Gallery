@@ -113,11 +113,14 @@ fun ColorListScreen(
     }.collectAsState(initial = 0)
     var showWarning by remember { mutableStateOf(false) }
     
-    LaunchedEffect(unanalyzedCount) {
-        if (unanalyzedCount > 0) {
-            delay(1000)
+    // 画面表示から少し待って、かつカテゴリが読み込まれている場合のみ警告を出す
+    LaunchedEffect(unanalyzedCount, filteredColorCategories, isGlobalLoading, isLoadingState) {
+        if (!isGlobalLoading && !isLoadingState && unanalyzedCount > 0 && filteredColorCategories.isNotEmpty()) {
+            delay(2000)
             showWarning = true
             delay(4000)
+            showWarning = false
+        } else {
             showWarning = false
         }
     }

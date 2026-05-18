@@ -596,53 +596,78 @@ fun PictureViewer(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        item {
-                            Text("似た色の画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                        }
-                        item {
-                            if (currentColorComposition.isNotEmpty()) {
-                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    currentColorComposition.entries.sortedByDescending { it.value }.take(6).forEach { (name, ratio) ->
-                                        val color = when (name) {
-                                            "レッド系" -> Color.Red; "オレンジ系" -> Color(0xFFFFA500); "イエロー系" -> Color.Yellow
-                                            "グリーン系" -> Color.Green; "ブルー系" -> Color(0xFF007FFF); "パープル系" -> Color(0xFF800080)
-                                            "ピンク系" -> Color(0xFFFFC0CB); "ホワイト系" -> Color.White; "グレー系" -> Color.Gray
-                                            "ブラック系" -> Color.Black; else -> Color.DarkGray
-                                        }
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(color).border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape))
-                                            Text("${(ratio * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                        val currentMedia = imageList[pagerState.currentPage]
+                        if (!currentMedia.isVideo) {
+                            item {
+                                Text("似た色の画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                            }
+                            item {
+                                if (currentColorComposition.isNotEmpty()) {
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        currentColorComposition.entries.sortedByDescending { it.value }.take(6).forEach { (name, ratio) ->
+                                            val color = when (name) {
+                                                "レッド系" -> Color.Red; "オレンジ系" -> Color(0xFFFFA500); "イエロー系" -> Color.Yellow
+                                                "グリーン系" -> Color.Green; "ブルー系" -> Color(0xFF007FFF); "パープル系" -> Color(0xFF800080)
+                                                "ピンク系" -> Color(0xFFFFC0CB); "ホワイト系" -> Color.White; "グレー系" -> Color.Gray
+                                                "ブラック系" -> Color.Black; else -> Color.DarkGray
+                                            }
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(color).border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape))
+                                                Text("${(ratio * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                                            }
                                         }
                                     }
-                                }
-                            } else {
-                                Text("解析データなし", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
-                            }
-                        }
-                        item {
-                            if (recommendedMediaWithScores.isEmpty()) {
-                                if (isAnalyzingCurrentMedia) {
-                                    Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) }
                                 } else {
-                                    Text("似た色の画像が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                                    Text("解析データなし", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
                                 }
-                            } else {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    itemsIndexed(recommendedMediaWithScores) { _, similarity ->
-                                        RecommendationCard(similarity.media, "${(similarity.similarityScore * 100).toInt()}%", imageLoader) {
-                                            isRecommendationVisible = false
-                                            val index = imageList.indexOfFirst { it.uri == similarity.media.uri }
-                                            if (index != -1) {
-                                                scope.launch {
-                                                    pagerState.scrollToPage(index)
-                                                    onPageSelected?.invoke(index)
-                                                }
-                                            } else { onNavigateToMedia?.invoke(similarity.media.uri) }
+                            }
+                            item {
+                                if (recommendedMediaWithScores.isEmpty()) {
+                                    if (isAnalyzingCurrentMedia) {
+                                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) }
+                                    } else {
+                                        Text("似た色の画像が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                                    }
+                                } else {
+                                    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        itemsIndexed(recommendedMediaWithScores) { _, similarity ->
+                                            RecommendationCard(similarity.media, "${(similarity.similarityScore * 100).toInt()}%", imageLoader) {
+                                                isRecommendationVisible = false
+                                                val index = imageList.indexOfFirst { it.uri == similarity.media.uri }
+                                                if (index != -1) {
+                                                    scope.launch {
+                                                        pagerState.scrollToPage(index)
+                                                        onPageSelected?.invoke(index)
+                                                    }
+                                                } else { onNavigateToMedia?.invoke(similarity.media.uri) }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // 動画の場合: 「他の動画」を表示
+                            item {
+                                Text("他の動画", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                            }
+                            item {
+                                val otherVideos = remember(imageList) { imageList.filter { it.isVideo && it.uri != currentMedia.uri } }
+                                if (otherVideos.isEmpty()) {
+                                    Text("他の動画が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                                } else {
+                                    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        itemsIndexed(otherVideos) { _, item ->
+                                            RecommendationCard(item, null, imageLoader) {
+                                                isRecommendationVisible = false
+                                                val index = imageList.indexOfFirst { it.uri == item.uri }
+                                                if (index != -1) { scope.launch { pagerState.scrollToPage(index) } } else { onNavigateToMedia?.invoke(item.uri) }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+
                         item {
                             val normalTags = remember(currentMediaTags) { currentMediaTags.filter { !it.endsWith("系") } }
                             Column {
