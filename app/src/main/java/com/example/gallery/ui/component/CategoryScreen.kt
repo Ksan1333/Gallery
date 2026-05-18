@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -42,6 +43,7 @@ import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.MediaData
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 data class CategoryData(
     val id: String,
@@ -83,6 +85,36 @@ fun CategoryScreen(
     // カラム設定の状態を CategoryScreen で保持
     val columnOptions = listOf(10, 7, 4, 3, 1)
     var currentColumnIndex by remember { mutableIntStateOf(2) }
+
+    // オーバースクロール（画面全体を動かす）のための状態
+    val overscrollTranslationY = remember { Animatable(0f) }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (available.y != 0f) {
+                    // 消費されなかったスクロール量で画面全体を移動させる
+                    scope.launch {
+                        val current = overscrollTranslationY.value
+                        val delta = available.y * 0.4f
+                        val newTranslation = if (current * delta > 0) {
+                            current + delta * (1f / (1f + abs(current) / 100f))
+                        } else {
+                            current + delta
+                        }
+                        overscrollTranslationY.snapTo(newTranslation)
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                // 指を離した時に元の位置に戻る
+                overscrollTranslationY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                return super.onPostFling(consumed, available)
+            }
+        }
+    }
 
     BackHandler(selectedCategoryTitle != null || selectedImageIndex != null || isSelectionModeActive) {
         if (selectedImageIndex != null) {
@@ -129,9 +161,6 @@ fun CategoryScreen(
                     ) {
                         GalleryTopControlBar(
                             galleryState = galleryState,
-                            columnOptions = columnOptions,
-                            currentColumnIndex = currentColumnIndex,
-                            onColumnIndexChange = { currentColumnIndex = it },
                             showGroupingButton = true, // 元のUIに合わせる
                             isGroupingEnabled = false // カテゴリ一覧画面（フォルダ・マイリスト・カラー）では日付グループ非活性
                         )
@@ -139,7 +168,12 @@ fun CategoryScreen(
                 }
 
                 // グリッド部分
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection)
+                        .graphicsLayer { translationY = overscrollTranslationY.value }
+                ) {
                     if (isLoading) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             loadingContent()

@@ -11,7 +11,7 @@ import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.data.repository.ColorTaggingService
 
 enum class GalleryViewMode { FOLDER, MYLIST, COLOR }
-enum class GroupingMode { NONE, DAY, MONTH }
+enum class GroupingMode { NONE, DAY, MONTH, YEAR }
 enum class MediaTypeFilter { ALL, IMAGE, VIDEO, GIF }
 enum class AgeRatingFilter { ALL, SFW, R15, R18 }
 enum class DeviceFilter { ALL, SMARTPHONE, PC }
