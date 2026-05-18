@@ -30,10 +30,16 @@ fun MyListScreen(
     onStartAnalysis: () -> Unit,
     galleryState: GalleryState,
     onBackToMyList: () -> Unit = {},
-    topBarActions: @Composable RowScope.() -> Unit = {}
+    topBarActions: @Composable RowScope.() -> Unit = {},
+    onSubCategorySelected: (Boolean) -> Unit = {}
 ) {
     var selectedCategoryType by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedTagName by rememberSaveable { mutableStateOf<String?>(null) }
+    
+    // 親にカテゴリ選択状態を通知
+    LaunchedEffect(selectedCategoryType) {
+        onSubCategorySelected(selectedCategoryType != null)
+    }
     
     val selectedCategoryTitle = remember(selectedCategoryType, selectedTagName) {
         when (selectedCategoryType) {

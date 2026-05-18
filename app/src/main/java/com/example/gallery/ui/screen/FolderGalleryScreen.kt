@@ -7,25 +7,18 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.GalleryViewMode
 import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.component.CategoryData
 import com.example.gallery.ui.component.CategoryScreen
-import com.example.gallery.ui.component.TooltipWrapper
 import java.io.File
 
 @Composable
@@ -43,9 +36,9 @@ fun FolderGalleryScreen(
     val folderData = remember { mutableStateMapOf<String, MutableList<MediaData>>() }
     var selectedFolderName by rememberSaveable { mutableStateOf<String?>(null) }
     
-    // マイリスト・カラー表示用（既存のスクリーンからロジックを統合するか、コンポーネントを切り替える）
-    // シンプルにするため、モードによって表示するコンテンツを切り替える
-    
+    // カテゴリ詳細が表示されているかどうかの状態
+    var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
+
     fun loadMediaFromUri(collection: android.net.Uri) {
         val projection = arrayOf(
             MediaStore.MediaColumns._ID,
@@ -111,87 +104,76 @@ fun FolderGalleryScreen(
         }
     }
 
-    when (galleryState.galleryViewMode) {
-        GalleryViewMode.FOLDER -> {
-            val categories = folderData.map { (name, images) ->
-                CategoryData(
-                    id = name,
-                    title = name,
-                    count = images.size,
-                    thumbnail = images.firstOrNull()?.uri
-                )
-            }.sortedBy { it.title }
+    val pagerState = rememberPagerState(
+        initialPage = galleryState.galleryViewMode.ordinal,
+        pageCount = { GalleryViewMode.entries.size }
+    )
 
-            CategoryScreen(
-                title = "フォルダ",
-                categories = categories,
-                galleryState = galleryState,
-                onCategoryClick = { selectedFolderName = it.id },
-                onShowViewer = onShowViewer,
-                onHideViewer = onHideViewer,
-                selectedCategoryTitle = selectedFolderName,
-                selectedCategoryMedia = folderData[selectedFolderName] ?: emptyList(),
-                onBackFromCategory = { selectedFolderName = null },
-                onTabIconClick = { onBackToFolders() },
-                topBarActions = {
-                    ModeSwitcher(galleryState)
-                }
-            )
-        }
-        GalleryViewMode.MYLIST -> {
-            MyListScreen(
-                onShowViewer = onShowViewer,
-                onHideViewer = onHideViewer,
-                onStartAnalysis = onStartAnalysis,
-                galleryState = galleryState,
-                onBackToMyList = onBackToFolders,
-                topBarActions = {
-                    ModeSwitcher(galleryState)
-                }
-            )
-        }
-        GalleryViewMode.COLOR -> {
-            ColorListScreen(
-                onShowViewer = onShowViewer,
-                onHideViewer = onHideViewer,
-                onStartAnalysis = onStartAnalysis,
-                galleryState = galleryState,
-                onBackToColorList = onBackToFolders,
-                topBarActions = {
-                    ModeSwitcher(galleryState)
-                }
-            )
+    // Pagerの状態をGalleryStateに同期
+    LaunchedEffect(pagerState.currentPage) {
+        galleryState.galleryViewMode = GalleryViewMode.entries[pagerState.currentPage]
+    }
+
+    // GalleryStateの変更をPagerに反映（外部からの変更対応）
+    LaunchedEffect(galleryState.galleryViewMode) {
+        if (pagerState.currentPage != galleryState.galleryViewMode.ordinal) {
+            pagerState.animateScrollToPage(galleryState.galleryViewMode.ordinal)
         }
     }
-}
 
-@Composable
-fun ModeSwitcher(galleryState: GalleryState) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        TooltipWrapper("フォルダ表示") {
-            IconButton(onClick = { galleryState.galleryViewMode = GalleryViewMode.FOLDER }) {
-                Icon(
-                    Icons.AutoMirrored.Filled.List,
-                    contentDescription = null,
-                    tint = if (galleryState.galleryViewMode == GalleryViewMode.FOLDER) Color.Cyan else Color.White
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+        userScrollEnabled = !isSubCategorySelected // 詳細表示中はスワイプ無効
+    ) { page ->
+        when (GalleryViewMode.entries[page]) {
+            GalleryViewMode.FOLDER -> {
+                val categories = folderData.map { (name, images) ->
+                    CategoryData(
+                        id = name,
+                        title = name,
+                        count = images.size,
+                        thumbnail = images.firstOrNull()?.uri
+                    )
+                }.sortedBy { it.title }
+
+                CategoryScreen(
+                    title = "フォルダ",
+                    categories = categories,
+                    galleryState = galleryState,
+                    onCategoryClick = { 
+                        selectedFolderName = it.id 
+                        isSubCategorySelected = true
+                    },
+                    onShowViewer = onShowViewer,
+                    onHideViewer = onHideViewer,
+                    selectedCategoryTitle = selectedFolderName,
+                    selectedCategoryMedia = folderData[selectedFolderName] ?: emptyList(),
+                    onBackFromCategory = { 
+                        selectedFolderName = null
+                        isSubCategorySelected = false
+                    },
+                    onTabIconClick = { onBackToFolders() }
                 )
             }
-        }
-        TooltipWrapper("マイリスト表示") {
-            IconButton(onClick = { galleryState.galleryViewMode = GalleryViewMode.MYLIST }) {
-                Icon(
-                    Icons.Default.Favorite,
-                    contentDescription = null,
-                    tint = if (galleryState.galleryViewMode == GalleryViewMode.MYLIST) Color.Cyan else Color.White
+            GalleryViewMode.MYLIST -> {
+                MyListScreen(
+                    onShowViewer = onShowViewer,
+                    onHideViewer = onHideViewer,
+                    onStartAnalysis = onStartAnalysis,
+                    galleryState = galleryState,
+                    onBackToMyList = onBackToFolders,
+                    onSubCategorySelected = { isSubCategorySelected = it }
                 )
             }
-        }
-        TooltipWrapper("カラー表示") {
-            IconButton(onClick = { galleryState.galleryViewMode = GalleryViewMode.COLOR }) {
-                Icon(
-                    Icons.Default.Palette,
-                    contentDescription = null,
-                    tint = if (galleryState.galleryViewMode == GalleryViewMode.COLOR) Color.Cyan else Color.White
+            GalleryViewMode.COLOR -> {
+                ColorListScreen(
+                    onShowViewer = onShowViewer,
+                    onHideViewer = onHideViewer,
+                    onStartAnalysis = onStartAnalysis,
+                    galleryState = galleryState,
+                    onBackToColorList = onBackToFolders,
+                    onSubCategorySelected = { isSubCategorySelected = it }
                 )
             }
         }

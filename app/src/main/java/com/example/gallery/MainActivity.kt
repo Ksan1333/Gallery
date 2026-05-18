@@ -105,27 +105,12 @@ fun AppNavigation() {
                     onShowViewer = { isBottomBarVisible = false },
                     onHideViewer = { isBottomBarVisible = true },
                     galleryState = galleryState,
-                    onBackToFolders = { navController.navigate("folders") { popUpTo("folders") { inclusive = true } } }
-                )
-            }
-            composable("mylist") {
-                isBottomBarVisible = true
-                MyListScreen(
-                    onShowViewer = { isBottomBarVisible = false },
-                    onHideViewer = { isBottomBarVisible = true },
-                    onStartAnalysis = { navController.navigate("analysis") },
-                    galleryState = galleryState,
-                    onBackToMyList = { navController.navigate("mylist") { popUpTo("mylist") { inclusive = true } } }
-                )
-            }
-            composable("color_list") {
-                isBottomBarVisible = true
-                ColorListScreen(
-                    onShowViewer = { isBottomBarVisible = false },
-                    onHideViewer = { isBottomBarVisible = true },
-                    onStartAnalysis = { navController.navigate("analysis") },
-                    galleryState = galleryState,
-                    onBackToColorList = { navController.navigate("color_list") { popUpTo("color_list") { inclusive = true } } }
+                    onBackToFolders = { 
+                        navController.navigate("folders") { 
+                            popUpTo("folders") { inclusive = true } 
+                        } 
+                    },
+                    onStartAnalysis = { navController.navigate("analysis") }
                 )
             }
             composable("analysis") {
@@ -172,10 +157,10 @@ fun AppNavigation() {
                         }
                     },
                     onMockModeToggle = {
-                        val currentRoute = navController.currentBackStackEntry?.destination?.route
-                        if (currentRoute == "folders" || currentRoute == "mylist" || currentRoute == "color_list") {
-                            navController.navigate(currentRoute) {
-                                popUpTo(currentRoute) { inclusive = true }
+                        val currentRouteInner = navController.currentBackStackEntry?.destination?.route
+                        if (currentRouteInner == "folders" || currentRouteInner == "home") {
+                            navController.navigate(currentRouteInner) {
+                                popUpTo(currentRouteInner) { inclusive = true }
                             }
                         }
                     }

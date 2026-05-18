@@ -27,9 +27,15 @@ fun ColorListScreen(
     onStartAnalysis: () -> Unit,
     galleryState: GalleryState,
     onBackToColorList: () -> Unit = {},
-    topBarActions: @Composable RowScope.() -> Unit = {}
+    topBarActions: @Composable RowScope.() -> Unit = {},
+    onSubCategorySelected: (Boolean) -> Unit = {}
 ) {
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    
+    // 親にカテゴリ選択状態を通知
+    LaunchedEffect(selectedCategoryId) {
+        onSubCategorySelected(selectedCategoryId != null)
+    }
     
     // ロード状態の管理
     var isLoadingState by remember { mutableStateOf(true) }
