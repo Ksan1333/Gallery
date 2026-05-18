@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,7 +35,10 @@ fun GalleryBottomNavigationBar(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val items = listOf(
-        NavigationItem("folders", "フォルダ", Icons.AutoMirrored.Filled.List, enabled = !galleryState.isMockMode)
+        NavigationItem("home", "すべて", Icons.Default.Home),
+        NavigationItem("folders", "フォルダ", Icons.AutoMirrored.Filled.List),
+        NavigationItem("pinterest", "Pinterest", Icons.Default.PushPin),
+        NavigationItem("books", "本", Icons.AutoMirrored.Filled.MenuBook)
     )
 
     Box(
