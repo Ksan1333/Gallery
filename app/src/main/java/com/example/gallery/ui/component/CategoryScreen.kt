@@ -130,7 +130,8 @@ fun CategoryScreen(
                         .fillMaxWidth()
                         .background(Color.Black)
                         .windowInsetsPadding(WindowInsets.statusBars)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .height(56.dp) // 高さを56dpに固定して統一
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {

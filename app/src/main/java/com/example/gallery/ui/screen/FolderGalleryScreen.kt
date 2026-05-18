@@ -20,6 +20,8 @@ import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.component.CategoryData
 import com.example.gallery.ui.component.CategoryScreen
 import java.io.File
+import android.widget.Toast
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun FolderGalleryScreen(
@@ -111,7 +113,20 @@ fun FolderGalleryScreen(
 
     // Pagerの状態をGalleryStateに同期
     LaunchedEffect(pagerState.currentPage) {
-        galleryState.galleryViewMode = GalleryViewMode.entries[pagerState.currentPage]
+        val newMode = GalleryViewMode.entries[pagerState.currentPage]
+        galleryState.galleryViewMode = newMode
+        
+        // 未分析アイテムの件数をトーストで表示
+        if (newMode == GalleryViewMode.MYLIST || newMode == GalleryViewMode.COLOR) {
+            val count = if (newMode == GalleryViewMode.MYLIST) {
+                galleryState.repository.getUnanalyzedAiCount().first()
+            } else {
+                galleryState.repository.getUnanalyzedColorCount().first()
+            }
+            if (count > 0) {
+                Toast.makeText(context, "${count}件が未分析です。右上のアイコンから解析してください", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     // GalleryStateの変更をPagerに反映（外部からの変更対応）

@@ -1,5 +1,6 @@
 package com.example.gallery.ui.component
 
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -20,7 +21,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.unit.IntOffset
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -64,78 +67,27 @@ fun GalleryBottomNavigationBar(
     var dragAmountY by remember { mutableFloatStateOf(0f) }
     
     // 縦に並べるためのしきい値
-    val hoverMode = remember(dragAmountY) {
-        when {
-            dragAmountY < -180f -> GalleryViewMode.COLOR
-            dragAmountY < -90f -> GalleryViewMode.MYLIST
-            else -> GalleryViewMode.FOLDER
+    val hoverMode by remember(dragAmountY) {
+        derivedStateOf {
+            when {
+                dragAmountY < -180f -> GalleryViewMode.COLOR
+                dragAmountY < -90f -> GalleryViewMode.MYLIST
+                else -> GalleryViewMode.FOLDER
+            }
         }
     }
+    
+    // pointerInput 内で最新の値を参照するための state
+    val currentHoverMode by rememberUpdatedState(hoverMode)
+    val currentDragAmountY by rememberUpdatedState(dragAmountY)
 
+    // 全体を覆うBoxでZ-Indexを管理
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        // クイックスイッチャーメニュー (ドラッグ中のみ表示) - 縦配置
-        if (isDraggingGallery) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .offset(y = (-80).dp)
-                    .zIndex(2f)
-            ) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.95f),
-                    shape = RoundedCornerShape(28.dp),
-                    shadowElevation = 12.dp,
-                    border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.3f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // 順番: Color (一番上), MyList, Folder (一番下)
-                        listOf(GalleryViewMode.COLOR, GalleryViewMode.MYLIST, GalleryViewMode.FOLDER).forEach { mode ->
-                            val icon = when(mode) {
-                                GalleryViewMode.FOLDER -> Icons.AutoMirrored.Filled.List
-                                GalleryViewMode.MYLIST -> Icons.Default.Favorite
-                                GalleryViewMode.COLOR -> Icons.Default.Palette
-                            }
-                            val isHovered = hoverMode == mode
-                            val color = if (isHovered) Color.Cyan else Color.White.copy(alpha = 0.5f)
-                            val scale = if (isHovered) 1.3f else 1.0f
-
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.size(60.dp)
-                            ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = null,
-                                    tint = color,
-                                    modifier = Modifier.size((28 * scale).dp)
-                                )
-                                Text(
-                                    text = when(mode) {
-                                        GalleryViewMode.FOLDER -> "フォルダ"
-                                        GalleryViewMode.MYLIST -> "マイリスト"
-                                        GalleryViewMode.COLOR -> "カラー"
-                                    },
-                                    color = color,
-                                    fontSize = (9 * scale).sp,
-                                    fontWeight = if (isHovered) androidx.compose.ui.text.font.FontWeight.Bold else null
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         Surface(
             color = Color.Black.copy(alpha = 0.85f),
             modifier = Modifier
@@ -153,93 +105,122 @@ fun GalleryBottomNavigationBar(
                 items.forEach { item ->
                     val isSelected = currentRoute == item.route
                     val isActuallyEnabled = item.enabled
-                    
                     val isFoldersItem = item.route == "folders"
 
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
+                    Box(
                         modifier = Modifier
                             .fillMaxHeight()
-                            .weight(1f)
-                            .then(
-                                if (isFoldersItem && isActuallyEnabled) {
-                                    Modifier.pointerInput(Unit) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = { isDraggingGallery = true; dragAmountY = 0f },
-                                            onDrag = { change, drag ->
-                                                change.consume()
-                                                dragAmountY += drag.y
-                                            },
-                                            onDragEnd = {
-                                                // モードを更新
-                                                galleryState.galleryViewMode = hoverMode
-                                                isDraggingGallery = false
-                                                dragAmountY = 0f
-                                                
-                                                // 画面遷移（すでに folders ならリセット処理）
-                                                if (currentRoute != "folders") {
-                                                    navController.navigate("folders") {
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // アイコン本体のColumn
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (isFoldersItem && isActuallyEnabled) {
+                                        Modifier
+                                            .pointerInput(Unit) {
+                                                detectDragGesturesAfterLongPress(
+                                                    onDragStart = { 
+                                                        Log.d("Switcher", "onDragStart")
+                                                        isDraggingGallery = true
+                                                        dragAmountY = 0f 
+                                                    },
+                                                    onDrag = { change, drag ->
+                                                        change.consume()
+                                                        dragAmountY += drag.y
+                                                        // リアルタイムの判定をログ出力（描画用の hoverMode は recompose で更新される）
+                                                        Log.d("Switcher", "onDrag: dragAmountY=$dragAmountY")
+                                                    },
+                                                    onDragEnd = {
+                                                        val finalMode = currentHoverMode
+                                                        Log.d("Switcher", "onDragEnd: finalMode=$finalMode, dragAmountY=$dragAmountY")
+                                                        
+                                                        galleryState.galleryViewMode = finalMode
+                                                        isDraggingGallery = false
+                                                        dragAmountY = 0f
+                                                        
+                                                        if (currentRoute != "folders") {
+                                                            navController.navigate("folders") {
+                                                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                                                launchSingleTop = true
+                                                                restoreState = true
+                                                            }
+                                                        }
+                                                        onIconClick("folders")
+                                                    },
+                                                    onDragCancel = {
+                                                        Log.d("Switcher", "onDragCancel")
+                                                        isDraggingGallery = false
+                                                        dragAmountY = 0f
+                                                    }
+                                                )
+                                            }
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = ripple()
+                                            ) {
+                                                onIconClick(item.route)
+                                                if (currentRoute != item.route) {
+                                                    navController.navigate(item.route) {
                                                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                                         launchSingleTop = true
                                                         restoreState = true
                                                     }
                                                 }
-                                                onIconClick("folders")
-                                            },
-                                            onDragCancel = {
-                                                isDraggingGallery = false
-                                                dragAmountY = 0f
                                             }
-                                        )
-                                    }.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = ripple()
-                                    ) {
-                                        onIconClick(item.route)
-                                        if (currentRoute != item.route) {
-                                            navController.navigate(item.route) {
-                                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Modifier.combinedClickable(
-                                        enabled = isActuallyEnabled,
-                                        onClick = {
-                                            onIconClick(item.route)
-                                            if (currentRoute != item.route) {
-                                                navController.navigate(item.route) {
-                                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                                    launchSingleTop = true
-                                                    restoreState = true
+                                    } else {
+                                        Modifier.combinedClickable(
+                                            enabled = isActuallyEnabled,
+                                            onClick = {
+                                                onIconClick(item.route)
+                                                if (currentRoute != item.route) {
+                                                    navController.navigate(item.route) {
+                                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                                        launchSingleTop = true
+                                                        restoreState = true
+                                                    }
                                                 }
-                                            }
-                                        },
-                                        onLongClick = { },
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = ripple()
-                                    )
-                                }
+                                            },
+                                            onLongClick = { },
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = ripple()
+                                        )
+                                    }
+                                )
+                                .padding(horizontal = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.title,
+                                tint = if (!isActuallyEnabled) Color.DarkGray else if (isSelected) Color.White else Color.Gray,
+                                modifier = Modifier.size(24.dp)
                             )
-                            .padding(horizontal = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = item.icon,
-                            contentDescription = item.title,
-                            tint = if (!isActuallyEnabled) Color.DarkGray else if (isSelected) Color.White else Color.Gray,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = item.title,
-                            color = if (!isActuallyEnabled) Color.DarkGray else if (isSelected) Color.White else Color.Gray,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null
-                        )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = item.title,
+                                color = if (!isActuallyEnabled) Color.DarkGray else if (isSelected) Color.White else Color.Gray,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null
+                            )
+                        }
+
+                        // フォルダアイコンの右上に上矢印を表示 (ドラッグ中でない時)
+                        if (isFoldersItem && !isDraggingGallery) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropUp,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.5f),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 4.dp, end = 8.dp)
+                                    .size(16.dp)
+                            )
+                        }
                     }
                 }
 
@@ -279,6 +260,66 @@ fun GalleryBottomNavigationBar(
                         fontSize = 10.sp,
                         fontWeight = if (galleryState.isMockMode) androidx.compose.ui.text.font.FontWeight.Bold else null
                     )
+                }
+            }
+        }
+
+        // クイックスイッチャーメニュー (Popup を使ってレイアウトから完全に切り離す)
+        if (isDraggingGallery) {
+            Popup(
+                alignment = Alignment.BottomCenter,
+                offset = IntOffset(0, -500), // ナビゲーションバーより上に表示 (ピクセル指定のため密度に依存するが一旦大きな値を指定)
+                properties = PopupProperties(focusable = false, clippingEnabled = false)
+            ) {
+                // itemsの幅の重み(1/5程度)に合わせて横位置を調整するのは Popup では難しいため、一旦中央に。
+                // フォルダアイコン（itemsの2番目）付近に出したい場合は、さらに座標計算が必要。
+                Box(contentAlignment = Alignment.Center) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.95f),
+                        shape = RoundedCornerShape(28.dp),
+                        shadowElevation = 12.dp,
+                        border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.3f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            listOf(GalleryViewMode.COLOR, GalleryViewMode.MYLIST, GalleryViewMode.FOLDER).forEach { mode ->
+                                val icon = when(mode) {
+                                    GalleryViewMode.FOLDER -> Icons.AutoMirrored.Filled.List
+                                    GalleryViewMode.MYLIST -> Icons.Default.Favorite
+                                    GalleryViewMode.COLOR -> Icons.Default.Palette
+                                }
+                                val isHovered = hoverMode == mode
+                                val color = if (isHovered) Color.Cyan else Color.White.copy(alpha = 0.5f)
+                                val scale = if (isHovered) 1.3f else 1.0f
+
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.size(60.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = color,
+                                        modifier = Modifier.size((28 * scale).dp)
+                                    )
+                                    Text(
+                                        text = when(mode) {
+                                            GalleryViewMode.FOLDER -> "フォルダ"
+                                            GalleryViewMode.MYLIST -> "マイリスト"
+                                            GalleryViewMode.COLOR -> "カラー"
+                                        },
+                                        color = color,
+                                        fontSize = (9 * scale).sp,
+                                        fontWeight = if (isHovered) androidx.compose.ui.text.font.FontWeight.Bold else null
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
