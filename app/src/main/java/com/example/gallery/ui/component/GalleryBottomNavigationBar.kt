@@ -61,11 +61,13 @@ fun GalleryBottomNavigationBar(
 
     // ジェスチャー状態
     var isDraggingGallery by remember { mutableStateOf(false) }
-    var dragAmount by remember { mutableFloatStateOf(0f) }
-    val hoverMode = remember(dragAmount) {
+    var dragAmountY by remember { mutableFloatStateOf(0f) }
+    
+    // 縦に並べるためのしきい値
+    val hoverMode = remember(dragAmountY) {
         when {
-            dragAmount < -120f -> GalleryViewMode.COLOR
-            dragAmount < -60f -> GalleryViewMode.MYLIST
+            dragAmountY < -180f -> GalleryViewMode.COLOR
+            dragAmountY < -90f -> GalleryViewMode.MYLIST
             else -> GalleryViewMode.FOLDER
         }
     }
@@ -76,7 +78,7 @@ fun GalleryBottomNavigationBar(
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        // クイックスイッチャーメニュー (ドラッグ中のみ表示)
+        // クイックスイッチャーメニュー (ドラッグ中のみ表示) - 縦配置
         if (isDraggingGallery) {
             Box(
                 modifier = Modifier
@@ -85,42 +87,46 @@ fun GalleryBottomNavigationBar(
                     .zIndex(2f)
             ) {
                 Surface(
-                    color = Color.Black.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(24.dp),
-                    shadowElevation = 8.dp,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                    color = Color.Black.copy(alpha = 0.95f),
+                    shape = RoundedCornerShape(28.dp),
+                    shadowElevation = 12.dp,
+                    border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.3f))
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        GalleryViewMode.entries.forEach { mode ->
+                        // 順番: Color (一番上), MyList, Folder (一番下)
+                        listOf(GalleryViewMode.COLOR, GalleryViewMode.MYLIST, GalleryViewMode.FOLDER).forEach { mode ->
                             val icon = when(mode) {
                                 GalleryViewMode.FOLDER -> Icons.AutoMirrored.Filled.List
                                 GalleryViewMode.MYLIST -> Icons.Default.Favorite
                                 GalleryViewMode.COLOR -> Icons.Default.Palette
                             }
                             val isHovered = hoverMode == mode
+                            val color = if (isHovered) Color.Cyan else Color.White.copy(alpha = 0.5f)
+                            val scale = if (isHovered) 1.3f else 1.0f
+
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.size(60.dp)
                             ) {
                                 Icon(
                                     imageVector = icon,
                                     contentDescription = null,
-                                    tint = if (isHovered) Color.Cyan else Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(if (isHovered) 32.dp else 24.dp)
+                                    tint = color,
+                                    modifier = Modifier.size((28 * scale).dp)
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = when(mode) {
                                         GalleryViewMode.FOLDER -> "フォルダ"
                                         GalleryViewMode.MYLIST -> "マイリスト"
                                         GalleryViewMode.COLOR -> "カラー"
                                     },
-                                    color = if (isHovered) Color.Cyan else Color.White.copy(alpha = 0.6f),
-                                    fontSize = 10.sp,
+                                    color = color,
+                                    fontSize = (9 * scale).sp,
                                     fontWeight = if (isHovered) androidx.compose.ui.text.font.FontWeight.Bold else null
                                 )
                             }
@@ -160,14 +166,18 @@ fun GalleryBottomNavigationBar(
                                 if (isFoldersItem && isActuallyEnabled) {
                                     Modifier.pointerInput(Unit) {
                                         detectDragGesturesAfterLongPress(
-                                            onDragStart = { isDraggingGallery = true; dragAmount = 0f },
+                                            onDragStart = { isDraggingGallery = true; dragAmountY = 0f },
                                             onDrag = { change, drag ->
                                                 change.consume()
-                                                dragAmount += drag.y
+                                                dragAmountY += drag.y
                                             },
                                             onDragEnd = {
+                                                // モードを更新
                                                 galleryState.galleryViewMode = hoverMode
                                                 isDraggingGallery = false
+                                                dragAmountY = 0f
+                                                
+                                                // 画面遷移（すでに folders ならリセット処理）
                                                 if (currentRoute != "folders") {
                                                     navController.navigate("folders") {
                                                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -179,6 +189,7 @@ fun GalleryBottomNavigationBar(
                                             },
                                             onDragCancel = {
                                                 isDraggingGallery = false
+                                                dragAmountY = 0f
                                             }
                                         )
                                     }.clickable(
