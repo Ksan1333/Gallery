@@ -16,11 +16,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.GalleryViewMode
+import com.example.gallery.ui.AgeRatingFilter
 import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.component.CategoryData
 import com.example.gallery.ui.component.CategoryScreen
 import java.io.File
 import android.widget.Toast
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 
 @Composable
@@ -37,48 +39,77 @@ fun FolderGalleryScreen(
     // フォルダ表示用
     val folderData = remember { mutableStateMapOf<String, MutableList<MediaData>>() }
     var selectedFolderName by rememberSaveable { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
     
     // カテゴリ詳細が表示されているかどうかの状態
     var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
 
-    fun loadMediaFromUri(collection: android.net.Uri) {
-        val projection = arrayOf(
-            MediaStore.MediaColumns._ID,
-            MediaStore.MediaColumns.DATA,
-            MediaStore.MediaColumns.DATE_ADDED,
-            MediaStore.MediaColumns.MIME_TYPE,
-            MediaStore.MediaColumns.DURATION
-        )
-        val sortOrder = "${MediaStore.MediaColumns.DATE_ADDED} DESC"
-
-        context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-            val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
-            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
-            val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-            val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
-
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idColumn)
-                val path = cursor.getString(dataColumn)
-                val date = cursor.getLong(dateColumn) * 1000
-                val mime = cursor.getString(mimeColumn)
-                val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
-                val folderName = File(path).parentFile?.name ?: "Unknown"
-                val contentUri = ContentUris.withAppendedId(collection, id).toString()
-
-                val list = folderData.getOrPut(folderName) { mutableListOf() }
-                list.add(MediaData(contentUri, date, mime, duration))
-            }
-        }
-    }
+    // メタデータ（年齢制限など）を監視 - モード切り替え時に初期値に戻るのを防ぐため、isMockModeをキーにremember
+    val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataFlow() }
+    val allMetadata by metadataFlow.collectAsState(initial = emptyList())
+    val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
 
     fun loadAllMedia() {
-        folderData.clear()
-        loadMediaFromUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        loadMediaFromUri(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
-        folderData.keys.forEach { key ->
-            folderData[key]?.sortByDescending { it.dateAdded }
+        scope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) { isLoading = true }
+            
+            // メタデータが空の場合、Flowが最初の値を出すのを待つ（特にMOCK切り替え時）
+            // repository.getAllMetadata() を使って確実に取得
+            galleryState.repository.getAllMetadata()
+            
+            val newFolderData = mutableMapOf<String, MutableList<MediaData>>()
+            if (galleryState.isMockMode) {
+                val allMedia = galleryState.repository.getAllMedia()
+                allMedia.forEach { item ->
+                    val folderName = galleryState.repository.getMockFolder(item.uri) ?: "Unknown"
+                    val list = newFolderData.getOrPut(folderName) { mutableListOf() }
+                    list.add(item)
+                }
+            } else {
+                // local helper for this scope
+                fun loadFromUri(collection: android.net.Uri) {
+                    val projection = arrayOf(
+                        MediaStore.MediaColumns._ID,
+                        MediaStore.MediaColumns.DATA,
+                        MediaStore.MediaColumns.DATE_ADDED,
+                        MediaStore.MediaColumns.MIME_TYPE,
+                        MediaStore.MediaColumns.DURATION
+                    )
+                    context.contentResolver.query(collection, projection, null, null, null)?.use { cursor ->
+                        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                        val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
+                        val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                        val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                        val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
+
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getLong(idColumn)
+                            val path = cursor.getString(dataColumn)
+                            val date = cursor.getLong(dateColumn) * 1000
+                            val mime = cursor.getString(mimeColumn)
+                            val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
+                            val folderName = File(path).parentFile?.name ?: "Unknown"
+                            val contentUri = ContentUris.withAppendedId(collection, id).toString()
+
+                            val list = newFolderData.getOrPut(folderName) { mutableListOf() }
+                            list.add(MediaData(contentUri, date, mime, duration))
+                        }
+                    }
+                }
+                loadFromUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                loadFromUri(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            }
+            newFolderData.keys.forEach { key ->
+                newFolderData[key]?.sortByDescending { it.dateAdded }
+            }
+            
+            withContext(Dispatchers.Main) {
+                folderData.clear()
+                folderData.putAll(newFolderData)
+                // データの準備ができたら、さらに一瞬待ってメタデータのState更新（Flowからのemit）が反映される猶予を持たせる
+                delay(100)
+                isLoading = false
+            }
         }
     }
 
@@ -88,6 +119,10 @@ fun FolderGalleryScreen(
         if (permissions.values.all { it }) {
             loadAllMedia()
         }
+    }
+
+    LaunchedEffect(galleryState.isMockMode) {
+        loadAllMedia()
     }
 
     LaunchedEffect(Unit) {
@@ -119,9 +154,9 @@ fun FolderGalleryScreen(
         // 未分析アイテムの件数をトーストで表示
         if (newMode == GalleryViewMode.MYLIST || newMode == GalleryViewMode.COLOR) {
             val count = if (newMode == GalleryViewMode.MYLIST) {
-                galleryState.repository.getUnanalyzedAiCount().first()
+                galleryState.repository.getUnanalyzedAiCount(galleryState.ageRatingFilter).first()
             } else {
-                galleryState.repository.getUnanalyzedColorCount().first()
+                galleryState.repository.getUnanalyzedColorCount(galleryState.ageRatingFilter).first()
             }
             if (count > 0) {
                 Toast.makeText(context, "${count}件が未分析です。右上のアイコンから解析してください", Toast.LENGTH_SHORT).show()
@@ -143,34 +178,56 @@ fun FolderGalleryScreen(
     ) { page ->
         when (GalleryViewMode.entries[page]) {
             GalleryViewMode.FOLDER -> {
-                val categories = folderData.map { (name, images) ->
-                    CategoryData(
-                        id = name,
-                        title = name,
-                        count = images.size,
-                        thumbnail = images.firstOrNull()?.uri
-                    )
-                }.sortedBy { it.title }
-
-                CategoryScreen(
-                    title = "フォルダ",
-                    categories = categories,
-                    galleryState = galleryState,
-                    onCategoryClick = { 
-                        selectedFolderName = it.id 
-                        isSubCategorySelected = true
-                    },
-                    onShowViewer = onShowViewer,
-                    onHideViewer = onHideViewer,
-                    selectedCategoryTitle = selectedFolderName,
-                    selectedCategoryMedia = folderData[selectedFolderName] ?: emptyList(),
-                    onBackFromCategory = { 
-                        selectedFolderName = null
-                        isSubCategorySelected = false
-                    },
-                    onTabIconClick = { onBackToFolders() }
+            val categories = folderData.map { (name, images) ->
+                // 現在の年齢制限フィルタに合う画像のみ抽出
+                val filteredImages = images.filter { item ->
+                    val meta = metadataMap[item.uri]
+                    val rating = meta?.ageRating ?: "SFW"
+                    when (galleryState.ageRatingFilter) {
+                        AgeRatingFilter.ALL -> true
+                        AgeRatingFilter.SFW -> rating == "SFW"
+                        AgeRatingFilter.R15 -> rating == "R15"
+                        AgeRatingFilter.R18 -> rating == "R18"
+                    }
+                }
+                
+                CategoryData(
+                    id = name,
+                    title = name,
+                    count = filteredImages.size,
+                    thumbnail = filteredImages.firstOrNull()?.uri
                 )
-            }
+            }.filter { it.count > 0 }.sortedBy { it.title }
+
+            CategoryScreen(
+                title = "フォルダ",
+                categories = categories,
+                isLoading = isLoading,
+                galleryState = galleryState,
+                onCategoryClick = { 
+                    selectedFolderName = it.id 
+                    isSubCategorySelected = true
+                },
+                onShowViewer = onShowViewer,
+                onHideViewer = onHideViewer,
+                selectedCategoryTitle = selectedFolderName,
+                selectedCategoryMedia = folderData[selectedFolderName]?.filter { item ->
+                    val meta = metadataMap[item.uri]
+                    val rating = meta?.ageRating ?: "SFW"
+                    when (galleryState.ageRatingFilter) {
+                        AgeRatingFilter.ALL -> true
+                        AgeRatingFilter.SFW -> rating == "SFW"
+                        AgeRatingFilter.R15 -> rating == "R15"
+                        AgeRatingFilter.R18 -> rating == "R18"
+                    }
+                } ?: emptyList(),
+                onBackFromCategory = { 
+                    selectedFolderName = null
+                    isSubCategorySelected = false
+                },
+                onTabIconClick = { onBackToFolders() }
+            )
+        }
             GalleryViewMode.MYLIST -> {
                 MyListScreen(
                     onShowViewer = onShowViewer,

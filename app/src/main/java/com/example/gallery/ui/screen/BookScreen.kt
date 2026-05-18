@@ -22,7 +22,8 @@ fun BookScreen() {
                 .fillMaxWidth()
                 .background(Color.Black)
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .height(AppConstants.HeaderHeight)
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(

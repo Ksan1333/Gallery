@@ -7,7 +7,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocalOffer
-import com.example.gallery.ui.component.TooltipWrapper
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,14 +36,16 @@ fun UnifiedMediaEditDialog(
     val scope = rememberCoroutineScope()
     val view = LocalView.current
 
-    // ダイアログ表示中もシステムバーを隠す設定を維持する（ビュワーからの呼び出し時のみ）
+    // 進捗管理用の状態
+    var isProcessing by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+
+    // ダイアログ表示中もシステムバーを隠す設定を維持する
     LaunchedEffect(Unit) {
         val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-        // 現在没入モード中かどうかを判定
         val isImmersive = !WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets).isVisible(WindowInsetsCompat.Type.statusBars())
         
-        // ビュワー（単一選択）または、すでに没入モード中の場合のみ、ダイアログ表示時に再度隠す
         if (uris.size == 1 || isImmersive) {
              delay(50)
              insetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -57,12 +58,12 @@ fun UnifiedMediaEditDialog(
             val meta = repository.getMetadata(uris[0])
             meta?.ageRating?.let { selectedAgeRating = it }
         } else {
-            selectedAgeRating = "SFW" // 複数選択時は基本「健全」に合わせる
+            selectedAgeRating = "SFW"
         }
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isProcessing) onDismiss() },
         title = { 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.LocalOffer, contentDescription = null, modifier = Modifier.size(24.dp))
@@ -71,79 +72,103 @@ fun UnifiedMediaEditDialog(
             }
         },
         text = {
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
-                item {
-                    Text("対象年齢", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("SFW" to "健全", "R15" to "R-15", "R18" to "R-18").forEach { (code, label) ->
-                            FilterChip(
-                                selected = selectedAgeRating == code,
-                                onClick = { selectedAgeRating = code },
-                                label = { Text(label) }
-                            )
-                        }
+            Column {
+                if (isProcessing) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
+                    ) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(8.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color.Gray.copy(alpha = 0.3f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("${(progress * 100).toInt()}% 更新中...", fontSize = 14.sp)
                     }
                 }
-                
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("タグ設定", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                    item {
+                        Text("対象年齢", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("SFW" to "健全", "R15" to "R-15", "R18" to "R-18").forEach { (code, label) ->
+                                FilterChip(
+                                    selected = selectedAgeRating == code,
+                                    onClick = { if (!isProcessing) selectedAgeRating = code },
+                                    label = { Text(label) },
+                                    enabled = !isProcessing
+                                )
+                            }
+                        }
+                    }
                     
-                    // 新規タグ入力
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        TextField(
-                            value = newTagName,
-                            onValueChange = { newTagName = it },
-                            placeholder = { Text("新しいタグ") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        TooltipWrapper("新規タグをリストに追加") {
-                            IconButton(onClick = {
-                                if (newTagName.isNotBlank()) {
-                                    if (!selectedTags.contains(newTagName)) selectedTags.add(newTagName)
-                                    newTagName = ""
-                                }
-                            }) {
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("タグ設定", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextField(
+                                value = newTagName,
+                                onValueChange = { newTagName = it },
+                                placeholder = { Text("新しいタグ") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                enabled = !isProcessing
+                            )
+                            IconButton(
+                                onClick = {
+                                    if (newTagName.isNotBlank()) {
+                                        if (!selectedTags.contains(newTagName)) selectedTags.add(newTagName)
+                                        newTagName = ""
+                                    }
+                                },
+                                enabled = !isProcessing
+                            ) {
                                 Icon(Icons.Default.Add, contentDescription = "追加")
                             }
                         }
-                    }
-                    
-                    if (selectedTags.isNotEmpty()) {
-                        Text("追加するタグ:", fontSize = 12.sp, color = Color.Gray)
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            selectedTags.forEach { tag ->
-                                InputChip(
-                                    selected = true,
-                                    onClick = { selectedTags.remove(tag) },
-                                    label = { Text(tag) },
-                                    trailingIcon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                )
+                        
+                        if (selectedTags.isNotEmpty()) {
+                            Text("追加するタグ:", fontSize = 12.sp, color = Color.Gray)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                selectedTags.forEach { tag ->
+                                    InputChip(
+                                        selected = true,
+                                        onClick = { if (!isProcessing) selectedTags.remove(tag) },
+                                        label = { Text(tag) },
+                                        trailingIcon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                        enabled = !isProcessing
+                                    )
+                                }
                             }
                         }
-                    }
-                    
-                    val existingTags = allTags.filter { !it.endsWith("系") }
-                    if (existingTags.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("既存のタグから選択:", fontSize = 12.sp, color = Color.Gray)
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            existingTags.forEach { tag ->
-                                FilterChip(
-                                    selected = selectedTags.contains(tag),
-                                    onClick = {
-                                        if (selectedTags.contains(tag)) selectedTags.remove(tag)
-                                        else selectedTags.add(tag)
-                                    },
-                                    label = { Text(tag) }
-                                )
+                        
+                        val existingTags = allTags.filter { !it.endsWith("系") }
+                        if (existingTags.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("既存のタグから選択:", fontSize = 12.sp, color = Color.Gray)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                existingTags.forEach { tag ->
+                                    FilterChip(
+                                        selected = selectedTags.contains(tag),
+                                        onClick = {
+                                            if (!isProcessing) {
+                                                if (selectedTags.contains(tag)) selectedTags.remove(tag)
+                                                else selectedTags.add(tag)
+                                            }
+                                        },
+                                        label = { Text(tag) },
+                                        enabled = !isProcessing
+                                    )
+                                }
                             }
                         }
                     }
@@ -151,20 +176,34 @@ fun UnifiedMediaEditDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
-                scope.launch {
-                    repository.bulkUpdateAgeRating(uris, selectedAgeRating)
-                    if (selectedTags.isNotEmpty()) {
-                        repository.bulkAddTags(uris, selectedTags.toList())
+            Button(
+                onClick = {
+                    isProcessing = true
+                    scope.launch {
+                        val total = uris.size
+                        // 1件ずつ更新して進捗を出す
+                        uris.forEachIndexed { index, uri ->
+                            repository.bulkUpdateAgeRating(listOf(uri), selectedAgeRating)
+                            if (selectedTags.isNotEmpty()) {
+                                repository.bulkAddTags(listOf(uri), selectedTags.toList())
+                            }
+                            progress = (index + 1).toFloat() / total
+                            // 非常に速い場合にUIを更新させるためのわずかな遅延
+                            if (total > 50) delay(1)
+                        }
+                        onDismiss()
                     }
-                    onDismiss()
-                }
-            }) {
+                },
+                enabled = !isProcessing
+            ) {
                 Text("適用")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isProcessing
+            ) {
                 Text("キャンセル")
             }
         }

@@ -1,12 +1,16 @@
 package com.example.gallery.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 object AppConstants {
     // 背景色
     val BackgroundColor = Color.DarkGray
     
+    // レイアウト
+    val HeaderHeight = 56.dp
+
     // フォントサイズ
     val TitleFontSize = 24.sp
     val HeaderFontSize = 20.sp

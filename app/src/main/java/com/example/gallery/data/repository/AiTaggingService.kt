@@ -240,7 +240,7 @@ class AiTaggingService(
                 uri = media.uri,
                 isFavorite = current?.isFavorite ?: false,
                 colorComposition = current?.colorComposition,
-                ageRating = ageRating,
+                ageRating = if (current?.ageRating == "SFW" || current?.ageRating == null) ageRating else current.ageRating,
                 isAiAnalyzed = true
             )
         )

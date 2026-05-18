@@ -66,7 +66,8 @@ fun CategoryScreen(
     selectedCategoryTitle: String? = null,
     selectedCategoryMedia: List<MediaData> = emptyList(),
     onBackFromCategory: () -> Unit,
-    onTabIconClick: (String) -> Unit = {}
+    onTabIconClick: (String) -> Unit = {},
+    showControlBar: Boolean = true
 ) {
     var selectedImageIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val currentMediaListState = rememberSaveable(saver = MediaData.ListSaver) {
@@ -78,6 +79,10 @@ fun CategoryScreen(
     // 選択解除用のシグナル (GalleryGridView用)
     var clearSelectionSignal by remember { mutableIntStateOf(0) }
     var isSelectionModeActive by remember { mutableStateOf(false) }
+
+    // カラム設定の状態を CategoryScreen で保持
+    val columnOptions = listOf(10, 7, 4, 3, 1)
+    var currentColumnIndex by remember { mutableIntStateOf(2) }
 
     // オーバースクロール用の状態
     val overscrollTranslationY = remember { Animatable(0f) }
@@ -124,13 +129,13 @@ fun CategoryScreen(
     ) {
         if (selectedCategoryTitle == null) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // ヘッダー
+                // ヘッダー (タイトル + 切り替えボタン等)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.Black)
                         .windowInsetsPadding(WindowInsets.statusBars)
-                        .height(56.dp) // 高さを56dpに固定して統一
+                        .height(AppConstants.HeaderHeight)
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -138,6 +143,25 @@ fun CategoryScreen(
                     Text(title, color = Color.White, fontSize = AppConstants.HeaderFontSize)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         topBarActions()
+                    }
+                }
+
+                // 操作バー (フィルタ、列数など)
+                if (showControlBar) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(AppConstants.HeaderHeight)
+                            .background(AppConstants.BackgroundColor.copy(alpha = 0.95f))
+                    ) {
+                        GalleryTopControlBar(
+                            galleryState = galleryState,
+                            columnOptions = columnOptions,
+                            currentColumnIndex = currentColumnIndex,
+                            onColumnIndexChange = { currentColumnIndex = it },
+                            showGroupingButton = true, // 元のUIに合わせる
+                            isGroupingEnabled = false // カテゴリ一覧画面（フォルダ・マイリスト・カラー）では日付グループ非活性
+                        )
                     }
                 }
 
@@ -153,7 +177,7 @@ fun CategoryScreen(
                         }
                     } else {
                         LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
+                            columns = GridCells.Fixed(columnOptions[currentColumnIndex]),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 100.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),

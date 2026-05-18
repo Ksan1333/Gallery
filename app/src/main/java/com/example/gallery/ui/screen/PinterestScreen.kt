@@ -26,7 +26,8 @@ fun PinterestScreen() {
                 .fillMaxWidth()
                 .background(Color.Black) // タイトル背景を黒に
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .height(AppConstants.HeaderHeight)
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(

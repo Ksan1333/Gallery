@@ -73,10 +73,14 @@ fun AppNavigation() {
         if (window != null) {
             val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
             insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            
+            // ナビゲーションバーは常に表示、ステータスバーのみ切り替え
+            insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+            
             if (visible) {
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
             } else {
-                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
             }
         }
     }

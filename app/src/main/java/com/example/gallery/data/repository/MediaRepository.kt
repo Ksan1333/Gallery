@@ -9,6 +9,7 @@ import com.example.gallery.data.local.dao.MediaDao
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
 import com.example.gallery.ui.MediaData
+import com.example.gallery.ui.AgeRatingFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -21,9 +22,14 @@ class MediaRepository(
     val mediaDao: MediaDao,
     private val galleryState: com.example.gallery.ui.GalleryState? = null
 ) {
+    private val colorNames = listOf("レッド系", "オレンジ系", "イエロー系", "グリーン系", "ブルー系", "パープル系", "ピンク系", "ホワイト系", "グレー系", "ブラック系")
+    private val tagNames = listOf("人物", "美少女", "風景", "動物", "食べ物", "建物", "空", "海", "花")
+    private val folderNames = listOf("Camera", "Downloads", "Twitter", "Screenshots", "Pixiv", "Instagram")
+
     private val mockMediaList: List<MediaData> by lazy {
         (1..100).map { i ->
             val isPortrait = i % 3 == 0
+            val folderName = folderNames[i % folderNames.size]
             MediaData(
                 uri = "mock://image_$i",
                 dateAdded = System.currentTimeMillis() - (i * 3600000L),
@@ -34,8 +40,11 @@ class MediaRepository(
         }
     }
 
-    private val colorNames = listOf("レッド系", "オレンジ系", "イエロー系", "グリーン系", "ブルー系", "パープル系", "ピンク系", "ホワイト系", "グレー系", "ブラック系")
-    private val tagNames = listOf("人物", "美少女", "風景", "動物", "食べ物", "建物", "空", "海", "花")
+    private val mockFolderMap: Map<String, String> by lazy {
+        mockMediaList.associate { it.uri to folderNames[it.uri.substringAfterLast("_").toInt() % folderNames.size] }
+    }
+
+    fun getMockFolder(uri: String): String? = mockFolderMap[uri]
 
     private val mockMetadataMap: Map<String, MediaMetadataEntity> by lazy {
         mockMediaList.associate { item ->
@@ -237,7 +246,30 @@ class MediaRepository(
         }
     }
 
-    suspend fun getMediaForTags(tags: List<String>): List<MediaData> {
+    fun getAllColorTags(): Flow<Map<String, List<MediaData>>> {
+        if (galleryState?.isMockMode == true) {
+            val resultMap = mutableMapOf<String, MutableList<MediaData>>()
+            mockTagsMap.forEach { (uri, tags) ->
+                tags.filter { it.endsWith("系") }.forEach { tag ->
+                    val list = resultMap.getOrPut(tag) { mutableListOf() }
+                    mockMediaList.find { it.uri == uri }?.let { list.add(it) }
+                }
+            }
+            return kotlinx.coroutines.flow.flowOf(resultMap)
+        }
+        return mediaDao.getAllColorTags().map { entities ->
+            val allMedia = getAllMedia().associateBy { it.uri }
+            val resultMap = mutableMapOf<String, MutableList<MediaData>>()
+            entities.forEach { entity ->
+                allMedia[entity.uri]?.let { media ->
+                    resultMap.getOrPut(entity.tag) { mutableListOf() }.add(media)
+                }
+            }
+            resultMap
+        }
+    }
+
+    suspend fun getMediaForTags(tags: List<String>, ageRating: String? = null): List<MediaData> {
         if (tags.isEmpty()) return emptyList()
         val allMedia = getAllMedia()
         val allMediaMap = allMedia.associateBy { it.uri }
@@ -245,7 +277,15 @@ class MediaRepository(
         tags.forEach { tag ->
             mediaDao.getMediaForTag(tag).first().forEach { uris.add(it.uri) }
         }
-        return uris.mapNotNull { allMediaMap[it] }
+        
+        var results = uris.mapNotNull { allMediaMap[it] }
+        
+        if (ageRating != null) {
+            val metadataMap = getAllMetadata().associateBy { it.uri }
+            results = results.filter { metadataMap[it.uri]?.ageRating == ageRating }
+        }
+        
+        return results
     }
 
     fun getUntaggedCount(): Flow<Int> {
@@ -267,21 +307,45 @@ class MediaRepository(
         }
     }
 
-    fun getUnanalyzedColorCount(): Flow<Int> {
+    fun getUnanalyzedColorCount(filter: AgeRatingFilter): Flow<Int> {
         if (galleryState?.isMockMode == true) return kotlinx.coroutines.flow.flowOf(0)
         return getAllMetadataFlow().map { metadata ->
+            val metaMap = metadata.associateBy { it.uri }
             val analyzedUris = metadata.filter { it.colorComposition != null }.map { it.uri }.toSet()
             val allMedia = getAllMedia()
-            allMedia.count { !it.isVideo && it.uri !in analyzedUris }
+            allMedia.count { item -> 
+                if (item.isVideo || item.uri in analyzedUris) return@count false
+                
+                // 年齢制限フィルタを適用
+                val rating = metaMap[item.uri]?.ageRating ?: "SFW"
+                when (filter) {
+                    AgeRatingFilter.ALL -> true
+                    AgeRatingFilter.SFW -> rating == "SFW"
+                    AgeRatingFilter.R15 -> rating == "R15"
+                    AgeRatingFilter.R18 -> rating == "R18"
+                }
+            }
         }
     }
 
-    fun getUnanalyzedAiCount(): Flow<Int> {
+    fun getUnanalyzedAiCount(filter: AgeRatingFilter): Flow<Int> {
         if (galleryState?.isMockMode == true) return kotlinx.coroutines.flow.flowOf(0)
         return getAllMetadataFlow().map { metadata ->
+            val metaMap = metadata.associateBy { it.uri }
             val analyzedUris = metadata.filter { it.isAiAnalyzed }.map { it.uri }.toSet()
             val allMedia = getAllMedia()
-            allMedia.count { !it.isVideo && it.uri !in analyzedUris }
+            allMedia.count { item -> 
+                if (item.isVideo || item.uri in analyzedUris) return@count false
+
+                // 年齢制限フィルタを適用
+                val rating = metaMap[item.uri]?.ageRating ?: "SFW"
+                when (filter) {
+                    AgeRatingFilter.ALL -> true
+                    AgeRatingFilter.SFW -> rating == "SFW"
+                    AgeRatingFilter.R15 -> rating == "R15"
+                    AgeRatingFilter.R18 -> rating == "R18"
+                }
+            }
         }
     }
 
@@ -292,15 +356,21 @@ class MediaRepository(
         return mediaDao.getMetadata(uri)
     }
 
-    fun getRandomMedia(limit: Int): List<MediaData> {
-        val allMedia = try {
-             // ライフサイクル外で呼ばれる可能性があるので、Blockingは避けるべきだが、
-             // ここでは既存の同期シグネチャに従う。
-             // 本来はsuspendにするか、cachedMediaListを直接見るべき。
-             cachedMediaList ?: emptyList()
-        } catch(e: Exception) { emptyList() }
+    fun getRandomMedia(limit: Int, ageRating: String? = null): List<MediaData> {
+        val allMedia = cachedMediaList ?: emptyList()
+        if (allMedia.isEmpty()) return emptyList()
+        
+        // メタデータキャッシュがないため、 galleryState 経由のメタデータを使用するか、
+        // 簡易的に全取得（ getRandomMediaByAgeRating は suspend なので PictureViewer で使う）
+        return allMedia.shuffled().take(limit)
+    }
 
-        return if (allMedia.isEmpty()) emptyList() else allMedia.shuffled().take(limit)
+    suspend fun getRandomMediaByAgeRating(limit: Int, ageRating: String): List<MediaData> {
+        val allMedia = getAllMedia()
+        val allMetadata = getAllMetadata().associateBy { it.uri }
+        return allMedia.filter { allMetadata[it.uri]?.ageRating == ageRating }
+            .shuffled()
+            .take(limit)
     }
 
     suspend fun getAllMetadata(): List<MediaMetadataEntity> {
@@ -327,8 +397,11 @@ class MediaRepository(
         val targetMetadata = getMetadata(uri) ?: return emptyList()
         val targetCompositionJson = targetMetadata.colorComposition ?: return emptyList()
         val targetComp = parseComposition(targetCompositionJson)
+        val targetAgeRating = targetMetadata.ageRating
 
-        val allMetadata = getAllMetadata().filter { it.uri != uri && it.colorComposition != null }
+        val allMetadata = getAllMetadata().filter { 
+            it.uri != uri && it.colorComposition != null && it.ageRating == targetAgeRating 
+        }
         val allMedia = getAllMedia().associateBy { it.uri }
 
         return allMetadata.asSequence()

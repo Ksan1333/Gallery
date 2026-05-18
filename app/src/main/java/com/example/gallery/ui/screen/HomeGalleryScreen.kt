@@ -53,11 +53,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 import com.example.gallery.ui.AppConstants
-
 import com.example.gallery.ui.MediaData
+import com.example.gallery.ui.GalleryState
+import com.example.gallery.ui.AgeRatingFilter
+import com.example.gallery.ui.DeviceFilter
+import com.example.gallery.ui.MediaTypeFilter
 import android.util.Log
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.example.gallery.ui.GalleryState
 
 private const val TAG = "HomeGalleryScreen"
 
@@ -71,6 +73,7 @@ fun HomeGalleryScreen(
     val context = LocalContext.current
     val imageList = remember { mutableStateListOf<MediaData>() }
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
     val flatListForViewerState = rememberSaveable(saver = MediaData.ListSaver) { 
         mutableStateOf(emptyList<MediaData>()) 
     }
@@ -122,10 +125,17 @@ fun HomeGalleryScreen(
     fun localLoadImages() {
         Log.d(TAG, "localLoadImages: Start")
         scope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) { isLoading = true }
+            
+            // メタデータも読み込みを待つ
+            galleryState.repository.getAllMetadata()
+            
             val allMedia = galleryState.repository.getAllMedia()
             withContext(Dispatchers.Main) {
                 imageList.clear()
                 imageList.addAll(allMedia)
+                delay(100)
+                isLoading = false
             }
         }
     }
@@ -174,6 +184,7 @@ fun HomeGalleryScreen(
                     onShowViewer()
                 },
                 galleryState = galleryState,
+                isLoading = isLoading,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
                 title = if (galleryState.isMockMode) "すべて (MOCK)" else "すべて"
@@ -198,9 +209,9 @@ fun HomeGalleryScreen(
                             selectedIndex = idx
                         } else {
                             // リスト外の場合、フィルタを解除して全件から探す
-                            galleryState.ageRatingFilter = com.example.gallery.ui.component.AgeRatingFilter.ALL
-                            galleryState.deviceFilter = com.example.gallery.ui.component.DeviceFilter.ALL
-                            galleryState.mediaTypeFilter = com.example.gallery.ui.component.MediaTypeFilter.ALL
+                            galleryState.ageRatingFilter = AgeRatingFilter.ALL
+                            galleryState.deviceFilter = DeviceFilter.ALL
+                            galleryState.mediaTypeFilter = MediaTypeFilter.ALL
                             
                             scope.launch {
                                 delay(200) // フィルタ解除によるリスト更新を待つ

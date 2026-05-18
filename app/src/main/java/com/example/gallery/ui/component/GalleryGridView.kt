@@ -1,5 +1,6 @@
 package com.example.gallery.ui.component
 
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -40,6 +41,10 @@ import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.MediaData
+import com.example.gallery.ui.GroupingMode
+import com.example.gallery.ui.MediaTypeFilter
+import com.example.gallery.ui.AgeRatingFilter
+import com.example.gallery.ui.DeviceFilter
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
@@ -52,16 +57,12 @@ import android.net.Uri
 import android.util.Log
 import kotlin.math.roundToInt
 
-enum class GroupingMode { NONE, DAY, MONTH }
-enum class MediaTypeFilter { ALL, IMAGE, VIDEO, GIF }
-enum class AgeRatingFilter { ALL, SFW, R15, R18 }
-enum class DeviceFilter { ALL, SMARTPHONE, PC }
-
 @Composable
 fun GalleryGridView(
     imageList: List<MediaData>,
     onImageClick: (Int, List<MediaData>) -> Unit,
     modifier: Modifier = Modifier,
+    isLoading: Boolean = false,
     showGroupingButton: Boolean = true,
     galleryState: GalleryState = com.example.gallery.ui.rememberGalleryState(LocalContext.current),
     onTabIconClick: ((String) -> Unit)? = null,
@@ -97,8 +98,8 @@ fun GalleryGridView(
     val gridState = rememberLazyGridState()
 
     // トップバーの表示/非表示制御 (タイトル + 操作バーの両方を含める)
-    val topTitleHeight = if (title != null) 56.dp else 0.dp
-    val topActionsHeight = 56.dp
+    val topTitleHeight = if (title != null) AppConstants.HeaderHeight else 0.dp
+    val topActionsHeight = AppConstants.HeaderHeight
     
     val statusBarsHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val totalTopBarHeight = (if (title != null) topTitleHeight + statusBarsHeight else statusBarsHeight) + topActionsHeight
@@ -250,107 +251,113 @@ fun GalleryGridView(
             .background(AppConstants.BackgroundColor)
             .nestedScroll(nestedScrollConnection)
     ) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(animatedColumns.coerceAtLeast(1)), 
-            modifier = Modifier.fillMaxSize()
-                .graphicsLayer { translationY = overscrollTranslationY.value } // リスト部分のみ動かす
-                .pointerInput(currentColumnIndex, filteredList) {
-                    detectTransformGestures { _, _, zoom, _ ->
-                        if (!isSelectionMode) {
-                            zoomScale *= zoom
-                            if (zoomScale > 1.4f && currentColumnIndex < columnOptions.size - 1) { currentColumnIndex++; zoomScale = 1.0f }
-                            else if (zoomScale < 0.6f && currentColumnIndex > 0) { currentColumnIndex--; zoomScale = 1.0f }
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color.White)
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(animatedColumns.coerceAtLeast(1)), 
+                modifier = Modifier.fillMaxSize()
+                    .graphicsLayer { translationY = overscrollTranslationY.value } // リスト部分のみ動かす
+                    .pointerInput(currentColumnIndex, filteredList) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            if (!isSelectionMode) {
+                                zoomScale *= zoom
+                                if (zoomScale > 1.4f && currentColumnIndex < columnOptions.size - 1) { currentColumnIndex++; zoomScale = 1.0f }
+                                else if (zoomScale < 0.6f && currentColumnIndex > 0) { currentColumnIndex--; zoomScale = 1.0f }
+                            }
                         }
+                    },
+                state = gridState,
+                contentPadding = PaddingValues(top = totalTopBarHeight + 8.dp, bottom = totalBottomPadding)
+            ) {
+                groupedForDisplay.forEach { (header, items) ->
+                    if (galleryState.groupingMode != GroupingMode.NONE) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { Text(text = header, color = Color.White, modifier = Modifier.padding(16.dp), fontSize = AppConstants.HeaderFontSize) }
                     }
-                },
-            state = gridState,
-            contentPadding = PaddingValues(top = totalTopBarHeight + 8.dp, bottom = totalBottomPadding)
-        ) {
-            groupedForDisplay.forEach { (header, items) ->
-                if (galleryState.groupingMode != GroupingMode.NONE) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { Text(text = header, color = Color.White, modifier = Modifier.padding(16.dp), fontSize = AppConstants.HeaderFontSize) }
-                }
-                itemsIndexed(items = items, key = { _, item -> item.uri }) { _, item ->
-                    val globalIndex = filteredList.indexOf(item)
-                    if (globalIndex >= visibleCount - 10 && visibleCount < filteredList.size) {
-                        SideEffect { visibleCount += 60 }
-                    }
+                    itemsIndexed(items = items, key = { _, item -> item.uri }) { _, item ->
+                        val globalIndex = filteredList.indexOf(item)
+                        if (globalIndex >= visibleCount - 10 && visibleCount < filteredList.size) {
+                            SideEffect { visibleCount += 60 }
+                        }
 
-                    val thumbSize = when { animatedColumns >= 10 -> 100; animatedColumns >= 7 -> 200; animatedColumns >= 4 -> 400; else -> 1000 }
-                    Box(
-                        modifier = Modifier.fillMaxWidth()
-                            .then(if (columnOptions[currentColumnIndex] > 1) Modifier.aspectRatio(1f) else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp)))
-                            .padding(if (columnOptions[currentColumnIndex] > 1) 1.dp else 0.dp)
-                            .then(if (columnOptions[currentColumnIndex] > 1) Modifier.clip(RoundedCornerShape(2.dp)) else Modifier)
-                            .combinedClickable(
-                                onClick = { 
-                                    if (isSelectionMode) {
-                                        if (selectedUris.contains(item.uri)) {
-                                            selectedUris.remove(item.uri)
-                                            if (selectedUris.isEmpty()) {
-                                                isSelectionMode = false
-                                                lastSelectedIndex = -1
+                        val thumbSize = when { animatedColumns >= 10 -> 100; animatedColumns >= 7 -> 200; animatedColumns >= 4 -> 400; else -> 1000 }
+                        Box(
+                            modifier = Modifier.fillMaxWidth()
+                                .then(if (columnOptions[currentColumnIndex] > 1) Modifier.aspectRatio(1f) else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp)))
+                                .padding(if (columnOptions[currentColumnIndex] > 1) 1.dp else 0.dp)
+                                .then(if (columnOptions[currentColumnIndex] > 1) Modifier.clip(RoundedCornerShape(2.dp)) else Modifier)
+                                .combinedClickable(
+                                    onClick = { 
+                                        if (isSelectionMode) {
+                                            if (selectedUris.contains(item.uri)) {
+                                                selectedUris.remove(item.uri)
+                                                if (selectedUris.isEmpty()) {
+                                                    isSelectionMode = false
+                                                    lastSelectedIndex = -1
+                                                }
+                                            } else {
+                                                selectedUris.add(item.uri)
+                                                lastSelectedIndex = filteredList.indexOf(item)
                                             }
                                         } else {
-                                            selectedUris.add(item.uri)
-                                            lastSelectedIndex = filteredList.indexOf(item)
+                                            val finalIndex = currentFlatImageList.indexOf(item)
+                                            onImageClick(finalIndex, currentFlatImageList)
                                         }
-                                    } else {
-                                        val finalIndex = currentFlatImageList.indexOf(item)
-                                        onImageClick(finalIndex, currentFlatImageList)
-                                    }
-                                },
-                                onLongClick = {
-                                    val currentIndex = filteredList.indexOf(item)
-                                    if (!isSelectionMode) {
-                                        isSelectionMode = true
-                                        selectedUris.add(item.uri)
-                                        lastSelectedIndex = currentIndex
-                                    } else {
-                                        // 範囲選択
-                                        if (lastSelectedIndex != -1) {
-                                            val start = minOf(lastSelectedIndex, currentIndex)
-                                            val end = maxOf(lastSelectedIndex, currentIndex)
-                                            for (i in start..end) {
-                                                val uri = filteredList[i].uri
-                                                if (!selectedUris.contains(uri)) {
-                                                    selectedUris.add(uri)
+                                    },
+                                    onLongClick = {
+                                        val currentIndex = filteredList.indexOf(item)
+                                        if (!isSelectionMode) {
+                                            isSelectionMode = true
+                                            selectedUris.add(item.uri)
+                                            lastSelectedIndex = currentIndex
+                                        } else {
+                                            // 範囲選択
+                                            if (lastSelectedIndex != -1) {
+                                                val start = minOf(lastSelectedIndex, currentIndex)
+                                                val end = maxOf(lastSelectedIndex, currentIndex)
+                                                for (i in start..end) {
+                                                    val uri = filteredList[i].uri
+                                                    if (!selectedUris.contains(uri)) {
+                                                        selectedUris.add(uri)
+                                                    }
                                                 }
                                             }
+                                            lastSelectedIndex = currentIndex
                                         }
-                                        lastSelectedIndex = currentIndex
                                     }
+                                )
+                        ) {
+                            if (item.uri.startsWith("mock://")) {
+                                Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Image, contentDescription = null, tint = Color.White)
                                 }
-                            )
-                    ) {
-                        if (item.uri.startsWith("mock://")) {
-                            Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Image, contentDescription = null, tint = Color.White)
+                            } else {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current).data(item.uri).size(thumbSize).crossfade(true).decoderFactory(VideoFrameDecoder.Factory()).videoFrameMillis(1000).build(),
+                                    contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = if (columnOptions[currentColumnIndex] > 1) ContentScale.Crop else ContentScale.FillWidth
+                                )
                             }
-                        } else {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current).data(item.uri).size(thumbSize).crossfade(true).decoderFactory(VideoFrameDecoder.Factory()).videoFrameMillis(1000).build(),
-                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = if (columnOptions[currentColumnIndex] > 1) ContentScale.Crop else ContentScale.FillWidth
-                            )
-                        }
 
-                        val isFavorite = metadataMap[item.uri]?.isFavorite == true
-                        if (isFavorite) {
-                            Box(modifier = Modifier.fillMaxSize().padding(4.dp), contentAlignment = Alignment.BottomStart) {
-                                Icon(Icons.Default.Favorite, contentDescription = null, tint = Color.Red, modifier = Modifier.size(if (columnOptions[currentColumnIndex] > 7) 8.dp else 16.dp))
+                            val isFavorite = metadataMap[item.uri]?.isFavorite == true
+                            if (isFavorite) {
+                                Box(modifier = Modifier.fillMaxSize().padding(4.dp), contentAlignment = Alignment.BottomStart) {
+                                    Icon(Icons.Default.Favorite, contentDescription = null, tint = Color.Red, modifier = Modifier.size(if (columnOptions[currentColumnIndex] > 7) 8.dp else 16.dp))
+                                }
                             }
-                        }
 
-                        if (selectedUris.contains(item.uri)) {
-                            Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.3f)), contentAlignment = Alignment.TopEnd) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(4.dp).size(24.dp))
+                            if (selectedUris.contains(item.uri)) {
+                                Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.3f)), contentAlignment = Alignment.TopEnd) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(4.dp).size(24.dp))
+                                }
                             }
-                        }
-                        
-                        val label = when { item.isGif -> "GIF"; item.isVideo -> formatDuration(item.duration); else -> null }
-                        if (label != null) {
-                            Surface(color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)) {
-                                Text(text = label, color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                            
+                            val label = when { item.isGif -> "GIF"; item.isVideo -> formatDuration(item.duration); else -> null }
+                            if (label != null) {
+                                Surface(color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)) {
+                                    Text(text = label, color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                }
                             }
                         }
                     }
@@ -411,93 +418,81 @@ fun GalleryGridView(
                         }
                     }
                 } else if (showGroupingButton) {
-                    Row(modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            var showTooltip by remember { mutableStateOf(false) }
-                            TooltipWrapper(description = "グループ化切替", showExternally = showTooltip) {
-                                Box(modifier = Modifier.combinedClickable(onClick = { showGroupingMenu = true }, onLongClick = { showTooltip = true })) {
-                                    IconButton(onClick = { showGroupingMenu = true }) { Icon(Icons.Default.DateRange, null, tint = Color.White) }
-                                    DropdownMenu(expanded = showGroupingMenu, onDismissRequest = { showGroupingMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                                        GroupingMode.entries.forEach { mode ->
-                                            DropdownMenuItem(text = { Text(text = when (mode) { GroupingMode.NONE -> "なし"; GroupingMode.DAY -> "日別"; GroupingMode.MONTH -> "月別" }, color = Color.White) }, onClick = { galleryState.groupingMode = mode; showGroupingMenu = false })
-                                        }
-                                    }
-                                }
-                            }
-                            if (showTooltip) { LaunchedEffect(Unit) { kotlinx.coroutines.delay(2000); showTooltip = false } }
-                            Text(text = when (galleryState.groupingMode) { GroupingMode.NONE -> "なし"; GroupingMode.DAY -> "日別"; GroupingMode.MONTH -> "月別" }, color = Color.White, fontSize = 10.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            var showTooltip by remember { mutableStateOf(false) }
-                            TooltipWrapper(description = "表示列数", showExternally = showTooltip) {
-                                Box(modifier = Modifier.combinedClickable(onClick = { showZoomMenu = true }, onLongClick = { showTooltip = true })) {
-                                    IconButton(onClick = { showZoomMenu = true }) { Icon(Icons.Default.ViewModule, null, tint = Color.White) }
-                                    DropdownMenu(expanded = showZoomMenu, onDismissRequest = { showZoomMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                                        columnOptions.forEachIndexed { index, count ->
-                                            DropdownMenuItem(text = { Text("${count}列", color = Color.White) }, onClick = { currentColumnIndex = index; showZoomMenu = false })
-                                        }
-                                    }
-                                }
-                            }
-                            if (showTooltip) { LaunchedEffect(Unit) { kotlinx.coroutines.delay(2000); showTooltip = false } }
-                            Text("${columnOptions[currentColumnIndex]}列", color = Color.White, fontSize = 10.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            var showTooltip by remember { mutableStateOf(false) }
-                            TooltipWrapper(description = "フィルタ", showExternally = showTooltip) {
-                                Box(modifier = Modifier.combinedClickable(onClick = { showFilterMenu = true }, onLongClick = { showTooltip = true })) {
-                                    IconButton(onClick = { showFilterMenu = true }) { Icon(Icons.Default.FilterAlt, null, tint = Color.White) }
-                                    DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                                        Text("メディア種別", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
-                                        MediaTypeFilter.entries.forEach { filter ->
-                                            DropdownMenuItem(text = { Text(text = when (filter) { MediaTypeFilter.ALL -> "すべて"; MediaTypeFilter.IMAGE -> "画像"; MediaTypeFilter.VIDEO -> "動画"; MediaTypeFilter.GIF -> "GIF" }, color = if(galleryState.mediaTypeFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.mediaTypeFilter = filter; showFilterMenu = false })
-                                        }
-                                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
-                                        Text("デバイス背景", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
-                                        DeviceFilter.entries.forEach { filter ->
-                                            DropdownMenuItem(text = { Text(text = when (filter) { DeviceFilter.ALL -> "すべて"; DeviceFilter.SMARTPHONE -> "スマホ背景"; DeviceFilter.PC -> "PC背景" }, color = if(galleryState.deviceFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.deviceFilter = filter; showFilterMenu = false })
-                                        }
-                                    }
-                                }
-                            }
-                            if (showTooltip) { LaunchedEffect(Unit) { kotlinx.coroutines.delay(2000); showTooltip = false } }
-                            Text("フィルタ", color = Color.White, fontSize = 10.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            var showTooltip by remember { mutableStateOf(false) }
-                            TooltipWrapper(description = "年齢制限", showExternally = showTooltip) {
-                                Box(modifier = Modifier.combinedClickable(onClick = { showAgeFilterMenu = true }, onLongClick = { showTooltip = true })) {
-                                    IconButton(onClick = { showAgeFilterMenu = true }) {
-                                        Icon(imageVector = Icons.Default.PrivacyTip, contentDescription = null, tint = when(galleryState.ageRatingFilter) {
-                                            AgeRatingFilter.SFW -> Color.Green; AgeRatingFilter.R15 -> Color.Yellow; AgeRatingFilter.R18 -> Color.Red; else -> Color.White
-                                        })
-                                    }
-                                    DropdownMenu(expanded = showAgeFilterMenu, onDismissRequest = { showAgeFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                                        AgeRatingFilter.entries.forEach { filter ->
-                                            DropdownMenuItem(text = { Text(text = when (filter) { AgeRatingFilter.ALL -> "すべて"; AgeRatingFilter.SFW -> "健全"; AgeRatingFilter.R15 -> "R-15"; AgeRatingFilter.R18 -> "R-18" }, color = if(galleryState.ageRatingFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.ageRatingFilter = filter; showAgeFilterMenu = false })
-                                        }
-                                    }
-                                }
-                            }
-                            if (showTooltip) { LaunchedEffect(Unit) { kotlinx.coroutines.delay(2000); showTooltip = false } }
-                            Text(when(galleryState.ageRatingFilter) { AgeRatingFilter.ALL -> "ALL"; AgeRatingFilter.SFW -> "健全"; AgeRatingFilter.R15 -> "R15"; AgeRatingFilter.R18 -> "R18" }, color = Color.White, fontSize = 10.sp)
-                        }
-                        var showSearchTooltip by remember { mutableStateOf(false) }
-                        TooltipWrapper(description = "画像検索", showExternally = showSearchTooltip) {
-                            val context = LocalContext.current
-                            IconButton(
-                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ascii2d.net/"))) },
-                                modifier = Modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { showSearchTooltip = true }) }
-                            ) { Icon(Icons.Default.ImageSearch, null, tint = Color.White) }
-                        }
-                        if (showSearchTooltip) { LaunchedEffect(Unit) { kotlinx.coroutines.delay(2000); showSearchTooltip = false } }
-                    }
+                    GalleryTopControlBar(
+                        galleryState = galleryState,
+                        columnOptions = columnOptions,
+                        currentColumnIndex = currentColumnIndex,
+                        onColumnIndexChange = { currentColumnIndex = it },
+                        showGroupingButton = true,
+                        isGroupingEnabled = true // グリッド表示（フォルダ詳細など）では日付グループ活性
+                    )
                 }
             }
         }
 
         if (showBulkEditDialog) {
             UnifiedMediaEditDialog(uris = selectedUris.toList(), repository = galleryState.repository, onDismiss = { showBulkEditDialog = false; isSelectionMode = false; selectedUris.clear() })
+        }
+
+        // ドラッグ可能なスクロールバー
+        val layoutInfo = gridState.layoutInfo
+        val totalItems = layoutInfo.totalItemsCount
+        if (totalItems > 0 && !isSelectionMode) {
+            val visibleItemsInfo = layoutInfo.visibleItemsInfo
+            if (visibleItemsInfo.isNotEmpty()) {
+                val firstVisibleItem = visibleItemsInfo.first()
+                val visibleCountInGrid = visibleItemsInfo.size
+                
+                // スクロールバーのパラメータ
+                val thumbHeightPercent = (visibleCountInGrid.toFloat() / totalItems).coerceIn(0.1f, 1f)
+                val scrollPositionPercent = (firstVisibleItem.index.toFloat() / (totalItems - visibleCountInGrid).coerceAtLeast(1)).coerceIn(0f, 1f)
+                
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(32.dp) // タップ領域を広めに
+                        .padding(top = totalTopBarHeight + 16.dp, bottom = totalBottomPadding + 16.dp)
+                        .align(Alignment.CenterEnd)
+                ) {
+                    val availableHeight = maxHeight
+                    val availableHeightPx = with(LocalDensity.current) { availableHeight.toPx() }
+                    val thumbHeight = availableHeight * thumbHeightPercent
+                    val thumbHeightPx = with(LocalDensity.current) { thumbHeight.toPx() }
+
+                    // トラック（背景ライン）
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .fillMaxHeight()
+                            .padding(end = 4.dp)
+                            .align(Alignment.CenterEnd)
+                            .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                    )
+
+                    // スクロールバーのつまみ
+                    Box(
+                        modifier = Modifier
+                            .width(8.dp)
+                            .height(thumbHeight)
+                            .offset(y = (availableHeight - thumbHeight) * scrollPositionPercent)
+                            .padding(end = 4.dp)
+                            .align(Alignment.TopEnd)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.5f))
+                            .pointerInput(totalItems, visibleCountInGrid) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    val newScrollPosPx = (availableHeightPx - thumbHeightPx) * scrollPositionPercent + dragAmount.y
+                                    val newPercent = (newScrollPosPx / (availableHeightPx - thumbHeightPx)).coerceIn(0f, 1f)
+                                    val targetIndex = (newPercent * (totalItems - visibleCountInGrid)).toInt()
+                                    scope.launch {
+                                        gridState.scrollToItem(targetIndex)
+                                    }
+                                }
+                            }
+                    )
+                }
+            }
         }
     }
 }

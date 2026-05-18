@@ -29,8 +29,14 @@ interface MediaDao {
     @Query("SELECT tag, COUNT(*) as count FROM media_tags GROUP BY tag")
     fun getAllTagsWithCounts(): Flow<List<TagCount>>
 
+    @Query("SELECT * FROM media_tags")
+    fun getAllTagsWithUris(): Flow<List<TagEntity>>
+
     @Query("SELECT * FROM media_tags WHERE tag = :tag")
     fun getMediaForTag(tag: String): Flow<List<TagEntity>>
+
+    @Query("SELECT * FROM media_tags WHERE tag LIKE '%系'")
+    fun getAllColorTags(): Flow<List<TagEntity>>
 
     @Query("SELECT COUNT(*) FROM media_tags WHERE tag = :tag")
     fun getCountForTag(tag: String): Flow<Int>

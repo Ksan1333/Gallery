@@ -80,6 +80,7 @@ import android.widget.Toast
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.GalleryState
+import com.example.gallery.ui.AgeRatingFilter
 import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
 import java.util.Locale
@@ -159,16 +160,30 @@ fun PictureViewer(
 
     val window = (context as? Activity)?.window ?: return
     val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     val toggleSystemBars = { visible: Boolean ->
-        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        if (visible) {
+            insetsController.show(WindowInsetsCompat.Type.systemBars())
+        } else {
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(isLandscape) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        
+        if (isLandscape) {
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            if (isUiVisible) insetsController.show(WindowInsetsCompat.Type.systemBars())
+            else insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        
         onDispose { 
+            // 縦画面に戻る際や閉じるときに再表示
             insetsController.show(WindowInsetsCompat.Type.systemBars())
             // Activityの向きをリセット
             (context as Activity).requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -207,26 +222,24 @@ fun PictureViewer(
         if (isRecommendationVisible) {
             val mediaItem = imageList[pagerState.currentPage]
             
-            // タグ一覧を取得
-            scope.launch {
-                val tags = (galleryState?.repository?.getTagsForMedia(mediaItem.uri)?.first() ?: emptyList())
-                currentMediaTags = tags
-                // タグに関連する画像を取得
-                val normalTags = tags.filter { !it.endsWith("系") }
-                if (normalTags.isNotEmpty()) {
-                    taggedMediaList = galleryState?.repository?.getMediaForTags(normalTags) ?: emptyList()
-                } else {
-                    taggedMediaList = emptyList()
-                }
-            }
-
-            // ランダムな画像を取得
-            scope.launch(Dispatchers.IO) {
-                randomMediaList = galleryState?.repository?.getRandomMedia(20) ?: emptyList()
-            }
-
             var meta = galleryState?.repository?.getMetadata(mediaItem.uri)
+            val currentAgeRating = meta?.ageRating ?: "SFW"
             
+            // タグ一覧を取得
+            val tags = (galleryState?.repository?.getTagsForMedia(mediaItem.uri)?.first() ?: emptyList())
+            currentMediaTags = tags
+            
+            // タグに関連する画像を取得（年齢制限フィルタリング付き）
+            val normalTags = tags.filter { !it.endsWith("系") }
+            if (normalTags.isNotEmpty()) {
+                taggedMediaList = galleryState?.repository?.getMediaForTags(normalTags, currentAgeRating) ?: emptyList()
+            } else {
+                taggedMediaList = emptyList()
+            }
+
+            // ランダムな画像を取得（年齢制限フィルタリング付き）
+            randomMediaList = galleryState?.repository?.getRandomMediaByAgeRating(20, currentAgeRating) ?: emptyList()
+
             // まだ解析されていない場合はその場で解析する
             if (meta?.colorComposition == null) {
                 isAnalyzingCurrentMedia = true
@@ -619,11 +632,11 @@ fun PictureViewer(
                                         RecommendationCard(similarity.media, "${(similarity.similarityScore * 100).toInt()}%", imageLoader) {
                                             isRecommendationVisible = false
                                             val index = imageList.indexOfFirst { it.uri == similarity.media.uri }
-                                            if (index != -1) { 
-                                                scope.launch { 
+                                            if (index != -1) {
+                                                scope.launch {
                                                     pagerState.scrollToPage(index)
                                                     onPageSelected?.invoke(index)
-                                                } 
+                                                }
                                             } else { onNavigateToMedia?.invoke(similarity.media.uri) }
                                         }
                                     }
@@ -644,14 +657,18 @@ fun PictureViewer(
                                     IconButton(onClick = { showTagAddDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp)) }
                                 }
                                 if (showTagAddDialog && galleryState != null) {
-                                    UnifiedMediaEditDialog(uris = listOf(imageList[pagerState.currentPage].uri), repository = galleryState.repository, onDismiss = { 
+                                        UnifiedMediaEditDialog(uris = listOf(imageList[pagerState.currentPage].uri), repository = galleryState.repository, onDismiss = { 
                                         showTagAddDialog = false
                                         scope.launch { 
                                             val tags = galleryState.repository.getTagsForMedia(imageList[pagerState.currentPage].uri).first()
                                             currentMediaTags = tags
+                                            val metaInner = galleryState.repository.getMetadata(imageList[pagerState.currentPage].uri)
+                                            val rating = metaInner?.ageRating ?: "SFW"
                                             if (tags.isNotEmpty()) {
                                                 val normalTagsInner = tags.filter { !it.endsWith("系") }
-                                                if (normalTagsInner.isNotEmpty()) { taggedMediaList = galleryState.repository.getMediaForTags(normalTagsInner) }
+                                                if (normalTagsInner.isNotEmpty()) { 
+                                                    taggedMediaList = galleryState.repository.getMediaForTags(normalTagsInner, rating) 
+                                                }
                                             }
                                         }
                                     })

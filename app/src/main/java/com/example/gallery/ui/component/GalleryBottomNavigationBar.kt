@@ -268,58 +268,65 @@ fun GalleryBottomNavigationBar(
         if (isDraggingGallery) {
             Popup(
                 alignment = Alignment.BottomCenter,
-                offset = IntOffset(0, -500), // ナビゲーションバーより上に表示 (ピクセル指定のため密度に依存するが一旦大きな値を指定)
+                offset = IntOffset(0, -64), // ナビゲーションバーの高さ分だけ上へ
                 properties = PopupProperties(focusable = false, clippingEnabled = false)
             ) {
-                // itemsの幅の重み(1/5程度)に合わせて横位置を調整するのは Popup では難しいため、一旦中央に。
-                // フォルダアイコン（itemsの2番目）付近に出したい場合は、さらに座標計算が必要。
-                Box(contentAlignment = Alignment.Center) {
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.95f),
-                        shape = RoundedCornerShape(28.dp),
-                        shadowElevation = 12.dp,
-                        border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.3f))
+                // itemsの幅（1/4ずつ）に合わせて「フォルダ」アイコンの位置に配置
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.weight(0.25f)) // "すべて"
+                    Box(
+                        modifier = Modifier.weight(0.25f), // "フォルダ"
+                        contentAlignment = Alignment.BottomCenter
                     ) {
-                        Column(
-                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.95f),
+                            shape = RoundedCornerShape(28.dp),
+                            shadowElevation = 12.dp,
+                            border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.3f)),
+                            modifier = Modifier.padding(bottom = 8.dp) // バーとの間に少し隙間
                         ) {
-                            listOf(GalleryViewMode.COLOR, GalleryViewMode.MYLIST, GalleryViewMode.FOLDER).forEach { mode ->
-                                val icon = when(mode) {
-                                    GalleryViewMode.FOLDER -> Icons.AutoMirrored.Filled.List
-                                    GalleryViewMode.MYLIST -> Icons.Default.Favorite
-                                    GalleryViewMode.COLOR -> Icons.Default.Palette
-                                }
-                                val isHovered = hoverMode == mode
-                                val color = if (isHovered) Color.Cyan else Color.White.copy(alpha = 0.5f)
-                                val scale = if (isHovered) 1.3f else 1.0f
+                            Column(
+                                modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                listOf(GalleryViewMode.COLOR, GalleryViewMode.MYLIST, GalleryViewMode.FOLDER).forEach { mode ->
+                                    val icon = when(mode) {
+                                        GalleryViewMode.FOLDER -> Icons.AutoMirrored.Filled.List
+                                        GalleryViewMode.MYLIST -> Icons.Default.Favorite
+                                        GalleryViewMode.COLOR -> Icons.Default.Palette
+                                    }
+                                    val isHovered = hoverMode == mode
+                                    val color = if (isHovered) Color.Cyan else Color.White.copy(alpha = 0.5f)
+                                    val scale = if (isHovered) 1.3f else 1.0f
 
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center,
-                                    modifier = Modifier.size(60.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        tint = color,
-                                        modifier = Modifier.size((28 * scale).dp)
-                                    )
-                                    Text(
-                                        text = when(mode) {
-                                            GalleryViewMode.FOLDER -> "フォルダ"
-                                            GalleryViewMode.MYLIST -> "マイリスト"
-                                            GalleryViewMode.COLOR -> "カラー"
-                                        },
-                                        color = color,
-                                        fontSize = (9 * scale).sp,
-                                        fontWeight = if (isHovered) androidx.compose.ui.text.font.FontWeight.Bold else null
-                                    )
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier.size(60.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = color,
+                                            modifier = Modifier.size((28 * scale).dp)
+                                        )
+                                        Text(
+                                            text = when(mode) {
+                                                GalleryViewMode.FOLDER -> "フォルダ"
+                                                GalleryViewMode.MYLIST -> "マイリスト"
+                                                GalleryViewMode.COLOR -> "カラー"
+                                            },
+                                            color = color,
+                                            fontSize = (9 * scale).sp,
+                                            fontWeight = if (isHovered) androidx.compose.ui.text.font.FontWeight.Bold else null
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.weight(0.5f)) // Pinterest, 本
                 }
             }
         }

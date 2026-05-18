@@ -6,20 +6,23 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.MediaData
+import com.example.gallery.ui.AgeRatingFilter
 import com.example.gallery.ui.component.CategoryData
 import com.example.gallery.ui.component.CategoryScreen
+import com.example.gallery.ui.component.FloatingRandomImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -33,6 +36,7 @@ fun MyListScreen(
     topBarActions: @Composable RowScope.() -> Unit = {},
     onSubCategorySelected: (Boolean) -> Unit = {}
 ) {
+    val context = LocalContext.current
     var selectedCategoryType by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedTagName by rememberSaveable { mutableStateOf<String?>(null) }
     
@@ -40,7 +44,7 @@ fun MyListScreen(
     LaunchedEffect(selectedCategoryType) {
         onSubCategorySelected(selectedCategoryType != null)
     }
-    
+
     val selectedCategoryTitle = remember(selectedCategoryType, selectedTagName) {
         when (selectedCategoryType) {
             "Favorites" -> "お気に入り"
@@ -53,69 +57,112 @@ fun MyListScreen(
     var showTagCreateDialog by remember { mutableStateOf(false) }
     var newTagName by remember { mutableStateOf("") }
 
-    // 高速化のため、全メディアを一度だけ取得してメモリ内でフィルタリングする
+    // 全メディアを取得
     var allMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var isLoadingMedia by remember { mutableStateOf(true) }
     
-    val tagCountsList by galleryState.repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
-    val tagThumbnails = remember { mutableStateMapOf<String, String?>() }
+    // メタデータの取得 - モード切り替え時のリセットを防ぐ
+    val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataFlow() }
+    val allMetadata by metadataFlow.collectAsState(initial = emptyList())
+    val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
+
+    // タグ情報の取得
+    val allTagsData by galleryState.repository.mediaDao.getAllTagsWithUris().collectAsState(initial = emptyList())
     
-    // お気に入りURIの取得
-    val favoriteUrisFlow = remember {
-        galleryState.repository.getAllMetadataFlow().map { list -> 
-            list.filter { it.isFavorite }.map { it.uri }.toSet() 
-        }
+    // タグ名 -> URIリストのマップを作成
+    val tagToUrisMap = remember(allTagsData) {
+        allTagsData.groupBy({ it.tag }, { it.uri })
     }
-    val favoriteUris by favoriteUrisFlow.collectAsState(initial = emptySet())
 
-    // タグ付け済みURIの取得
-    val taggedUrisFlow = remember { galleryState.repository.getManualTaggedUrisFlow() }
-    val taggedUris by taggedUrisFlow.collectAsState(initial = emptyList())
-    val taggedUriSet = remember(taggedUris) { taggedUris.toSet() }
+    // タグ付け済みURIの取得（「〜系」は除外して判定）
+    val taggedUriSet = remember(allTagsData) {
+        allTagsData.filter { !it.tag.endsWith("系") }.map { it.uri }.toSet()
+    }
 
-    // メディアのロード (リポジトリ側のキャッシュが効くので速くなる)
+    // メディアのロード
     LaunchedEffect(galleryState.isMockMode) {
         isLoadingMedia = true
         withContext(Dispatchers.IO) {
+            // メタデータの準備を待つ
+            galleryState.repository.getAllMetadata()
+            
             val media = galleryState.repository.getAllMedia()
             withContext(Dispatchers.Main) {
                 allMedia = media
+                delay(100)
                 isLoadingMedia = false
             }
         }
     }
 
-    // タグサムネイルのロード
-    LaunchedEffect(tagCountsList) {
-        tagCountsList.forEach { tagCount ->
-            if (!tagCount.tag.endsWith("系") && !tagThumbnails.containsKey(tagCount.tag)) {
-                launch {
-                    val thumb = galleryState.repository.getThumbnailForTag(tagCount.tag).first()
-                    if (thumb != null) {
-                        tagThumbnails[tagCount.tag] = thumb
-                    }
-                }
-            }
+    // 共通のフィルタリング関数
+    val filterItem: (MediaData) -> Boolean = { item ->
+        val meta = metadataMap[item.uri]
+        val rating = meta?.ageRating ?: "SFW"
+        when (galleryState.ageRatingFilter) {
+            AgeRatingFilter.ALL -> true
+            AgeRatingFilter.SFW -> rating == "SFW"
+            AgeRatingFilter.R15 -> rating == "SFW" || rating == "R15"
+            AgeRatingFilter.R18 -> true
         }
-    }
-
-    val favorites = remember(allMedia, favoriteUris) {
-        allMedia.filter { it.uri in favoriteUris }
     }
     
-    val untaggedMedia = remember(allMedia, taggedUriSet) {
-        allMedia.filter { !it.isVideo && it.uri !in taggedUriSet }
+    // お気に入り（フィルタ適用済み）
+    val favorites = remember(allMedia, metadataMap, galleryState.ageRatingFilter) {
+        allMedia.filter { item -> 
+            metadataMap[item.uri]?.isFavorite == true && filterItem(item)
+        }
     }
-
-    var taggedMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
-    LaunchedEffect(selectedCategoryType, selectedTagName, allMedia) {
-        if (selectedCategoryType == "Tag" && selectedTagName != null) {
-            galleryState.repository.getMediaForTag(selectedTagName!!)
-                .collect { taggedMedia = it }
+    
+    // タグなし（フィルタ適用済み）
+    val untaggedMedia = remember(allMedia, taggedUriSet, galleryState.ageRatingFilter, metadataMap) {
+        allMedia.filter { item -> 
+            !item.isVideo && item.uri !in taggedUriSet && filterItem(item)
         }
     }
 
-    val unanalyzedCount by remember { galleryState.repository.getUnanalyzedAiCount() }.collectAsState(initial = 0)
+    // 各カテゴリの構築（フィルタを即座に反映）
+    val categories = remember(allMedia, tagToUrisMap, favorites, untaggedMedia, galleryState.ageRatingFilter, metadataMap) {
+        val allMediaMap = allMedia.associateBy { it.uri }
+        val list = mutableListOf<CategoryData>()
+        
+        if (favorites.isNotEmpty()) {
+            list.add(CategoryData("Favorites", "お気に入り", favorites.size, favorites.firstOrNull()?.uri))
+        }
+        if (untaggedMedia.isNotEmpty()) {
+            list.add(CategoryData("Untagged", "タグなし", untaggedMedia.size, untaggedMedia.firstOrNull()?.uri))
+        }
+        
+        tagToUrisMap.filter { !it.key.endsWith("系") }.forEach { (tag, uris) ->
+            val filteredForTag = uris.mapNotNull { allMediaMap[it] }.filter { filterItem(it) }
+            if (filteredForTag.isNotEmpty()) {
+                list.add(CategoryData(
+                    "Tag:$tag", 
+                    tag, 
+                    filteredForTag.size, 
+                    filteredForTag.firstOrNull()?.uri
+                ))
+            }
+        }
+        list.sortedBy { it.title }
+    }
+
+    var taggedMediaDetail by remember { mutableStateOf<List<MediaData>>(emptyList()) }
+    LaunchedEffect(selectedCategoryType, selectedTagName, categories, favorites, untaggedMedia) {
+        taggedMediaDetail = when (selectedCategoryType) {
+            "Favorites" -> favorites
+            "Untagged" -> untaggedMedia
+            "Tag" -> {
+                val allMediaMap = allMedia.associateBy { it.uri }
+                tagToUrisMap[selectedTagName]?.mapNotNull { allMediaMap[it] }?.filter { filterItem(it) } ?: emptyList()
+            }
+            else -> emptyList()
+        }
+    }
+
+    val unanalyzedCount by remember(galleryState.ageRatingFilter) { 
+        galleryState.repository.getUnanalyzedAiCount(galleryState.ageRatingFilter) 
+    }.collectAsState(initial = 0)
     var showWarning by remember { mutableStateOf(false) }
 
     LaunchedEffect(unanalyzedCount) {
@@ -125,17 +172,6 @@ fun MyListScreen(
             delay(4000)
             showWarning = false
         }
-    }
-
-    val categories = remember(favorites.size, untaggedMedia.size, tagCountsList, tagThumbnails.size) {
-        val list = mutableListOf<CategoryData>()
-        list.add(CategoryData("Favorites", "お気に入り", favorites.size, favorites.firstOrNull()?.uri))
-        list.add(CategoryData("Untagged", "タグなし", untaggedMedia.size, untaggedMedia.firstOrNull()?.uri))
-        
-        tagCountsList.filter { !it.tag.endsWith("系") }.forEach { tagCount ->
-            list.add(CategoryData("Tag:${tagCount.tag}", tagCount.tag, tagCount.count, tagThumbnails[tagCount.tag]))
-        }
-        list
     }
 
     CategoryScreen(
@@ -161,12 +197,7 @@ fun MyListScreen(
             IconButton(onClick = { showTagCreateDialog = true }) { Icon(Icons.Default.Add, contentDescription = "タグ作成", tint = Color.White) }
         },
         selectedCategoryTitle = selectedCategoryTitle,
-        selectedCategoryMedia = when (selectedCategoryType) {
-            "Favorites" -> favorites
-            "Untagged" -> untaggedMedia
-            "Tag" -> taggedMedia
-            else -> emptyList()
-        },
+        selectedCategoryMedia = taggedMediaDetail,
         onBackFromCategory = {
             selectedCategoryType = null
             selectedTagName = null
@@ -192,6 +223,25 @@ fun MyListScreen(
 
     if (showWarning && selectedCategoryType == null) {
         Box(modifier = Modifier.fillMaxSize()) {
+            val displayMediaList = remember(allMedia, galleryState.ageRatingFilter, metadataMap) {
+                allMedia.filter { item ->
+                    val meta = metadataMap[item.uri]
+                    val rating = meta?.ageRating ?: "SFW"
+                    when (galleryState.ageRatingFilter) {
+                        AgeRatingFilter.ALL -> true
+                        AgeRatingFilter.SFW -> rating == "SFW"
+                        AgeRatingFilter.R15 -> rating == "SFW" || rating == "R15"
+                        AgeRatingFilter.R18 -> true
+                    }
+                }
+            }
+            if (displayMediaList.isNotEmpty()) {
+                FloatingRandomImage(
+                    mediaList = displayMediaList,
+                    ageRatingFilter = galleryState.ageRatingFilter,
+                    metadataMap = metadataMap
+                )
+            }
             Surface(
                 color = Color.Black.copy(alpha = 0.9f),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),

@@ -14,11 +14,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.MediaData
+import com.example.gallery.ui.AgeRatingFilter
 import com.example.gallery.ui.component.CategoryData
 import com.example.gallery.ui.component.CategoryScreen
 import com.example.gallery.ui.component.FloatingRandomImage
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @Composable
 fun ColorListScreen(
@@ -30,59 +32,85 @@ fun ColorListScreen(
     topBarActions: @Composable RowScope.() -> Unit = {},
     onSubCategorySelected: (Boolean) -> Unit = {}
 ) {
+    val scope = rememberCoroutineScope()
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
     
     // 親にカテゴリ選択状態を通知
     LaunchedEffect(selectedCategoryId) {
         onSubCategorySelected(selectedCategoryId != null)
     }
-    
-    // ロード状態の管理
-    var isLoadingState by remember { mutableStateOf(true) }
 
     // 色の並び順を定義
     val colorOrder = listOf("レッド系", "オレンジ系", "イエロー系", "グリーン系", "ブルー系", "パープル系", "ピンク系", "ホワイト系", "グレー系", "ブラック系")
 
-    val colorTagData by remember {
-        galleryState.repository.getAllTagsWithCounts().map { tagCounts ->
-            tagCounts.filter { it.tag.endsWith("系") }
-                .sortedBy { tagCount -> colorOrder.indexOf(tagCount.tag).let { if (it == -1) 999 else it } }
-        }
-    }.collectAsState(initial = emptyList())
+    // メタデータの取得 - モード切り替え時のリセットを防ぐ
+    val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataFlow() }
+    val allMetadata by metadataFlow.collectAsState(initial = emptyList())
+    val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
 
-    val colorThumbnails = remember { mutableStateMapOf<String, String?>() }
-    colorTagData.forEach { tagCount ->
-        val tag = tagCount.tag
-        val thumb by galleryState.repository.getThumbnailForTag(tag).collectAsState(initial = null)
-        LaunchedEffect(thumb) {
-            if (thumb != null) colorThumbnails[tag] = thumb
-        }
-    }
-    
-    // タグのデータが揃ったかチェック
-    LaunchedEffect(colorTagData) {
-        if (colorTagData.isNotEmpty()) {
-            isLoadingState = false
-        }
+    // 全てのカラータグデータを取得 - モード切り替え時のリセットを防ぐ
+    val colorTagFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllColorTags() }
+    val allColorTagMedia by colorTagFlow.collectAsState(initial = emptyMap())
+
+    // ロード状態の管理
+    var isGlobalLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(galleryState.isMockMode) {
+        isGlobalLoading = true
+        galleryState.repository.getAllMetadata()
+        delay(300) // データの準備とFlowの反映を待つ
+        isGlobalLoading = false
     }
 
-    // タグが一つもない場合もロード完了とする
-    val allTags by galleryState.repository.getAllTagNames().collectAsState(initial = null)
-    LaunchedEffect(allTags) {
-        if (allTags != null && allTags!!.none { it.endsWith("系") }) {
-            isLoadingState = false
+    // フィルタリングされたカテゴリデータを作成
+    val filteredColorCategories = remember(allColorTagMedia, galleryState.ageRatingFilter, metadataMap) {
+        allColorTagMedia.map { (tag, mediaList) ->
+            val filteredMedia = mediaList.filter { item ->
+                val meta = metadataMap[item.uri]
+                val rating = meta?.ageRating ?: "SFW"
+                when (galleryState.ageRatingFilter) {
+                    AgeRatingFilter.ALL -> true
+                    AgeRatingFilter.SFW -> rating == "SFW"
+                    AgeRatingFilter.R15 -> rating == "R15"
+                    AgeRatingFilter.R18 -> rating == "R18"
+                }
+            }
+            CategoryData(
+                id = tag,
+                title = tag,
+                count = filteredMedia.size,
+                thumbnail = filteredMedia.firstOrNull()?.uri,
+                indicatorColor = getColorForTag(tag)
+            )
         }
+        .filter { it.count > 0 }
+        .sortedBy { cat -> colorOrder.indexOf(cat.title).let { if (it == -1) 999 else it } }
+    }
+
+    // ロード状態の管理
+    val isLoadingState = remember(allColorTagMedia, allMetadata) {
+        allColorTagMedia.isEmpty() && allMetadata.isEmpty()
     }
     
     var taggedMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
-    LaunchedEffect(selectedCategoryId) {
+    LaunchedEffect(selectedCategoryId, allColorTagMedia, galleryState.ageRatingFilter, metadataMap) {
         if (selectedCategoryId != null) {
-            galleryState.repository.getMediaForTag(selectedCategoryId!!)
-                .collect { taggedMedia = it }
+            val mediaInTag = allColorTagMedia[selectedCategoryId] ?: emptyList()
+            taggedMedia = mediaInTag.filter { item ->
+                val meta = metadataMap[item.uri]
+                val rating = meta?.ageRating ?: "SFW"
+                when (galleryState.ageRatingFilter) {
+                    AgeRatingFilter.ALL -> true
+                    AgeRatingFilter.SFW -> rating == "SFW"
+                    AgeRatingFilter.R15 -> rating == "R15"
+                    AgeRatingFilter.R18 -> rating == "R18"
+                }
+            }
         }
     }
 
-    val unanalyzedCount by remember { galleryState.repository.getUnanalyzedColorCount() }.collectAsState(initial = 0)
+    val unanalyzedCount by remember(galleryState.ageRatingFilter) { 
+        galleryState.repository.getUnanalyzedColorCount(galleryState.ageRatingFilter) 
+    }.collectAsState(initial = 0)
     var showWarning by remember { mutableStateOf(false) }
     
     LaunchedEffect(unanalyzedCount) {
@@ -94,20 +122,10 @@ fun ColorListScreen(
         }
     }
 
-    val categories = colorTagData.map { tagCount ->
-        CategoryData(
-            id = tagCount.tag,
-            title = tagCount.tag,
-            count = tagCount.count,
-            thumbnail = colorThumbnails[tagCount.tag],
-            indicatorColor = getColorForTag(tagCount.tag)
-        )
-    }
-
     CategoryScreen(
         title = "カラーリスト",
-        categories = categories,
-        isLoading = isLoadingState,
+        categories = filteredColorCategories,
+        isLoading = isLoadingState || isGlobalLoading,
         galleryState = galleryState,
         onCategoryClick = { selectedCategoryId = it.id },
         onShowViewer = onShowViewer,
@@ -133,7 +151,11 @@ fun ColorListScreen(
 
             if (allMediaList.isNotEmpty()) {
                 Box(Modifier.fillMaxSize()) {
-                    FloatingRandomImage(mediaList = allMediaList)
+                    FloatingRandomImage(
+                        mediaList = allMediaList,
+                        ageRatingFilter = galleryState.ageRatingFilter,
+                        metadataMap = metadataMap
+                    )
                 }
             }
 
@@ -144,7 +166,9 @@ fun ColorListScreen(
                         strokeWidth = 4.dp,
                         modifier = Modifier.fillMaxSize()
                     )
-                    val progressPercent = if (colorTagData.isNotEmpty()) (colorThumbnails.size.toFloat() / colorTagData.size.toFloat() * 100).toInt() else 0
+                    val analyzedCount = allColorTagMedia.size
+                    val totalExpected = 10 // Approximate color categories
+                    val progressPercent = if (totalExpected > 0) (analyzedCount.toFloat() / totalExpected * 100).toInt().coerceAtMost(100) else 0
                     Text("${progressPercent}%", color = Color.White, fontSize = 16.sp)
                 }
                 Spacer(modifier = Modifier.height(24.dp))
@@ -167,6 +191,28 @@ fun ColorListScreen(
 
     if (showWarning && selectedCategoryId == null) {
         Box(modifier = Modifier.fillMaxSize()) {
+            var fullMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
+            LaunchedEffect(galleryState.ageRatingFilter, metadataMap) {
+                fullMediaList = galleryState.repository.getAllMedia().filter { item ->
+                    val meta = metadataMap[item.uri]
+                    val rating = meta?.ageRating ?: "SFW"
+                    when (galleryState.ageRatingFilter) {
+                        AgeRatingFilter.ALL -> true
+                        AgeRatingFilter.SFW -> rating == "SFW"
+                        AgeRatingFilter.R15 -> rating == "R15"
+                        AgeRatingFilter.R18 -> rating == "R18"
+                    }
+                }
+            }
+
+            if (fullMediaList.isNotEmpty()) {
+                FloatingRandomImage(
+                    mediaList = fullMediaList,
+                    ageRatingFilter = galleryState.ageRatingFilter,
+                    metadataMap = metadataMap
+                )
+            }
+
             Surface(
                 color = Color.Black.copy(alpha = 0.9f),
                 shape = RoundedCornerShape(24.dp),
