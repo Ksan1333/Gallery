@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation() {
     val context = LocalContext.current
-    val startDestination = "folders"
+    val startDestination = "home"
     
     val navController = rememberNavController()
     var isBottomBarVisible by rememberSaveable { mutableStateOf(true) }
