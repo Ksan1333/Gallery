@@ -251,7 +251,8 @@ class AiTaggingService(
                 isFavorite = current?.isFavorite ?: false,
                 colorComposition = current?.colorComposition,
                 ageRating = finalAgeRating,
-                isAiAnalyzed = true
+                isAiAnalyzed = true,
+                folderName = current?.folderName ?: media.folderName
             )
         )
     }

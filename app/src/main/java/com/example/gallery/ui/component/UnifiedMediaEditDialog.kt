@@ -1,12 +1,12 @@
 package com.example.gallery.ui.component
 
 import android.app.Activity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,19 +18,47 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.gallery.data.repository.MediaRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun UnifiedMediaEditDialog(
     uris: List<String>,
     repository: MediaRepository,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSelectFolder: (() -> Unit)? = null, // 追加: フォルダ選択画面を開く
+    initialFolderName: String = "" // 追加: 選択されたフォルダ名を受け取る
 ) {
+    var targetFolderName by remember(initialFolderName) { mutableStateOf(initialFolderName) }
     var selectedAgeRating by remember { mutableStateOf<String?>(null) }
     val tagCounts by repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
     val allTags = remember(tagCounts) { tagCounts.map { it.tag } }
+    
+    // 既存の全フォルダ名を取得（MediaDataのフォルダ名とメタデータのフォルダ名の両方を考慮）
+    val allMetadata by repository.getAllMetadataFlow().collectAsState(initial = emptyList())
+    // フォルダ移動のUIを簡略化したため existingFolders は不要になったが、他の用途があるかもしれないので一旦残すか、警告に従って消す
+    // var existingFolders by remember { mutableStateOf<List<String>>(emptyList()) }
+    
+    /* 
+    LaunchedEffect(allMetadata) {
+        withContext(Dispatchers.IO) {
+            val allMedia = repository.getAllMedia()
+            val foldersFromMedia = allMedia.map { it.folderName }
+            val foldersFromMeta = allMetadata.map { it.folderName }
+            val uniqueFolders = (foldersFromMedia + foldersFromMeta)
+                .filter { it.isNotBlank() && it != "Unknown" }
+                .distinct()
+                .sorted()
+            withContext(Dispatchers.Main) {
+                existingFolders = uniqueFolders
+            }
+        }
+    }
+    */
+
     val selectedTags = remember { mutableStateListOf<String>() }
     var newTagName by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -109,6 +137,66 @@ fun UnifiedMediaEditDialog(
                                         )
                                     )
                                 }
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("フォルダ移動", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Text("移動先フォルダを選択してください", fontSize = 12.sp, color = Color.Gray)
+                        
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedCard(
+                                onClick = { if (!isProcessing) onSelectFolder?.invoke() },
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.outlinedCardColors(
+                                    containerColor = Color.DarkGray.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Folder, contentDescription = null, tint = Color.LightGray)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (targetFolderName.isBlank()) "フォルダを選択..." else targetFolderName,
+                                        color = if (targetFolderName.isBlank()) Color.Gray else Color.White,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+                                }
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    if (targetFolderName.isNotBlank()) {
+                                        isProcessing = true
+                                        scope.launch {
+                                            uris.forEachIndexed { index, uri ->
+                                                val current = repository.getMetadata(uri)
+                                                repository.mediaDao.insertMetadata(
+                                                    com.example.gallery.data.local.entity.MediaMetadataEntity(
+                                                        uri = uri,
+                                                        isFavorite = current?.isFavorite ?: false,
+                                                        colorComposition = current?.colorComposition,
+                                                        ageRating = current?.ageRating ?: "SFW",
+                                                        isAiAnalyzed = current?.isAiAnalyzed ?: false,
+                                                        folderName = targetFolderName
+                                                    )
+                                                )
+                                                progress = (index + 1).toFloat() / uris.size
+                                            }
+                                            isProcessing = false
+                                            onDismiss()
+                                        }
+                                    }
+                                },
+                                enabled = !isProcessing && targetFolderName.isNotBlank(),
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                Text("移動")
                             }
                         }
                     }

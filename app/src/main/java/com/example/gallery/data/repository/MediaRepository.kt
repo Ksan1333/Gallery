@@ -156,6 +156,9 @@ class MediaRepository(
                                 val folderName = if (path != null) File(path).parentFile?.name ?: "Unknown" else "Unknown"
                                 
                                 val contentUri = ContentUris.withAppendedId(collection, id).toString()
+                                
+                                // メタデータからキャッシュされた情報を取得（もしあれば）
+                                // repository レベルでのキャッシュは getAllMedia の mutex 内で完結させる
                                 mediaList.add(MediaData(contentUri, date, mime, duration, width, height, size, name, folderName))
                             }
                         }
@@ -180,7 +183,8 @@ class MediaRepository(
                 isFavorite = !(current?.isFavorite ?: false),
                 colorComposition = current?.colorComposition,
                 ageRating = current?.ageRating ?: "SFW",
-                isAiAnalyzed = current?.isAiAnalyzed ?: false
+                isAiAnalyzed = current?.isAiAnalyzed ?: false,
+                folderName = current?.folderName ?: ""
             )
         )
     }
@@ -194,7 +198,8 @@ class MediaRepository(
                     isFavorite = isFavorite,
                     colorComposition = current?.colorComposition,
                     ageRating = current?.ageRating ?: "SFW",
-                    isAiAnalyzed = current?.isAiAnalyzed ?: false
+                    isAiAnalyzed = current?.isAiAnalyzed ?: false,
+                    folderName = current?.folderName ?: ""
                 )
             )
         }
@@ -210,7 +215,8 @@ class MediaRepository(
                     isFavorite = current?.isFavorite ?: false,
                     colorComposition = current?.colorComposition,
                     ageRating = ageRating,
-                    isAiAnalyzed = current?.isAiAnalyzed ?: false
+                    isAiAnalyzed = current?.isAiAnalyzed ?: false,
+                    folderName = current?.folderName ?: "" // フォルダ名を維持
                 )
             )
         }

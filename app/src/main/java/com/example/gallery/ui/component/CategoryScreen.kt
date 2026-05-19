@@ -4,10 +4,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -16,7 +19,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,7 +29,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -71,7 +73,8 @@ fun CategoryScreen(
     onTabIconClick: (String) -> Unit = {},
     showControlBar: Boolean = true,
     lastViewedUri: String? = null,
-    onPageChangedInViewer: (String) -> Unit = {} // 追加
+    onPageChangedInViewer: (String) -> Unit = {},
+    onBulkEdit: ((List<String>) -> Unit)? = null // 追加
 ) {
     var selectedImageIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val currentMediaListState = rememberSaveable(saver = MediaData.ListSaver) {
@@ -80,22 +83,21 @@ fun CategoryScreen(
     var currentMediaList by currentMediaListState
     val scope = rememberCoroutineScope()
 
-    // 選択解除用のシグナル (GalleryGridView用)
     var clearSelectionSignal by remember { mutableIntStateOf(0) }
     var isSelectionModeActive by remember { mutableStateOf(false) }
 
-    // カラム設定の状態を CategoryScreen で保持
+    val selectedCategoryIds = remember { mutableStateListOf<String>() }
+    var isCategorySelectionMode by remember { mutableStateOf(false) }
+    var showBulkEditDialog by remember { mutableStateOf(false) }
+
     val columnOptions = listOf(10, 7, 4, 3, 1)
     var currentColumnIndex by remember { mutableIntStateOf(2) }
-
-    // オーバースクロール（画面全体を動かす）のための状態
     val overscrollTranslationY = remember { Animatable(0f) }
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 if (available.y != 0f) {
-                    // 消費されなかったスクロール量で画面全体を移動させる
                     scope.launch {
                         val current = overscrollTranslationY.value
                         val delta = available.y * 0.4f
@@ -109,81 +111,59 @@ fun CategoryScreen(
                 }
                 return Offset.Zero
             }
-
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                // 指を離した時に元の位置に戻る
                 overscrollTranslationY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
                 return super.onPostFling(consumed, available)
             }
         }
     }
 
-    BackHandler(selectedCategoryTitle != null || selectedImageIndex != null || isSelectionModeActive) {
+    BackHandler(selectedCategoryTitle != null || selectedImageIndex != null || isSelectionModeActive || isCategorySelectionMode) {
         if (selectedImageIndex != null) {
             selectedImageIndex = null
             onHideViewer()
         } else if (isSelectionModeActive) {
             clearSelectionSignal++
+        } else if (isCategorySelectionMode) {
+            isCategorySelectionMode = false
+            selectedCategoryIds.clear()
         } else {
             onBackFromCategory()
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppConstants.BackgroundColor)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
         if (selectedCategoryTitle == null) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // ヘッダー (タイトル + 切り替えボタン等)
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black)
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .height(AppConstants.HeaderHeight)
-                        .padding(horizontal = 16.dp),
+                    modifier = Modifier.fillMaxWidth().background(Color.Black).windowInsetsPadding(WindowInsets.statusBars).height(AppConstants.HeaderHeight).padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(title, color = Color.White, fontSize = AppConstants.HeaderFontSize)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        topBarActions()
-                    }
-                }
-
-                // 操作バー (フィルタ、列数など)
-                if (showControlBar) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(AppConstants.HeaderHeight)
-                            .background(AppConstants.BackgroundColor.copy(alpha = 0.95f))
-                    ) {
-                        GalleryTopControlBar(
-                            galleryState = galleryState,
-                            isFilterEnabled = false // カテゴリ一覧画面ではフィルタ・並び替え非活性
-                        )
-                    }
-                }
-
-                // グリッド部分
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(nestedScrollConnection)
-                        .graphicsLayer { translationY = overscrollTranslationY.value }
-                ) {
-                    if (isLoading) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            loadingContent()
+                    if (isCategorySelectionMode) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { isCategorySelectionMode = false; selectedCategoryIds.clear() }) { Icon(Icons.Default.Close, contentDescription = "解除", tint = Color.White) }
+                            Text("${selectedCategoryIds.size} 件選択中", color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                         }
-                    } else if (categories.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            emptyContent()
+                        Row {
+                            TooltipWrapper("一括編集") { IconButton(onClick = { showBulkEditDialog = true }) { Icon(Icons.Default.LocalOffer, contentDescription = "一括編集", tint = Color.White) } }
                         }
                     } else {
+                        Text(title, color = Color.White, fontSize = AppConstants.HeaderFontSize)
+                        Row(verticalAlignment = Alignment.CenterVertically) { topBarActions() }
+                    }
+                }
+
+                if (showControlBar) {
+                    Box(modifier = Modifier.fillMaxWidth().height(AppConstants.HeaderHeight).background(AppConstants.BackgroundColor.copy(alpha = 0.95f))) {
+                        GalleryTopControlBar(galleryState = galleryState, isFilterEnabled = false)
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxSize().nestedScroll(nestedScrollConnection).graphicsLayer { translationY = overscrollTranslationY.value }) {
+                    if (isLoading) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { loadingContent() } }
+                    else if (categories.isEmpty()) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { emptyContent() } }
+                    else {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(columnOptions[currentColumnIndex]),
                             modifier = Modifier.fillMaxSize(),
@@ -195,7 +175,21 @@ fun CategoryScreen(
                             items(categories) { category ->
                                 CategoryCard(
                                     data = category,
-                                    onClick = { onCategoryClick(category) }
+                                    isSelected = selectedCategoryIds.contains(category.id),
+                                    onClick = { 
+                                        if (isCategorySelectionMode) {
+                                            if (selectedCategoryIds.contains(category.id)) {
+                                                selectedCategoryIds.remove(category.id)
+                                                if (selectedCategoryIds.isEmpty()) isCategorySelectionMode = false
+                                            } else { selectedCategoryIds.add(category.id) }
+                                        } else { onCategoryClick(category) }
+                                    },
+                                    onLongClick = {
+                                        if (!isCategorySelectionMode) {
+                                            isCategorySelectionMode = true
+                                            selectedCategoryIds.add(category.id)
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -217,17 +211,15 @@ fun CategoryScreen(
                 onBackClick = onBackFromCategory,
                 modifier = Modifier.fillMaxSize(),
                 scrollToUri = if (selectedImageIndex == null) lastViewedUri else null,
-                onPageChangedInViewer = onPageChangedInViewer
+                onPageChangedInViewer = onPageChangedInViewer,
+                onBulkEdit = onBulkEdit
             )
         }
 
         selectedImageIndex?.let { index ->
             if (currentMediaList.isNotEmpty()) {
                 PictureViewer(
-                    onClickedClose = {
-                        selectedImageIndex = null
-                        onHideViewer()
-                    },
+                    onClickedClose = { selectedImageIndex = null; onHideViewer() },
                     initialPage = index,
                     imageList = currentMediaList,
                     galleryState = galleryState,
@@ -257,94 +249,79 @@ fun CategoryScreen(
                 )
             }
         }
+
+        if (showBulkEditDialog) {
+            val allMediaInSelectedCategories = remember { mutableStateListOf<String>() }
+            LaunchedEffect(selectedCategoryIds) {
+                val uris = mutableListOf<String>()
+                val all = galleryState.repository.getAllMedia()
+                selectedCategoryIds.forEach { catId ->
+                    uris.addAll(all.filter { it.folderName == catId || it.uri.contains("Tag:$catId") }.map { it.uri })
+                }
+                allMediaInSelectedCategories.clear()
+                allMediaInSelectedCategories.addAll(uris)
+            }
+
+            if (allMediaInSelectedCategories.isNotEmpty()) {
+                UnifiedMediaEditDialog(
+                    uris = allMediaInSelectedCategories.toList(),
+                    repository = galleryState.repository,
+                    onDismiss = { 
+                        showBulkEditDialog = false
+                        isCategorySelectionMode = false
+                        selectedCategoryIds.clear()
+                    }
+                )
+            }
+        }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CategoryCard(
     data: CategoryData,
-    onClick: () -> Unit
+    isSelected: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent)
+            .padding(4.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.DarkGray)
-        ) {
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(Color.DarkGray)) {
             if (data.thumbnail != null) {
                 if (data.thumbnail.startsWith("mock://")) {
-                    Box(
-                        modifier = Modifier.fillMaxSize().background(data.indicatorColor?.copy(alpha = 0.5f) ?: Color.Gray.copy(alpha = 0.5f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(32.dp)
-                        )
+                    Box(modifier = Modifier.fillMaxSize().background(data.indicatorColor?.copy(alpha = 0.5f) ?: Color.Gray.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                        Icon(imageVector = Icons.Default.Image, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                     }
                 } else {
                     Image(
-                        painter = rememberAsyncImagePainter(
-                            model = ImageRequest.Builder(context)
-                                .data(data.thumbnail)
-                                .decoderFactory(VideoFrameDecoder.Factory())
-                                .videoFrameMillis(1000)
-                                .build()
-                        ),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(data.thumbnail).decoderFactory(VideoFrameDecoder.Factory()).videoFrameMillis(1000).build()),
+                        contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
                     )
                 }
             } else {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(data.indicatorColor?.copy(alpha = 0.5f) ?: Color.Transparent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.size(32.dp)
-                    )
+                Box(modifier = Modifier.fillMaxSize().background(data.indicatorColor?.copy(alpha = 0.5f) ?: Color.Transparent), contentAlignment = Alignment.Center) {
+                    Icon(imageVector = Icons.Default.Image, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
                 }
             }
-            
+            if (isSelected) {
+                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
+                }
+            }
             if (data.indicatorColor != null) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .background(data.indicatorColor)
-                        .border(1.5.dp, Color.White.copy(alpha = 0.8f), CircleShape)
-                )
+                Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).size(16.dp).clip(CircleShape).background(data.indicatorColor).border(1.5.dp, Color.White.copy(alpha = 0.8f), CircleShape))
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = data.title,
-            color = Color.White,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
-        Text(
-            text = "${data.count} 枚",
-            color = Color.Gray,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
+        Text(text = data.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
+        Text(text = "${data.count} 枚", color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
     }
 }

@@ -9,5 +9,6 @@ data class MediaMetadataEntity(
     val isFavorite: Boolean = false,
     val colorComposition: String? = null, // JSON string of Map<String, Float>
     val ageRating: String = "SFW", // "SFW", "R15", "R18"
-    val isAiAnalyzed: Boolean = false
+    val isAiAnalyzed: Boolean = false,
+    val folderName: String = "" // キャッシュされたフォルダ名
 )

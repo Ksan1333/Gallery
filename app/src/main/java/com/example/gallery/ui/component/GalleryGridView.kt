@@ -80,7 +80,8 @@ fun GalleryGridView(
     onBackClick: (() -> Unit)? = null,
     scrollToUri: String? = null, // 追加：戻り時にスクロールさせたいURI
     isFilterEnabled: Boolean = true, // 追加
-    onPageChangedInViewer: (String) -> Unit = {} // 追加：ビュワー内でのページ変更通知
+    onPageChangedInViewer: (String) -> Unit = {}, // 追加：ビュワー内でのページ変更通知
+    onBulkEdit: ((List<String>) -> Unit)? = null // 追加: 一括編集のリクエスト
 ) {
     val columnOptions = listOf(28, 7, 4, 3, 1)
     var currentColumnIndex by remember { mutableIntStateOf(2) } // 初期は4列
@@ -95,10 +96,10 @@ fun GalleryGridView(
     }
 
     var zoomScale by remember { mutableFloatStateOf(1f) }
-    var showZoomMenu by remember { mutableStateOf(false) }
-    var showFilterMenu by remember { mutableStateOf(false) }
-    var showAgeFilterMenu by remember { mutableStateOf(false) }
-    var showGroupingMenu by remember { mutableStateOf(false) }
+    // var showZoomMenu by remember { mutableStateOf(false) }
+    // var showFilterMenu by remember { mutableStateOf(false) }
+    // var showAgeFilterMenu by remember { mutableStateOf(false) }
+    // var showGroupingMenu by remember { mutableStateOf(false) }
 
     // 複数選択用の状態
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -109,6 +110,9 @@ fun GalleryGridView(
     // Lazy Loading 用の変数
     var visibleCount by remember { mutableIntStateOf(60) }
     
+    // カラム切り替え時のローディング状態
+    var isChangingColumns by remember { mutableStateOf(false) }
+
     // 戻り時のハイライト用
     var highlightUri by remember { mutableStateOf<String?>(null) }
     
@@ -221,7 +225,10 @@ fun GalleryGridView(
             val sorted = when (galleryState.sortMode) {
                 SortMode.DATE_ADDED -> deviceFiltered.sortedBy { it.dateAdded }
                 SortMode.SIZE -> deviceFiltered.sortedBy { it.fileSize }
-                SortMode.NAME -> deviceFiltered.sortedWith(compareBy({ !it.fileName.first().isDigit() }, { it.fileName }))
+                SortMode.NAME -> deviceFiltered.sortedWith(compareBy({ 
+                    val firstChar = it.fileName.firstOrNull()
+                    if (firstChar != null && firstChar.isDigit()) false else true
+                }, { it.fileName }))
             }
             if (galleryState.isAscending) sorted else sorted.reversed()
         }
@@ -235,16 +242,22 @@ fun GalleryGridView(
             val baseGroups = when (galleryState.groupingMode) {
                 GroupingMode.NONE -> listOf("All" to filteredList)
                 GroupingMode.DAY -> {
-                    val fmt = SimpleDateFormat("yyyy年MM月dd日", Locale.getDefault())
-                    filteredList.groupBy { fmt.format(Date(it.dateAdded)) }.toList()
+                    filteredList.groupBy { 
+                        val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }
+                        "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日"
+                    }.toList()
                 }
                 GroupingMode.MONTH -> {
-                    val fmt = SimpleDateFormat("yyyy年MM月", Locale.getDefault())
-                    filteredList.groupBy { fmt.format(Date(it.dateAdded)) }.toList()
+                    filteredList.groupBy { 
+                        val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }
+                        "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月"
+                    }.toList()
                 }
                 GroupingMode.YEAR -> {
-                    val fmt = SimpleDateFormat("yyyy年", Locale.getDefault())
-                    filteredList.groupBy { fmt.format(Date(it.dateAdded)) }.toList()
+                    filteredList.groupBy { 
+                        val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }
+                        "${cal.get(Calendar.YEAR)}年"
+                    }.toList()
                 }
                 GroupingMode.STORAGE -> {
                     filteredList.groupBy { item ->
@@ -263,15 +276,24 @@ fun GalleryGridView(
                 val header = group.first
                 val items = group.second
                 
-                // 28列モードの時は1年につき8行（224枚）に制限
-                val limitPerGroup = if (is28ColumnMode && galleryState.groupingMode == GroupingMode.YEAR) 224 else Int.MAX_VALUE
-                val itemsToTake = minOf(items.size, limitPerGroup, (visibleCount - currentCount).coerceAtLeast(0))
-                
-                if (itemsToTake > 0) {
-                    result.add(header to items.take(itemsToTake))
-                    currentCount += itemsToTake
+                // 28列モードの時は1年につき8行（224枚）に制限し、まんべんなく抽選
+                val processedItems = if (is28ColumnMode && galleryState.groupingMode == GroupingMode.YEAR && items.size > 224) {
+                    val sampled = mutableListOf<MediaData>()
+                    val step = items.size.toDouble() / 224.0
+                    for (i in 0 until 224) {
+                        sampled.add(items[(i * step).toInt().coerceAtMost(items.size - 1)])
+                    }
+                    sampled
+                } else {
+                    items
                 }
                 
+                val itemsToTake = minOf(processedItems.size, (visibleCount - currentCount).coerceAtLeast(0))
+                
+                if (itemsToTake > 0) {
+                    result.add(header to processedItems.take(itemsToTake))
+                    currentCount += itemsToTake
+                }
                 if (currentCount >= visibleCount) break
             }
             result
@@ -282,10 +304,16 @@ fun GalleryGridView(
 
     LaunchedEffect(currentColumnIndex) { 
         zoomScale = 1f 
-        // 高密度モードに切り替わった時に表示件数を一気に増やすことで、再計算回数を減らす
-        if (columnOptions[currentColumnIndex] >= 7) {
-            visibleCount = visibleCount.coerceAtLeast(500)
+        isChangingColumns = true
+        delay(10) // 描画スレッドに譲る
+        // 修正: 4列モードなどで無駄に大量読み込みしないよう、列数に応じた適切な初期値を設定
+        visibleCount = when {
+            columnOptions[currentColumnIndex] >= 28 -> 1500
+            columnOptions[currentColumnIndex] >= 7 -> 500
+            else -> 80 // 4列以下なら少なめに開始
         }
+        delay(100)
+        isChangingColumns = false
     }
 
     // scrollToUri が指定された場合、その画像の位置までスクロール
@@ -328,7 +356,7 @@ fun GalleryGridView(
                 if (visibleCount < filteredList.size) {
                     visibleCount += 200
                 } else {
-                    Toast.makeText(context, "元のギャラリーにない画像のため、移動できません", Toast.LENGTH_SHORT).show()
+                    // Toast.makeText(context, "元のギャラリーにない画像のため、移動できません", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -339,16 +367,32 @@ fun GalleryGridView(
             .background(AppConstants.BackgroundColor)
             .nestedScroll(nestedScrollConnection)
     ) {
-        if (isLoading) {
+        if (isLoading || isChangingColumns) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White)
             }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columnOptions[currentColumnIndex]), 
-                userScrollEnabled = !isZooming,
+                userScrollEnabled = !isZooming && !isChangingColumns,
                 modifier = Modifier.fillMaxSize()
-                    .pointerInput(currentFlatImageList, groupedForDisplay) {
+                    .pointerInput(currentFlatImageList, groupedForDisplay, currentColumnIndex) {
+                        // 二本指タップ/ピンチ操作の検出を優先（fast path）
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.size >= 2) {
+                                    isZooming = true
+                                    // ズームモードに入ったら現在のジェスチャーを消費
+                                    event.changes.forEach { it.consume() }
+                                } else if (event.changes.all { !it.pressed }) {
+                                    isZooming = false
+                                }
+                            }
+                        }
+                    }
+                    .pointerInput(currentFlatImageList, groupedForDisplay, currentColumnIndex) {
+                        if (columnOptions[currentColumnIndex] >= 28) return@pointerInput // 28列モードでは選択無効
                         awaitPointerEventScope {
                             while (true) {
                                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -419,36 +463,35 @@ fun GalleryGridView(
                             }
                         }
                     }
-                    .pointerInput(Unit) {
+                    .pointerInput(currentColumnIndex, filteredList) {
+                        // 2本指以上での操作を検知した場合はズームを優先し、他のジェスチャー（スクロール等）を抑制する
                         awaitEachGesture {
                             while (true) {
                                 val event = awaitPointerEvent()
-                                val pointersCount = event.changes.size
-                                
-                                if (pointersCount >= 2) {
+                                if (event.changes.size >= 2) {
                                     isZooming = true
-                                } else if (event.changes.all { !it.pressed }) {
-                                    isZooming = false
                                 }
-
                                 if (isZooming) {
+                                    // ズーム中（2本指以上）は全イベントを消費してスクロールを止める
                                     event.changes.forEach { it.consume() }
                                 }
-                                
-                                if (event.changes.isEmpty()) break
-                                if (event.changes.all { !it.pressed }) break
+                                if (event.changes.all { !it.pressed }) {
+                                    isZooming = false
+                                    break
+                                }
                             }
                         }
                     }
                     .pointerInput(currentColumnIndex, filteredList) {
-                        detectTransformGestures { _, _, zoom, _ ->
+                        detectTransformGestures(panZoomLock = true) { _, _, zoom, _ ->
                             if (!isSelectionMode) {
                                 zoomScale *= zoom
-                                if (zoomScale > 1.3f && currentColumnIndex < columnOptions.size - 1) { 
+                                // 判定を少し敏感にする (1.3 -> 1.15, 0.7 -> 0.85)
+                                if (zoomScale > 1.15f && currentColumnIndex < columnOptions.size - 1) { 
                                     currentColumnIndex++
                                     zoomScale = 1.0f 
                                 }
-                                else if (zoomScale < 0.7f && currentColumnIndex > 0) {
+                                else if (zoomScale < 0.85f && currentColumnIndex > 0) {
                                     currentColumnIndex--
                                     zoomScale = 1.0f 
                                 }
@@ -477,105 +520,140 @@ fun GalleryGridView(
                             else -> 1024
                         }
                         val isHighDensity = columnOptions[currentColumnIndex] >= 7
+                        val isUltraHighDensity = columnOptions[currentColumnIndex] >= 28 // 28列モード用
+                        val isNormalDensity = columnOptions[currentColumnIndex] <= 4 // 4列以下用
 
-                    Box(
-                        modifier = Modifier.fillMaxWidth()
-                            .then(if (!isHighDensity) Modifier.animateItem() else Modifier)
-                            .then(if (columnOptions[currentColumnIndex] > 1) Modifier.aspectRatio(1f) else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp)))
-                            .padding(if (columnOptions[currentColumnIndex] > 1) 1.dp else 0.dp)
-                            .then(if (columnOptions[currentColumnIndex] in 2..27) Modifier.clip(RoundedCornerShape(2.dp)) else Modifier)
-                            .then(
-                                if (highlightUri == item.uri) {
-                                    Modifier.border(2.dp, Color.White, if (columnOptions[currentColumnIndex] > 1) RoundedCornerShape(2.dp) else RoundedCornerShape(12.dp))
-                                } else Modifier
-                            )
-                            .combinedClickable(
-                                onClick = { 
-                                    if (isSelectionMode) {
-                                        if (selectedUris.contains(item.uri)) {
-                                            selectedUris.remove(item.uri)
-                                            if (selectedUris.isEmpty()) {
-                                                isSelectionMode = false
-                                                lastSelectedIndex = -1
-                                            }
-                                        } else {
-                                            selectedUris.add(item.uri)
-                                            lastSelectedIndex = filteredList.indexOf(item)
-                                        }
-                                    } else {
+                        if (isUltraHighDensity) {
+                            // 28列モード専用の極限まで軽量化したアイテム
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .padding(0.5.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null // 波紋エフェクトもOFF
+                                    ) {
                                         val finalIndex = currentFlatImageList.indexOf(item)
                                         onImageClick(finalIndex, currentFlatImageList)
-                                        // クリックしたURIを即座に記録
                                         onPageChangedInViewer(item.uri)
                                     }
-                                },
-                                onLongClick = {
-                                    val currentIndex = filteredList.indexOf(item)
-                                    if (!isSelectionMode) {
-                                        isSelectionMode = true
-                                        selectedUris.add(item.uri)
-                                    } else {
-                                        if (selectedUris.contains(item.uri)) {
-                                            selectedUris.remove(item.uri)
-                                            if (selectedUris.isEmpty()) isSelectionMode = false
-                                        } else {
-                                            selectedUris.add(item.uri)
-                                        }
-                                    }
-                                    lastSelectedIndex = currentIndex
-                                }
-                            )
-                    ) {
-                        if (item.uri.startsWith("mock://")) {
-                            Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Image, contentDescription = null, tint = Color.White)
+                            ) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(item.uri)
+                                        .size(thumbSize)
+                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .bitmapConfig(Bitmap.Config.RGB_565)
+                                        .crossfade(false)
+                                        .decoderFactory(VideoFrameDecoder.Factory())
+                                        .videoFrameMillis(1000)
+                                        .build(),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
                             }
                         } else {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(item.uri)
-                                    .size(thumbSize)
-                                    .apply {
-                                        if (isHighDensity) {
-                                            bitmapConfig(Bitmap.Config.RGB_565)
-                                            crossfade(false)
-                                        } else {
-                                            crossfade(true)
+                            // 通常モード（既存のロジックをベースに最適化）
+                            Box(
+                                modifier = Modifier.fillMaxWidth()
+                                    .then(if (isNormalDensity) Modifier.animateItem() else Modifier)
+                                    .then(if (columnOptions[currentColumnIndex] > 1) Modifier.aspectRatio(1f) else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp)))
+                                    .padding(if (columnOptions[currentColumnIndex] > 1) 1.dp else 0.dp)
+                                    .then(if (columnOptions[currentColumnIndex] in 2..27) Modifier.clip(RoundedCornerShape(2.dp)) else Modifier)
+                                    .then(
+                                        if (highlightUri == item.uri) {
+                                            Modifier.border(2.dp, Color.White, if (columnOptions[currentColumnIndex] > 1) RoundedCornerShape(2.dp) else RoundedCornerShape(12.dp))
+                                        } else Modifier
+                                    )
+                                    .combinedClickable(
+                                        onClick = { 
+                                            if (isSelectionMode) {
+                                                if (selectedUris.contains(item.uri)) {
+                                                    selectedUris.remove(item.uri)
+                                                    if (selectedUris.isEmpty()) {
+                                                        isSelectionMode = false
+                                                        lastSelectedIndex = -1
+                                                    }
+                                                } else {
+                                                    selectedUris.add(item.uri)
+                                                    lastSelectedIndex = filteredList.indexOf(item)
+                                                }
+                                            } else {
+                                                val finalIndex = currentFlatImageList.indexOf(item)
+                                                onImageClick(finalIndex, currentFlatImageList)
+                                                // クリックしたURIを即座に記録
+                                                onPageChangedInViewer(item.uri)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            val currentIndex = filteredList.indexOf(item)
+                                            if (!isSelectionMode) {
+                                                isSelectionMode = true
+                                                selectedUris.add(item.uri)
+                                            } else {
+                                                if (selectedUris.contains(item.uri)) {
+                                                    selectedUris.remove(item.uri)
+                                                    if (selectedUris.isEmpty()) isSelectionMode = false
+                                                } else {
+                                                    selectedUris.add(item.uri)
+                                                }
+                                            }
+                                            lastSelectedIndex = currentIndex
                                         }
+                                    )
+                            ) {
+                                // 最適化: 7列モードなどでは重いデコーダを条件付きで実行
+                                val request = remember(item.uri, thumbSize, isHighDensity) {
+                                    ImageRequest.Builder(context)
+                                        .data(item.uri)
+                                        .size(thumbSize)
+                                        .apply {
+                                            if (isHighDensity) {
+                                                bitmapConfig(Bitmap.Config.RGB_565)
+                                                crossfade(false)
+                                            } else {
+                                                crossfade(true)
+                                            }
+                                        }
+                                        .decoderFactory(VideoFrameDecoder.Factory())
+                                        .videoFrameMillis(1000)
+                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .build()
+                                }
+
+                                AsyncImage(
+                                    model = request,
+                                    contentDescription = null, 
+                                    modifier = Modifier.fillMaxSize(), 
+                                    contentScale = if (columnOptions[currentColumnIndex] > 1) ContentScale.Crop else ContentScale.FillWidth
+                                )
+
+                                val isFavorite = metadataMap[item.uri]?.isFavorite == true
+                                if (isFavorite) {
+                                    Box(modifier = Modifier.fillMaxSize().padding(4.dp), contentAlignment = Alignment.BottomStart) {
+                                        Icon(Icons.Default.Favorite, contentDescription = null, tint = Color.Red, modifier = Modifier.size(if (columnOptions[currentColumnIndex] > 7) 8.dp else 16.dp))
                                     }
-                                    .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                    .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                                    .decoderFactory(VideoFrameDecoder.Factory())
-                                    .videoFrameMillis(1000)
-                                    .build(),
-                                contentDescription = null, 
-                                modifier = Modifier.fillMaxSize(), 
-                                contentScale = if (columnOptions[currentColumnIndex] > 1) ContentScale.Crop else ContentScale.FillWidth
-                            )
-                        }
-
-                            val isFavorite = metadataMap[item.uri]?.isFavorite == true
-                            if (isFavorite && columnOptions[currentColumnIndex] < 28) {
-                                Box(modifier = Modifier.fillMaxSize().padding(4.dp), contentAlignment = Alignment.BottomStart) {
-                                    Icon(Icons.Default.Favorite, contentDescription = null, tint = Color.Red, modifier = Modifier.size(if (columnOptions[currentColumnIndex] > 7) 8.dp else 16.dp))
                                 }
-                            }
 
-                            if (selectedUris.contains(item.uri)) {
-                                Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.3f)), contentAlignment = Alignment.TopEnd) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(4.dp).size(24.dp))
+                                if (selectedUris.contains(item.uri)) {
+                                    Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.3f)), contentAlignment = Alignment.TopEnd) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(4.dp).size(24.dp))
+                                    }
                                 }
-                            }
-                            
-                            val label = when { 
-                                columnOptions[currentColumnIndex] >= 28 -> null
-                                item.isGif -> "GIF"
-                                item.isVideo -> formatDuration(item.duration)
-                                else -> null 
-                            }
-                            if (label != null) {
-                                Surface(color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)) {
-                                    Text(text = label, color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                
+                                val label = when { 
+                                    item.isGif -> "GIF"
+                                    item.isVideo -> formatDuration(item.duration)
+                                    else -> null 
+                                }
+                                if (label != null) {
+                                    Surface(color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)) {
+                                        Text(text = label, color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                    }
                                 }
                             }
                         }
@@ -633,7 +711,17 @@ fun GalleryGridView(
                         Row {
                             TooltipWrapper("すべて選択") { IconButton(onClick = { selectedUris.clear(); selectedUris.addAll(filteredList.map { it.uri }) }) { Icon(Icons.Default.SelectAll, contentDescription = "全選択") } }
                             TooltipWrapper("お気に入りに追加") { IconButton(onClick = { scope.launch { galleryState.repository.bulkUpdateFavorite(selectedUris.toList(), true); isSelectionMode = false; selectedUris.clear() } }) { Icon(Icons.Default.Favorite, contentDescription = "お気に入り") } }
-                            TooltipWrapper("タグ・年齢制限を一括編集") { IconButton(onClick = { showBulkEditDialog = true }) { Icon(Icons.Default.LocalOffer, contentDescription = "一括編集") } }
+                            TooltipWrapper("タグ・年齢制限を一括編集") { 
+                                IconButton(onClick = { 
+                                    if (onBulkEdit != null) {
+                                        onBulkEdit(selectedUris.toList())
+                                        isSelectionMode = false
+                                        selectedUris.clear()
+                                    } else {
+                                        showBulkEditDialog = true 
+                                    }
+                                }) { Icon(Icons.Default.LocalOffer, contentDescription = "一括編集") } 
+                            }
                         }
                     }
                 } else {
@@ -646,7 +734,11 @@ fun GalleryGridView(
         }
 
         if (showBulkEditDialog) {
-            UnifiedMediaEditDialog(uris = selectedUris.toList(), repository = galleryState.repository, onDismiss = { showBulkEditDialog = false; isSelectionMode = false; selectedUris.clear() })
+            UnifiedMediaEditDialog(
+                uris = selectedUris.toList(),
+                repository = galleryState.repository,
+                onDismiss = { showBulkEditDialog = false; isSelectionMode = false; selectedUris.clear() }
+            )
         }
 
         // 高速スクロールバー

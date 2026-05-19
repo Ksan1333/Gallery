@@ -31,7 +31,10 @@ fun FolderGalleryScreen(
     onHideViewer: () -> Unit,
     galleryState: GalleryState,
     onBackToFolders: () -> Unit = {},
-    onStartAnalysis: () -> Unit = {}
+    onStartAnalysis: () -> Unit = {},
+    isSelectionMode: Boolean = false, // 追加: フォルダ選択モード
+    onFolderSelected: (String) -> Unit = {}, // 追加: フォルダ選択時のコールバック
+    onBulkEdit: ((List<String>) -> Unit)? = null // 追加
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -177,13 +180,17 @@ fun FolderGalleryScreen(
                 }.filter { it.count > 0 }.sortedBy { it.title }
 
                 CategoryScreen(
-                    title = "フォルダ",
+                    title = if (isSelectionMode) "移動先フォルダを選択" else "フォルダ",
                     categories = categories,
                     isLoading = isLoading,
                     galleryState = galleryState,
                     onCategoryClick = { 
-                        selectedFolderName = it.id 
-                        isSubCategorySelected = true
+                        if (isSelectionMode) {
+                            onFolderSelected(it.id)
+                        } else {
+                            selectedFolderName = it.id 
+                            isSubCategorySelected = true
+                        }
                     },
                     onShowViewer = onShowViewer,
                     onHideViewer = onHideViewer,
@@ -204,7 +211,8 @@ fun FolderGalleryScreen(
                     },
                     onTabIconClick = { onBackToFolders() },
                     lastViewedUri = lastViewedUri,
-                    onPageChangedInViewer = { lastViewedUri = it }
+                    onPageChangedInViewer = { lastViewedUri = it },
+                    onBulkEdit = onBulkEdit
                 )
             }
             GalleryViewMode.MYLIST -> {

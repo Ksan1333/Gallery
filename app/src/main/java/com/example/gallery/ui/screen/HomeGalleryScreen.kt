@@ -68,7 +68,8 @@ fun HomeGalleryScreen(
     onShowViewer: () -> Unit,
     onHideViewer: () -> Unit,
     galleryState: GalleryState,
-    initialMediaUri: String? = null // 追加
+    initialMediaUri: String? = null,
+    onBulkEdit: ((List<String>) -> Unit)? = null // 追加
 ) {
     val context = LocalContext.current
     val imageList = remember { mutableStateListOf<MediaData>() }
@@ -202,7 +203,8 @@ fun HomeGalleryScreen(
                 title = if (galleryState.isMockMode) "すべて (MOCK)" else "すべて",
                 scrollToUri = if (selectedIndex == null) lastViewedUri else null,
                 isFilterEnabled = true, // ホーム画面では常に有効
-                onPageChangedInViewer = { lastViewedUri = it }
+                onPageChangedInViewer = { lastViewedUri = it },
+                onBulkEdit = onBulkEdit
             )
         }
 

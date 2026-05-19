@@ -88,7 +88,8 @@ class ColorTaggingService(
                         uri = media.uri,
                         isFavorite = existingMetadata?.isFavorite ?: false,
                         colorComposition = json.toString(),
-                        ageRating = finalAgeRating
+                        ageRating = finalAgeRating,
+                        folderName = existingMetadata?.folderName ?: media.folderName
                     )
                 )
             } else {
@@ -99,7 +100,8 @@ class ColorTaggingService(
                     MediaMetadataEntity(
                         uri = media.uri,
                         isFavorite = existingMetadata?.isFavorite ?: false,
-                        colorComposition = "{}" // 空の組成を保存
+                        colorComposition = "{}", // 空の組成を保存
+                        folderName = existingMetadata?.folderName ?: media.folderName
                     )
                 )
             }

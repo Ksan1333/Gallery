@@ -39,6 +39,7 @@ import com.example.gallery.ui.screen.PinterestScreen
 import com.example.gallery.ui.screen.BookScreen
 import com.example.gallery.ui.rememberGalleryState
 import com.example.gallery.ui.component.GalleryBottomNavigationBar
+import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BugReport
@@ -66,6 +67,11 @@ fun AppNavigation() {
     var isBottomBarVisible by rememberSaveable { mutableStateOf(true) }
     
     val galleryState = rememberGalleryState(context)
+
+    // フォルダ選択用の状態
+    var isSelectingFolderForMove by rememberSaveable { mutableStateOf(false) }
+    var selectedFolderForMove by rememberSaveable { mutableStateOf("") }
+    var urisToMove by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
 
     // DBクリーンアップ: タグテーブルに含まれる年齢制限ラベルを削除
     LaunchedEffect(Unit) {
@@ -105,7 +111,11 @@ fun AppNavigation() {
                 HomeGalleryScreen(
                     onShowViewer = { isBottomBarVisible = false },
                     onHideViewer = { isBottomBarVisible = true },
-                    galleryState = galleryState
+                    galleryState = galleryState,
+                    onBulkEdit = { uris ->
+                        urisToMove = uris
+                        isSelectingFolderForMove = true
+                    }
                 )
             }
             composable("folders") {
@@ -119,7 +129,25 @@ fun AppNavigation() {
                             popUpTo("folders") { inclusive = true } 
                         } 
                     },
-                    onStartAnalysis = { navController.navigate("analysis") }
+                    onStartAnalysis = { navController.navigate("analysis") },
+                    onBulkEdit = { uris ->
+                        urisToMove = uris
+                        isSelectingFolderForMove = true
+                    }
+                )
+            }
+            composable("folders_select") {
+                isBottomBarVisible = false
+                FolderGalleryScreen(
+                    onShowViewer = {},
+                    onHideViewer = {},
+                    galleryState = galleryState,
+                    isSelectionMode = true,
+                    onFolderSelected = { folder ->
+                        selectedFolderForMove = folder
+                        navController.popBackStack()
+                    },
+                    onBackToFolders = { navController.popBackStack() }
                 )
             }
             composable("analysis") {
@@ -142,6 +170,16 @@ fun AppNavigation() {
                 isBottomBarVisible = true
                 BookScreen()
             }
+        }
+
+        if (isSelectingFolderForMove) {
+            UnifiedMediaEditDialog(
+                uris = urisToMove,
+                repository = galleryState.repository,
+                onDismiss = { isSelectingFolderForMove = false; urisToMove = emptyList(); selectedFolderForMove = "" },
+                onSelectFolder = { navController.navigate("folders_select") },
+                initialFolderName = selectedFolderForMove
+            )
         }
 
         if (isBottomBarVisible) {

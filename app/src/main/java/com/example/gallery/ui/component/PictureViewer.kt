@@ -15,12 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlinx.coroutines.withContext
@@ -119,9 +114,13 @@ fun PictureViewer(
     
     val thumbnailListState = rememberLazyListState()
     
-    val scale = remember { Animatable(1f) }
-    val offsetX = remember { Animatable(0f) }
-    val offsetY = remember { Animatable(0f) }
+    // ズーム状態はページごとに管理するため、ここでは削除
+    // val scale = remember { Animatable(1f) }
+    // val offsetX = remember { Animatable(0f) }
+    // val offsetY = remember { Animatable(0f) }
+    
+    // カレントページのズーム状態を親が把握するための状態
+    var isCurrentPageZoomed by remember { mutableStateOf(false) }
     
     // 回転時の位置維持と、おすすめからのジャンプを両立させるための仕組み
     var lastInitialPage by rememberSaveable { mutableIntStateOf(initialPage) }
@@ -208,21 +207,20 @@ fun PictureViewer(
     LaunchedEffect(pagerState.currentPage) {
         Log.d("PictureViewer", "Page changed to: ${pagerState.currentPage}")
         onPageSelected?.invoke(pagerState.currentPage)
-        scale.snapTo(1f)
-        offsetX.snapTo(0f)
-        offsetY.snapTo(0f)
+        // scale.snapTo(1f) // ページごとに管理するため削除
+        // offsetX.snapTo(0f)
+        // offsetY.snapTo(0f)
         thumbnailListState.scrollToItem((pagerState.currentPage - 4).coerceAtLeast(0))
         isFrameSteppingVisible = false
         gifFrames = emptyList()
         currentFrameIndex = 0
         isRecommendationVisible = false
-        recommendationDragOffset.snapTo(0f)
+        // recommendationDragOffset.snapTo(0f) // ここは残す（UI用）
     }
 
     val onShowSimilarity: (MediaData) -> Unit = { mediaItem ->
         isRecommendationVisible = true
         scope.launch { recommendationDragOffset.snapTo(0f) }
-        scope.launch { offsetY.animateTo(0f) }
     }
 
     // おすすめ情報を非同期でロードする
@@ -275,21 +273,44 @@ fun PictureViewer(
         }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        // ページ移動時にズームをリセット
-        scale.snapTo(1f)
-        offsetX.snapTo(0f)
-        offsetY.snapTo(0f)
-        onPageSelected?.invoke(pagerState.currentPage)
-    }
+    // LaunchedEffect(pagerState.currentPage) {
+    //     // ページ移動時にズームをリセット (各ページ内で管理するため不要)
+    //     scale.snapTo(1f)
+    //     offsetX.snapTo(0f)
+    //     offsetY.snapTo(0f)
+    //     onPageSelected?.invoke(pagerState.currentPage)
+    // }
 
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = (scale.value <= 1.01f || isUiVisible) && !isRecommendationVisible,
+            // ズーム中（等倍以外）はPagerのスクロールを無効化し、画像内移動（パン）を優先させる
+            userScrollEnabled = !isCurrentPageZoomed && !isRecommendationVisible,
+            beyondViewportPageCount = 1 // 前後のページをプリロードして移動をスムーズに
         ) { page ->
             val mediaItem = imageList[page]
+            
+            // 各ページ独自のズーム状態
+            val scale = remember { Animatable(1f) }
+            val offsetX = remember { Animatable(0f) }
+            val offsetY = remember { Animatable(0f) }
+            
+            // おすすめ表示時にオフセットをリセット
+            LaunchedEffect(isRecommendationVisible) {
+                if (isRecommendationVisible) {
+                    offsetY.animateTo(0f)
+                    offsetX.animateTo(0f)
+                    scale.animateTo(1f)
+                }
+            }
+            
+            // 親にズーム状態を通知
+            LaunchedEffect(scale.value, pagerState.currentPage) {
+                if (pagerState.currentPage == page) {
+                    isCurrentPageZoomed = scale.value > 1.01f
+                }
+            }
 
             Box(modifier = Modifier.fillMaxSize()) {
                 if (mediaItem.isVideo) {
@@ -400,22 +421,44 @@ fun PictureViewer(
                                 )
                             }
                             .pointerInput(Unit) {
-                                // 統合されたジェスチャー検出
-                                detectTransformGestures(panZoomLock = false) { centroid, pan, zoom, rotation ->
-                                    val newScale = (scale.value * zoom).coerceIn(0.5f, 5f) // 一時的に0.5まで許可（遊び）
-                                    scope.launch { scale.snapTo(newScale) }
-                                    
-                                    // ズーム中はパン（移動）として処理
-                                    if (newScale > 1.05f) {
-                                        scope.launch {
-                                            offsetX.snapTo(offsetX.value + pan.x * newScale)
-                                            offsetY.snapTo(offsetY.value + pan.y * newScale)
+                                // カスタムジェスチャー検出: ズーム中のみイベントを消費し、非ズーム時はPagerに流す
+                                awaitEachGesture {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        
+                                        val currentScale = scale.value
+                                        val isZoomed = currentScale > 1.01f
+                                        
+                                        // 2本指操作（ピンチ）または拡大中（パン）なら、このレイヤーでイベントを消費
+                                        if (event.changes.size >= 2 || isZoomed) {
+                                            // ズーム/パンの適用
+                                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                                val newScale = (currentScale * zoomChange).coerceIn(0.5f, 5f)
+                                                scope.launch {
+                                                    scale.snapTo(newScale)
+                                                    // ズームアウト時は移動量を減らす
+                                                    val panFactor = if (newScale < 1f) 0.5f else 1f
+                                                    offsetX.snapTo(offsetX.value + panChange.x * newScale * panFactor)
+                                                    offsetY.snapTo(offsetY.value + panChange.y * newScale * panFactor)
+                                                }
+                                            }
+                                            
+                                            // イベントを消費してPagerに渡さない
+                                            event.changes.forEach { if (it.pressed) it.consume() }
+                                        } else {
+                                            // 非ズーム時かつ1本指操作
+                                            // 垂直方向の移動が支配的な場合のみ消費（詳細表示などのため）
+                                            if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 2.0f) {
+                                                scope.launch { offsetY.snapTo(offsetY.value + panChange.y) }
+                                                event.changes.forEach { if (it.pressed) it.consume() }
+                                            }
+                                            // 横方向の移動（スワイプ）は消費せず、Pagerに任せる
                                         }
-                                    } else {
-                                        // 非ズーム時のみ、垂直方向の移動を offsetY に蓄積（終了判定用）
-                                        if (Math.abs(pan.y) > Math.abs(pan.x) * 1.5f) {
-                                            scope.launch { offsetY.snapTo(offsetY.value + pan.y) }
-                                        }
+                                        
+                                        // 全ての指が離れたらこのジェスチャーシーケンスを終了
+                                        if (event.changes.all { !it.pressed }) break
                                     }
                                 }
                             }
@@ -456,7 +499,7 @@ fun PictureViewer(
             CommonFloatingCloseButton(onClick = { onClickedClose() }, modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.statusBars).padding(top = 16.dp, end = 16.dp))
         }
 
-        if (isUiVisible && scale.value <= 1.01f && !isRecommendationVisible) {
+        if (isUiVisible && !isCurrentPageZoomed && !isRecommendationVisible) {
             val currentMedia = imageList[pagerState.currentPage]
             var showTagDialog by remember { mutableStateOf(false) }
 
@@ -1129,12 +1172,25 @@ fun VideoPlayer(
     }
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
     Box(modifier = modifier.background(Color.Black).graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY }
-        .pointerInput(Unit) {
-            detectTransformGestures(panZoomLock = false) { _, pan, zoom, _ ->
-                onZoomPan(zoom, pan)
-                // 非ズーム時で、垂直移動が勝る場合は詳細表示などのためのドラッグとして通知
-                if (scale <= 1.05f && Math.abs(pan.y) > Math.abs(pan.x) * 1.5f) {
-                    onVerticalDrag(pan.y)
+        .pointerInput(scale) {
+            awaitEachGesture {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val zoomChange = event.calculateZoom()
+                    val panChange = event.calculatePan()
+                    
+                    val isZoomed = scale > 1.01f
+                    
+                    if (event.changes.size >= 2 || isZoomed) {
+                        onZoomPan(zoomChange, panChange)
+                        event.changes.forEach { if (it.pressed) it.consume() }
+                    } else {
+                        if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 2.0f) {
+                            onVerticalDrag(panChange.y)
+                            event.changes.forEach { if (it.pressed) it.consume() }
+                        }
+                    }
+                    if (event.changes.all { !it.pressed }) break
                 }
             }
         }
@@ -1163,12 +1219,25 @@ fun GifPlayer(
     val context = LocalContext.current
     val painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(uri).build(), imageLoader = imageLoader)
     Box(modifier = modifier.background(Color.Black).graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY }
-        .pointerInput(Unit) {
-            detectTransformGestures(panZoomLock = false) { _, pan, zoom, _ ->
-                onZoomPan(zoom, pan)
-                // 非ズーム時で、垂直移動が勝る場合は詳細表示などのためのドラッグとして通知
-                if (scale <= 1.05f && Math.abs(pan.y) > Math.abs(pan.x) * 1.5f) {
-                    onVerticalDrag(pan.y)
+        .pointerInput(scale) {
+            awaitEachGesture {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val zoomChange = event.calculateZoom()
+                    val panChange = event.calculatePan()
+                    
+                    val isZoomed = scale > 1.01f
+                    
+                    if (event.changes.size >= 2 || isZoomed) {
+                        onZoomPan(zoomChange, panChange)
+                        event.changes.forEach { if (it.pressed) it.consume() }
+                    } else {
+                        if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 2.0f) {
+                            onVerticalDrag(panChange.y)
+                            event.changes.forEach { if (it.pressed) it.consume() }
+                        }
+                    }
+                    if (event.changes.all { !it.pressed }) break
                 }
             }
         }
