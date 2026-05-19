@@ -52,6 +52,17 @@ class GalleryState(context: Context) {
     var isAscending by mutableStateOf(false)
     var videoSeekInterval by mutableIntStateOf(10) // デフォルト10秒
 
+    // 一括編集用の状態
+    var urisToMove by mutableStateOf<List<String>>(emptyList())
+    var selectedFolderForMove by mutableStateOf("")
+
+    var refreshTrigger by mutableIntStateOf(0)
+        private set
+
+    fun refresh() {
+        refreshTrigger++
+    }
+
     val currentColumnIndex: Int = 4 // 3列
 }
 

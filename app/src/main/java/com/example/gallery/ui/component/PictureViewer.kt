@@ -101,7 +101,9 @@ fun PictureViewer(
     modifier: Modifier = Modifier,
     galleryState: GalleryState? = null,
     onNavigateToMedia: ((String) -> Unit)? = null, // 外部への移動通知
-    onPageSelected: ((Int) -> Unit)? = null // ページが切り替わったことを親に通知
+    onPageSelected: ((Int) -> Unit)? = null, // ページが切り替わったことを親に通知
+    showDeleteButton: Boolean = true, // 追加: 削除ボタンを表示するかどうか
+    isTrashMode: Boolean = false // 追加: ゴミ箱モード
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -143,6 +145,9 @@ fun PictureViewer(
     var taggedMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var randomMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var isAnalyzingCurrentMedia by remember { mutableStateOf(false) }
+
+    val deletedUris by (galleryState?.repository?.mediaDao?.getDeletedMetadataFlow() ?: kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(initial = emptyList())
+    val deletedUriSet = remember(deletedUris) { deletedUris.map { it.uri }.toSet() }
 
     var isFrameSteppingVisible by remember { mutableStateOf(false) }
     var gifFrames by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
@@ -224,8 +229,8 @@ fun PictureViewer(
     }
 
     // おすすめ情報を非同期でロードする
-    LaunchedEffect(isRecommendationVisible, pagerState.currentPage) {
-        if (isRecommendationVisible) {
+    LaunchedEffect(isRecommendationVisible, pagerState.currentPage, imageList.size) {
+        if (isRecommendationVisible && pagerState.currentPage in imageList.indices) {
             val mediaItem = imageList[pagerState.currentPage]
             
             var meta = galleryState?.repository?.getMetadata(mediaItem.uri)
@@ -454,13 +459,30 @@ fun PictureViewer(
                                                 scope.launch { offsetY.snapTo(offsetY.value + panChange.y) }
                                                 event.changes.forEach { if (it.pressed) it.consume() }
                                             }
-                                            // 横方向の移動（スワイプ）は消費せず、Pagerに任せる
+                                            // 横方向の移動（スワイプ）やタップは消費せず、Pagerやタップ検出に任せる
                                         }
                                         
                                         // 全ての指が離れたらこのジェスチャーシーケンスを終了
                                         if (event.changes.all { !it.pressed }) break
                                     }
                                 }
+                            }
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { onToggle() },
+                                    onDoubleTap = {
+                                        val targetScale = if (scale.value > 1.1f) 1f else 2.5f
+                                        scope.launch {
+                                            if (targetScale == 1f) {
+                                                launch { scale.animateTo(1f) }
+                                                launch { offsetX.animateTo(0f) }
+                                                launch { offsetY.animateTo(0f) }
+                                            } else {
+                                                scale.animateTo(2.5f)
+                                            }
+                                        }
+                                    }
+                                )
                             }
                             .pointerInput(Unit) {
                                 awaitPointerEventScope {
@@ -500,8 +522,9 @@ fun PictureViewer(
         }
 
         if (isUiVisible && !isCurrentPageZoomed && !isRecommendationVisible) {
-            val currentMedia = imageList[pagerState.currentPage]
-            var showTagDialog by remember { mutableStateOf(false) }
+            val currentMedia = imageList.getOrNull(pagerState.currentPage)
+            if (currentMedia != null) {
+                var showTagDialog by remember { mutableStateOf(false) }
 
             // ダイアログ表示中もシステムバーを隠し続けるための副作用
             LaunchedEffect(showTagDialog) {
@@ -672,16 +695,18 @@ fun PictureViewer(
                         enabled = !isStaticImage, 
                         contentColor = if (isStaticImage) Color.Gray.copy(alpha = 0.5f) else Color.White,
                         onClick = { 
-                            val currentMediaInner = imageList[pagerState.currentPage]
-                            if (currentMediaInner.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) {
-                                saveBitmapToScreenshots(context, gifFrames[currentFrameIndex]) 
-                            } else if (currentMediaInner.isVideo) {
-                                captureVideoFrame(context, currentMediaInner.uri, videoPosition) { bitmap ->
-                                    if (bitmap != null) saveBitmapToScreenshots(context, bitmap)
-                                    else Toast.makeText(context, "動画フレームの取得に失敗しました", Toast.LENGTH_SHORT).show()
+                            val currentMediaInner = imageList.getOrNull(pagerState.currentPage)
+                            if (currentMediaInner != null) {
+                                if (currentMediaInner.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) {
+                                    saveBitmapToScreenshots(context, gifFrames[currentFrameIndex]) 
+                                } else if (currentMediaInner.isVideo) {
+                                    captureVideoFrame(context, currentMediaInner.uri, videoPosition) { bitmap ->
+                                        if (bitmap != null) saveBitmapToScreenshots(context, bitmap)
+                                        else Toast.makeText(context, "動画フレームの取得に失敗しました", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else if (currentMediaInner.isGif) {
+                                    Toast.makeText(context, "GIFはコマ送りモードで保存してください", Toast.LENGTH_SHORT).show()
                                 }
-                            } else if (currentMediaInner.isGif) {
-                                Toast.makeText(context, "GIFはコマ送りモードで保存してください", Toast.LENGTH_SHORT).show()
                             }
                         }
                     )
@@ -721,10 +746,45 @@ fun PictureViewer(
                             contentColor = if (isFavorite) Color.Red else Color.White
                         )
                     }
+                    galleryState?.let { state ->
+                        if (showDeleteButton) {
+                            CommonFloatingActionButton(
+                                icon = Icons.Default.Delete,
+                                tooltipDescription = "ゴミ箱へ移動",
+                                size = 32.dp,
+                                iconSize = 18.dp,
+                                onClick = {
+                                    scope.launch {
+                                        state.repository.moveToTrash(listOf(currentMedia.uri))
+                                        Toast.makeText(context, "ゴミ箱へ移動しました", Toast.LENGTH_SHORT).show()
+                                        onClickedClose()
+                                    }
+                                },
+                                contentColor = Color.White
+                            )
+                        } else {
+                            // ゴミ箱画面など、削除ボタンを表示しない代わりに復元ボタンを置くことも可能
+                            CommonFloatingActionButton(
+                                icon = Icons.Default.Restore,
+                                tooltipDescription = "復元",
+                                size = 32.dp,
+                                iconSize = 18.dp,
+                                onClick = {
+                                    scope.launch {
+                                        state.repository.restoreFromTrash(listOf(currentMedia.uri))
+                                        Toast.makeText(context, "復元しました", Toast.LENGTH_SHORT).show()
+                                        onClickedClose()
+                                    }
+                                },
+                                contentColor = Color.White
+                            )
+                        }
+                    }
                 }
             }
             if (showTagDialog) { galleryState?.let { state -> UnifiedMediaEditDialog(uris = listOf(currentMedia.uri), repository = state.repository, onDismiss = { showTagDialog = false }) } }
         }
+    }
 
         AnimatedVisibility(
             visible = isRecommendationVisible,
@@ -784,8 +844,9 @@ fun PictureViewer(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        val currentMedia = imageList[pagerState.currentPage]
-                        if (!currentMedia.isVideo) {
+                        val currentMedia = imageList.getOrNull(pagerState.currentPage)
+                        if (currentMedia != null) {
+                            if (!currentMedia.isVideo && !isTrashMode) {
                             item {
                                 Text("似た色の画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                             }
@@ -819,7 +880,12 @@ fun PictureViewer(
                                 } else {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         itemsIndexed(recommendedMediaWithScores) { _, similarity ->
-                                            RecommendationCard(similarity.media, "${(similarity.similarityScore * 100).toInt()}%", imageLoader) {
+                                            RecommendationCard(
+                                                mediaItem = similarity.media,
+                                                score = "${(similarity.similarityScore * 100).toInt()}%",
+                                                imageLoader = imageLoader,
+                                                isDeleted = deletedUriSet.contains(similarity.media.uri)
+                                            ) {
                                                 isRecommendationVisible = false
                                                 val index = imageList.indexOfFirst { it.uri == similarity.media.uri }
                                                 if (index != -1) {
@@ -833,7 +899,7 @@ fun PictureViewer(
                                     }
                                 }
                             }
-                        } else {
+                        } else if (!isTrashMode) {
                             // 動画の場合: 「他の動画」を表示
                             item {
                                 Text("他の動画", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
@@ -845,7 +911,12 @@ fun PictureViewer(
                                 } else {
                                     LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         itemsIndexed(otherVideos) { _, item ->
-                                            RecommendationCard(item, null, imageLoader) {
+                                            RecommendationCard(
+                                                mediaItem = item,
+                                                score = null,
+                                                imageLoader = imageLoader,
+                                                isDeleted = deletedUriSet.contains(item.uri)
+                                            ) {
                                                 isRecommendationVisible = false
                                                 val index = imageList.indexOfFirst { it.uri == item.uri }
                                                 if (index != -1) { scope.launch { pagerState.scrollToPage(index) } } else { onNavigateToMedia?.invoke(item.uri) }
@@ -865,7 +936,6 @@ fun PictureViewer(
                                     Text("タグ", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                                     
                                     // 年齢制限バッジの追加
-                                    val currentMedia = imageList[pagerState.currentPage]
                                     var currentAgeRating by remember(currentMedia.uri) { mutableStateOf("SFW") }
                                     LaunchedEffect(currentMedia.uri) {
                                         currentAgeRating = galleryState?.repository?.getMetadata(currentMedia.uri)?.ageRating ?: "SFW"
@@ -881,7 +951,7 @@ fun PictureViewer(
                                         shape = RoundedCornerShape(4.dp)
                                     ) {
                                         Text(
-                                            text = currentAgeRating,
+                                            text = if (isTrashMode) "$currentAgeRating ゴミ" else currentAgeRating,
                                             color = if (currentAgeRating == "R15") Color.Black else Color.White,
                                             fontSize = 10.sp,
                                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
@@ -892,15 +962,17 @@ fun PictureViewer(
                                 var showTagAddDialog by remember { mutableStateOf(false) }
                                 FlowRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     normalTags.forEach { tag -> Surface(color = Color.DarkGray, shape = RoundedCornerShape(16.dp)) { Text(text = tag, color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) } }
-                                    IconButton(onClick = { showTagAddDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp)) }
+                                    if (!isTrashMode) {
+                                        IconButton(onClick = { showTagAddDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp)) }
+                                    }
                                 }
                                 if (showTagAddDialog && galleryState != null) {
-                                        UnifiedMediaEditDialog(uris = listOf(imageList[pagerState.currentPage].uri), repository = galleryState.repository, onDismiss = { 
+                                        UnifiedMediaEditDialog(uris = listOf(currentMedia.uri), repository = galleryState.repository, onDismiss = { 
                                         showTagAddDialog = false
                                         scope.launch { 
-                                            val tags = galleryState.repository.getTagsForMedia(imageList[pagerState.currentPage].uri).first()
+                                            val tags = galleryState.repository.getTagsForMedia(currentMedia.uri).first()
                                             currentMediaTags = tags
-                                            val metaInner = galleryState.repository.getMetadata(imageList[pagerState.currentPage].uri)
+                                            val metaInner = galleryState.repository.getMetadata(currentMedia.uri)
                                             val rating = metaInner?.ageRating ?: "SFW"
                                             if (tags.isNotEmpty()) {
                                                 val normalTagsInner = tags.filter { !it.endsWith("系") }
@@ -914,34 +986,86 @@ fun PictureViewer(
                             }
                         }
                         item {
-                            if (taggedMediaList.isEmpty()) { Text("タグ付き画像がありません", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) } else {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    itemsIndexed(taggedMediaList.filter { it.uri != imageList[pagerState.currentPage].uri }) { _, item ->
-                                        RecommendationCard(item, null, imageLoader) {
-                                            isRecommendationVisible = false
-                                            val index = imageList.indexOfFirst { it.uri == item.uri }
-                                            if (index != -1) { scope.launch { pagerState.scrollToPage(index) } } else { onNavigateToMedia?.invoke(item.uri) }
+                            if (!isTrashMode) {
+                                if (taggedMediaList.isEmpty()) {
+                                    Text(
+                                        "タグ付き画像がありません",
+                                        color = Color.Gray,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                } else {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        itemsIndexed(taggedMediaList.filter { it.uri != currentMedia.uri }) { _, item ->
+                                            RecommendationCard(
+                                                mediaItem = item,
+                                                score = null,
+                                                imageLoader = imageLoader,
+                                                isDeleted = deletedUriSet.contains(item.uri)
+                                            ) {
+                                                isRecommendationVisible = false
+                                                val index =
+                                                    imageList.indexOfFirst { it.uri == item.uri }
+                                                if (index != -1) {
+                                                    scope.launch { pagerState.scrollToPage(index) }
+                                                } else {
+                                                    onNavigateToMedia?.invoke(item.uri)
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                        item { Text("ランダムな画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                        item {
-                            if (randomMediaList.isEmpty()) { Text("読込中...", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    itemsIndexed(randomMediaList) { _, item ->
-                                        RecommendationCard(item, null, imageLoader) {
-                                            isRecommendationVisible = false
-                                            val index = imageList.indexOfFirst { it.uri == item.uri }
-                                            if (index != -1) { scope.launch { pagerState.scrollToPage(index) } } else { onNavigateToMedia?.invoke(item.uri) }
+                        if (!isTrashMode) {
+                            item {
+                                Text(
+                                    "ランダムな画像",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                            }
+                            item {
+                                if (randomMediaList.isEmpty()) {
+                                    Text(
+                                        "読込中...",
+                                        color = Color.Gray,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(16.dp)
+                                    )
+                                } else {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        itemsIndexed(randomMediaList) { _, item ->
+                                            RecommendationCard(
+                                                mediaItem = item,
+                                                score = null,
+                                                imageLoader = imageLoader,
+                                                isDeleted = deletedUriSet.contains(item.uri)
+                                            ) {
+                                                isRecommendationVisible = false
+                                                val index =
+                                                    imageList.indexOfFirst { it.uri == item.uri }
+                                                if (index != -1) {
+                                                    scope.launch { pagerState.scrollToPage(index) }
+                                                } else {
+                                                    onNavigateToMedia?.invoke(item.uri)
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                         item {
-                            val media = imageList[pagerState.currentPage]
+                            val media = currentMedia
                             
                             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
                                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 16.dp))
@@ -975,6 +1099,7 @@ fun PictureViewer(
             }
         }
     }
+}
 }
 
 @Composable
@@ -1152,6 +1277,7 @@ fun VideoPlayer(
     onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit, modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val exoPlayer = remember { 
         ExoPlayer.Builder(context).setRenderersFactory(androidx.media3.exoplayer.DefaultRenderersFactory(context).setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)).build().apply { 
             setMediaItem(MediaItem.fromUri(Uri.parse(uri)))
@@ -1172,6 +1298,11 @@ fun VideoPlayer(
     }
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
     Box(modifier = modifier.background(Color.Black).graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY }
+        .pointerInput(Unit) {
+            detectTapGestures(
+                onTap = { onToggleUi() }
+            )
+        }
         .pointerInput(scale) {
             awaitEachGesture {
                 while (true) {
@@ -1217,8 +1348,14 @@ fun GifPlayer(
     imageLoader: ImageLoader, isFrameSteppingVisible: Boolean, gifFrames: List<Bitmap>, currentFrameIndex: Int, modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(uri).build(), imageLoader = imageLoader)
     Box(modifier = modifier.background(Color.Black).graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY }
+        .pointerInput(Unit) {
+            detectTapGestures(
+                onTap = { onToggleUi() }
+            )
+        }
         .pointerInput(scale) {
             awaitEachGesture {
                 while (true) {
@@ -1261,11 +1398,38 @@ fun GifPlayer(
 }
 
 @Composable
-fun RecommendationCard(mediaItem: MediaData, score: String?, imageLoader: ImageLoader, onClick: () -> Unit) {
+fun RecommendationCard(
+    mediaItem: MediaData,
+    score: String?,
+    imageLoader: ImageLoader,
+    isDeleted: Boolean = false,
+    onClick: () -> Unit
+) {
     Box(modifier = Modifier.size(110.dp).clip(RoundedCornerShape(8.dp)).clickable { onClick() }) {
         Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(LocalContext.current).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader),
             contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        if (score != null) { Box(modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text(score, color = Color.White, fontSize = 10.sp) } }
+        
+        if (score != null) { 
+            Box(modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp)) { 
+                Text(score, color = Color.White, fontSize = 10.sp) 
+            } 
+        }
+        
+        if (isDeleted) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "削除済み",
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
     }
 }
 

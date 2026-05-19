@@ -1,7 +1,10 @@
 package com.example.gallery.data.repository
 
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
@@ -11,9 +14,11 @@ import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
 import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.AgeRatingFilter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -81,13 +86,18 @@ class MediaRepository(
     private val cacheMutex = Mutex()
 
     suspend fun getAllMedia(forceRefresh: Boolean = false): List<MediaData> {
+        return getAllMediaFiltered(forceRefresh = forceRefresh, includeDeleted = false)
+    }
+
+    private suspend fun getAllMediaFiltered(forceRefresh: Boolean = false, includeDeleted: Boolean = false): List<MediaData> {
         if (galleryState?.isMockMode == true) {
             return mockMediaList
         }
         
         cacheMutex.withLock {
             val now = System.currentTimeMillis()
-            if (!forceRefresh && cachedMediaList != null && now - lastCacheTime < 5000) {
+            // フィルタ条件が変わる可能性があるため、includeDeleted が false の場合のみキャッシュを利用
+            if (!forceRefresh && !includeDeleted && cachedMediaList != null && now - lastCacheTime < 5000) {
                 return cachedMediaList!!
             }
 
@@ -105,7 +115,7 @@ class MediaRepository(
             val mediaList = mutableListOf<MediaData>()
             val projection = arrayOf(
                 MediaStore.MediaColumns._ID,
-                MediaStore.MediaColumns.DATA, // 常に実際のパスを取得
+                MediaStore.MediaColumns.DATA,
                 MediaStore.MediaColumns.DATE_ADDED,
                 MediaStore.MediaColumns.MIME_TYPE,
                 MediaStore.MediaColumns.DURATION,
@@ -116,7 +126,6 @@ class MediaRepository(
             )
             val sortOrder = "${MediaStore.MediaColumns.DATE_ADDED} DESC"
 
-            // 全てのボリューム（内部ストレージ、SDカードなど）をスキャン
             val volumeNames = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.getExternalVolumeNames(context)
             } else {
@@ -134,7 +143,7 @@ class MediaRepository(
                     try {
                         context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
                             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                            val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA) // DATAカラムを追加
+                            val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
                             val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
                             val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
@@ -156,9 +165,6 @@ class MediaRepository(
                                 val folderName = if (path != null) File(path).parentFile?.name ?: "Unknown" else "Unknown"
                                 
                                 val contentUri = ContentUris.withAppendedId(collection, id).toString()
-                                
-                                // メタデータからキャッシュされた情報を取得（もしあれば）
-                                // repository レベルでのキャッシュは getAllMedia の mutex 内で完結させる
                                 mediaList.add(MediaData(contentUri, date, mime, duration, width, height, size, name, folderName))
                             }
                         }
@@ -167,11 +173,71 @@ class MediaRepository(
                     }
                 }
             }
-            // 重複排除（同じファイルが複数のコレクションから出る場合があるため）
+            
             val sorted = mediaList.distinctBy { it.uri }.sortedByDescending { it.dateAdded }
-            cachedMediaList = sorted
-            lastCacheTime = now
-            return sorted
+            val deletedUris = mediaDao.getDeletedMetadataFlow().first().map { it.uri }.toSet()
+            
+            val filtered = if (includeDeleted) {
+                sorted.filter { it.uri in deletedUris }
+            } else {
+                sorted.filter { it.uri !in deletedUris }
+            }
+
+            if (!includeDeleted) {
+                cachedMediaList = filtered
+                lastCacheTime = now
+            }
+            return filtered
+        }
+    }
+
+    suspend fun moveToTrash(uris: List<String>) {
+        uris.forEach { uri ->
+            val current = getMetadata(uri)
+            mediaDao.insertMetadata(
+                MediaMetadataEntity(
+                    uri = uri,
+                    isFavorite = current?.isFavorite ?: false,
+                    colorComposition = current?.colorComposition,
+                    ageRating = current?.ageRating ?: "SFW",
+                    isAiAnalyzed = current?.isAiAnalyzed ?: false,
+                    folderName = current?.folderName ?: "",
+                    isDeleted = true,
+                    deletedDate = System.currentTimeMillis()
+                )
+            )
+        }
+        cachedMediaList = null
+        galleryState?.refresh()
+    }
+
+    suspend fun restoreFromTrash(uris: List<String>) {
+        uris.forEach { uri ->
+            val current = getMetadata(uri)
+            mediaDao.insertMetadata(
+                MediaMetadataEntity(
+                    uri = uri,
+                    isFavorite = current?.isFavorite ?: false,
+                    colorComposition = current?.colorComposition,
+                    ageRating = current?.ageRating ?: "SFW",
+                    isAiAnalyzed = current?.isAiAnalyzed ?: false,
+                    folderName = current?.folderName ?: "",
+                    isDeleted = false,
+                    deletedDate = null
+                )
+            )
+        }
+        cachedMediaList = null
+        galleryState?.refresh()
+    }
+
+    fun getTrashMedia(): Flow<List<MediaData>> {
+        return mediaDao.getDeletedMetadataFlow().map { metadataList ->
+            val deletedUris = metadataList.map { it.uri }.toSet()
+            if (deletedUris.isEmpty()) return@map emptyList<MediaData>()
+            
+            val allMedia = getAllMediaFiltered(forceRefresh = true, includeDeleted = true)
+            allMedia.filter { it.uri in deletedUris }
         }
     }
 
@@ -226,6 +292,115 @@ class MediaRepository(
         uris.forEach { uri ->
             tags.forEach { tag ->
                 mediaDao.insertTag(TagEntity(uri, tag))
+            }
+        }
+    }
+
+    suspend fun moveMediaToFolder(uris: List<String>, targetFolder: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            var totalSuccess = 0
+            val movedPaths = mutableListOf<String>()
+
+            uris.forEach { uriString ->
+                try {
+                    val uri = Uri.parse(uriString)
+                    var success = false
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        // Android 10+ (API 29+)
+                        val relativePath = if (targetFolder.equals("DCIM", ignoreCase = true)) "DCIM/" else "DCIM/$targetFolder/"
+                        
+                        // 1. IS_PENDINGを1に設定
+                        val pendingValues = ContentValues().apply {
+                            put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
+                        context.contentResolver.update(uri, pendingValues, null, null)
+
+                        // 2. フォルダ移動 (RELATIVE_PATH)
+                        val moveValues = ContentValues().apply {
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                            put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        }
+                        
+                        val rows = context.contentResolver.update(uri, moveValues, null, null)
+                        if (rows > 0) {
+                            success = true
+                            Log.d("MediaRepository", "Moved via RELATIVE_PATH: $uriString -> $relativePath")
+                        } else {
+                            Log.e("MediaRepository", "Failed to move via RELATIVE_PATH: $uriString")
+                        }
+                    } else {
+                        // API 28以前
+                        val cursor = context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
+                        cursor?.use {
+                            if (it.moveToFirst()) {
+                                val oldPath = it.getString(0)
+                                val oldFile = File(oldPath)
+                                val dcim = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM)
+                                val targetDir = File(dcim, targetFolder)
+                                if (!targetDir.exists()) targetDir.mkdirs()
+                                val newFile = File(targetDir, oldFile.name)
+                                
+                                if (oldFile.renameTo(newFile)) {
+                                    val values = ContentValues().apply {
+                                        put(MediaStore.MediaColumns.DATA, newFile.absolutePath)
+                                    }
+                                    context.contentResolver.update(uri, values, null, null)
+                                    success = true
+                                    movedPaths.add(newFile.absolutePath)
+                                    Log.d("MediaRepository", "Moved via renameTo: $oldPath -> ${newFile.absolutePath}")
+                                }
+                            }
+                        }
+                    }
+
+                    if (success) {
+                        totalSuccess++
+                        // 成功した場合のみメタデータを更新
+                        val current = getMetadata(uriString)
+                        mediaDao.insertMetadata(
+                            com.example.gallery.data.local.entity.MediaMetadataEntity(
+                                uri = uriString,
+                                isFavorite = current?.isFavorite ?: false,
+                                colorComposition = current?.colorComposition,
+                                ageRating = current?.ageRating ?: "SFW",
+                                isAiAnalyzed = current?.isAiAnalyzed ?: false,
+                                folderName = targetFolder
+                            )
+                        )
+                        
+                        // 新しいパスを取得してスキャン
+                        context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) movedPaths.add(cursor.getString(0))
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MediaRepository", "Error moving media: $uriString", e)
+                }
+            }
+
+            // メディアスキャナーに通知
+            if (movedPaths.isNotEmpty()) {
+                MediaScannerConnection.scanFile(context, movedPaths.toTypedArray(), null, null)
+            }
+
+            cachedMediaList = null
+            totalSuccess > 0
+        }
+    }
+
+    suspend fun createFolderUnderDCIM(folderName: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val dcim = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM)
+                val newFolder = File(dcim, folderName)
+                if (!newFolder.exists()) {
+                    newFolder.mkdirs()
+                }
+                true
+            } catch (e: Exception) {
+                Log.e("MediaRepository", "Error creating folder: $folderName", e)
+                false
             }
         }
     }
@@ -419,6 +594,77 @@ class MediaRepository(
             return kotlinx.coroutines.flow.flowOf(mockMetadataMap.values.toList())
         }
         return mediaDao.getAllMetadataFlow()
+    }
+
+    // フォルダグループ関連
+    fun getAllFolderGroups(): Flow<List<com.example.gallery.data.local.entity.FolderGroupEntity>> = mediaDao.getAllFolderGroups()
+    fun getAllFolderGroupMembers(): Flow<List<com.example.gallery.data.local.entity.FolderGroupMemberEntity>> = mediaDao.getAllFolderGroupMembers()
+
+    suspend fun createFolderGroup(name: String) {
+        mediaDao.insertFolderGroup(com.example.gallery.data.local.entity.FolderGroupEntity(name))
+    }
+
+    suspend fun deleteFolderGroup(name: String) {
+        mediaDao.deleteFolderGroupMembers(name)
+        mediaDao.deleteFolderGroup(name)
+    }
+
+    suspend fun addFolderToGroup(folderName: String, groupName: String) {
+        // 無限ループ（循環参照）を防ぐチェック
+        if (folderName == "group:$groupName") return
+        
+        // 移動対象がグループの場合、そのグループの中に移動先グループが含まれていないかチェックが必要
+        // 簡易的に：移動先グループが現在「移動対象」の中に属していないことを保証する
+        // 今回は1階層の解除を確実に行う
+        if (folderName.startsWith("group:")) {
+            val targetAsChildId = "group:$groupName"
+            // もし移動先グループが、移動しようとしているグループのメンバーなら解除する
+            val movingGroupName = folderName.removePrefix("group:")
+            val members = mediaDao.getAllFolderGroupMembers().first()
+            if (members.any { it.groupName == movingGroupName && it.folderName == targetAsChildId }) {
+                mediaDao.removeFolderFromAllGroups(targetAsChildId)
+            }
+        }
+
+        // 一旦既存のグループ設定を解除（1フォルダ1グループ想定）
+        mediaDao.removeFolderFromAllGroups(folderName)
+        mediaDao.insertFolderGroupMember(com.example.gallery.data.local.entity.FolderGroupMemberEntity(groupName, folderName))
+    }
+
+    suspend fun removeFolderFromGroup(folderName: String) {
+        mediaDao.removeFolderFromAllGroups(folderName)
+    }
+
+    // フォルダ順序関連
+    fun getAllFolderOrders(): Flow<List<com.example.gallery.data.local.entity.FolderOrderEntity>> = mediaDao.getAllFolderOrders()
+
+    suspend fun updateFolderOrders(orders: List<com.example.gallery.data.local.entity.FolderOrderEntity>) {
+        orders.forEach { mediaDao.insertFolderOrder(it) }
+    }
+
+    // 管理フォルダ関連
+    fun getAllManagedFolderNames(): Flow<List<String>> = mediaDao.getAllManagedFolderNames()
+
+    suspend fun addManagedFolder(name: String) {
+        mediaDao.insertManagedFolder(com.example.gallery.data.local.entity.ManagedFolderEntity(name))
+    }
+
+    /**
+     * DCIM内の全フォルダ（空のものも含む）をスキャンして名前を返す
+     */
+    fun scanAllFolders(): List<String> {
+        val folders = mutableSetOf<String>()
+        try {
+            val dcim = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM)
+            dcim.listFiles()?.forEach { file ->
+                if (file.isDirectory) {
+                    folders.add(file.name)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MediaRepository", "Error scanning folders", e)
+        }
+        return folders.toList().sorted()
     }
 
     fun getTagsForMedia(uri: String): Flow<List<String>> = mediaDao.getTagsForMedia(uri).map { entities -> entities.map { it.tag } }

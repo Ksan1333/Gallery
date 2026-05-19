@@ -162,54 +162,38 @@ fun GalleryTopControlBar(
         var showSortMenu by remember { mutableStateOf(false) }
         var showSortTooltip by remember { mutableStateOf(false) }
         TooltipWrapper(description = "並び替え", showExternally = showSortTooltip) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = { showSortMenu = true },
-                    onLongClick = { showSortTooltip = true },
-                    modifier = Modifier.size(36.dp),
-                    enabled = isFilterEnabled
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Sort, null, tint = if (isFilterEnabled) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
-                    if (isFilterEnabled) {
-                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                            SortMode.entries.forEach { mode ->
+            IconButton(
+                onClick = { showSortMenu = true },
+                onLongClick = { showSortTooltip = true },
+                modifier = Modifier.size(36.dp),
+                enabled = isFilterEnabled
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Sort, null, tint = if (isFilterEnabled) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
+                if (isFilterEnabled) {
+                    DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
+                        SortMode.entries.forEach { mode ->
+                            listOf(true, false).forEach { ascending ->
+                                val isSelected = galleryState.sortMode == mode && galleryState.isAscending == ascending
                                 DropdownMenuItem(
-                                    text = { Text(text = when (mode) { SortMode.DATE_ADDED -> "追加日"; SortMode.SIZE -> "サイズ"; SortMode.NAME -> "名前" }, color = if(galleryState.sortMode == mode) Color.Cyan else Color.White) },
-                                    onClick = { galleryState.sortMode = mode; showSortMenu = false }
+                                    text = {
+                                        Text(
+                                            text = "${when (mode) { SortMode.DATE_ADDED -> "追加日"; SortMode.SIZE -> "サイズ"; SortMode.NAME -> "名前" }}（${if (ascending) "昇順" else "降順"}）",
+                                            color = if (isSelected) Color.Cyan else Color.White
+                                        )
+                                    },
+                                    onClick = {
+                                        galleryState.sortMode = mode
+                                        galleryState.isAscending = ascending
+                                        showSortMenu = false
+                                    }
                                 )
                             }
                         }
                     }
                 }
-                IconButton(
-                    onClick = { galleryState.isAscending = !galleryState.isAscending },
-                    modifier = Modifier.size(32.dp),
-                    enabled = isFilterEnabled
-                ) {
-                    Icon(
-                        imageVector = if (galleryState.isAscending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                        contentDescription = "昇順/降順",
-                        tint = if (isFilterEnabled) Color.White.copy(alpha = 0.7f) else Color.Gray,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
             }
         }
         if (showSortTooltip) { LaunchedEffect(Unit) { delay(2000); showSortTooltip = false } }
-
-
-        Spacer(modifier = Modifier.width(4.dp))
-
-        var showSearchTooltip by remember { mutableStateOf(false) }
-        TooltipWrapper(description = "画像検索", showExternally = showSearchTooltip) {
-            val context = LocalContext.current
-            IconButton(
-                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ascii2d.net/"))) },
-                onLongClick = { showSearchTooltip = true },
-                modifier = Modifier.size(36.dp) // 28dp -> 36dp
-            ) { Icon(Icons.Default.ImageSearch, null, tint = Color.White, modifier = Modifier.size(20.dp)) } // 18dp -> 20dp
-        }
-        if (showSearchTooltip) { LaunchedEffect(Unit) { delay(2000); showSearchTooltip = false } }
     }
 }
 

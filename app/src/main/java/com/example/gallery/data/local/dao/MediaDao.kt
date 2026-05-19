@@ -64,4 +64,52 @@ interface MediaDao {
 
     @Query("SELECT * FROM media_metadata")
     fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>>
+
+    @Query("SELECT * FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
+    fun getDeletedMetadataFlow(): Flow<List<MediaMetadataEntity>>
+
+    @Query("UPDATE media_metadata SET isDeleted = :isDeleted, deletedDate = :deletedDate WHERE uri = :uri")
+    suspend fun setDeleted(uri: String, isDeleted: Boolean, deletedDate: Long?)
+
+    @Query("UPDATE media_metadata SET isDeleted = :isDeleted, deletedDate = :deletedDate WHERE uri IN (:uris)")
+    suspend fun bulkSetDeleted(uris: List<String>, isDeleted: Boolean, deletedDate: Long?)
+
+    // フォルダグループ用
+    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun insertFolderGroup(group: com.example.gallery.data.local.entity.FolderGroupEntity)
+
+    @Query("SELECT * FROM folder_groups")
+    fun getAllFolderGroups(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.FolderGroupEntity>>
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun insertFolderGroupMember(member: com.example.gallery.data.local.entity.FolderGroupMemberEntity)
+
+    @Query("SELECT * FROM folder_group_members")
+    fun getAllFolderGroupMembers(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.FolderGroupMemberEntity>>
+
+    @Query("DELETE FROM folder_group_members WHERE folderName = :folderName")
+    suspend fun removeFolderFromAllGroups(folderName: String)
+
+    @Query("DELETE FROM folder_groups WHERE name = :groupName")
+    suspend fun deleteFolderGroup(groupName: String)
+
+    @Query("DELETE FROM folder_group_members WHERE groupName = :groupName")
+    suspend fun deleteFolderGroupMembers(groupName: String)
+
+    // フォルダ順序用
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFolderOrder(order: com.example.gallery.data.local.entity.FolderOrderEntity)
+
+    @Query("SELECT * FROM folder_order ORDER BY position ASC")
+    fun getAllFolderOrders(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.FolderOrderEntity>>
+
+    @Query("DELETE FROM folder_order WHERE id = :id")
+    suspend fun deleteFolderOrder(id: String)
+
+    // 管理フォルダ用
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertManagedFolder(folder: com.example.gallery.data.local.entity.ManagedFolderEntity)
+
+    @Query("SELECT folderName FROM managed_folders")
+    fun getAllManagedFolderNames(): kotlinx.coroutines.flow.Flow<List<String>>
 }

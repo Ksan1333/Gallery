@@ -75,7 +75,7 @@ fun HomeGalleryScreen(
     val imageList = remember { mutableStateListOf<MediaData>() }
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    val flatListForViewerState = rememberSaveable(saver = MediaData.ListSaver) { 
+    val flatListForViewerState = remember {
         mutableStateOf(emptyList<MediaData>()) 
     }
     var flatListForViewer by flatListForViewerState
@@ -162,7 +162,7 @@ fun HomeGalleryScreen(
             }
         }
 
-    LaunchedEffect(galleryState.isMockMode) {
+    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
         localLoadImages()
     }
 

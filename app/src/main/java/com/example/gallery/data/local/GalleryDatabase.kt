@@ -8,7 +8,18 @@ import com.example.gallery.data.local.dao.MediaDao
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
 
-@Database(entities = [MediaMetadataEntity::class, TagEntity::class], version = 4, exportSchema = false)
+@Database(
+    entities = [
+        MediaMetadataEntity::class, 
+        TagEntity::class, 
+        com.example.gallery.data.local.entity.FolderGroupEntity::class, 
+        com.example.gallery.data.local.entity.FolderGroupMemberEntity::class,
+        com.example.gallery.data.local.entity.FolderOrderEntity::class,
+        com.example.gallery.data.local.entity.ManagedFolderEntity::class
+    ], 
+    version = 8,
+    exportSchema = false
+)
 abstract class GalleryDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
 

@@ -37,6 +37,7 @@ import com.example.gallery.ui.screen.HomeGalleryScreen
 import com.example.gallery.ui.screen.MyListScreen
 import com.example.gallery.ui.screen.PinterestScreen
 import com.example.gallery.ui.screen.BookScreen
+import com.example.gallery.ui.screen.FolderPickerScreen
 import com.example.gallery.ui.rememberGalleryState
 import com.example.gallery.ui.component.GalleryBottomNavigationBar
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
@@ -68,10 +69,7 @@ fun AppNavigation() {
     
     val galleryState = rememberGalleryState(context)
 
-    // フォルダ選択用の状態
-    var isSelectingFolderForMove by rememberSaveable { mutableStateOf(false) }
-    var selectedFolderForMove by rememberSaveable { mutableStateOf("") }
-    var urisToMove by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    // フォルダ選択用の状態はGalleryStateで管理するため、ここでは削除
 
     // DBクリーンアップ: タグテーブルに含まれる年齢制限ラベルを削除
     LaunchedEffect(Unit) {
@@ -113,8 +111,8 @@ fun AppNavigation() {
                     onHideViewer = { isBottomBarVisible = true },
                     galleryState = galleryState,
                     onBulkEdit = { uris ->
-                        urisToMove = uris
-                        isSelectingFolderForMove = true
+                        galleryState.urisToMove = uris
+                        navController.navigate("mass_edit")
                     }
                 )
             }
@@ -131,23 +129,38 @@ fun AppNavigation() {
                     },
                     onStartAnalysis = { navController.navigate("analysis") },
                     onBulkEdit = { uris ->
-                        urisToMove = uris
-                        isSelectingFolderForMove = true
+                        galleryState.urisToMove = uris
+                        navController.navigate("mass_edit")
                     }
+                )
+            }
+            composable("mass_edit") {
+                isBottomBarVisible = false
+                // Pickerから戻ってきたフォルダ名を取得
+                val selectedFolder = it.savedStateHandle.get<String>("selected_folder")
+                if (selectedFolder != null) {
+                    galleryState.selectedFolderForMove = selectedFolder
+                    it.savedStateHandle.remove<String>("selected_folder")
+                }
+                
+                UnifiedMediaEditDialog(
+                    uris = galleryState.urisToMove,
+                    repository = galleryState.repository,
+                    onDismiss = { navController.popBackStack() },
+                    onSelectFolder = { navController.navigate("folders_select") },
+                    initialFolderName = galleryState.selectedFolderForMove
                 )
             }
             composable("folders_select") {
                 isBottomBarVisible = false
-                FolderGalleryScreen(
-                    onShowViewer = {},
-                    onHideViewer = {},
+                FolderPickerScreen(
                     galleryState = galleryState,
-                    isSelectionMode = true,
                     onFolderSelected = { folder ->
-                        selectedFolderForMove = folder
+                        // 戻り先に値を渡す
+                        navController.previousBackStackEntry?.savedStateHandle?.set("selected_folder", folder)
                         navController.popBackStack()
                     },
-                    onBackToFolders = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable("analysis") {
@@ -170,8 +183,17 @@ fun AppNavigation() {
                 isBottomBarVisible = true
                 BookScreen()
             }
+            composable("trash") {
+                isBottomBarVisible = true
+                com.example.gallery.ui.screen.TrashScreen(
+                    onShowViewer = { isBottomBarVisible = false },
+                    onHideViewer = { isBottomBarVisible = true },
+                    galleryState = galleryState
+                )
+            }
         }
 
+        /* 
         if (isSelectingFolderForMove) {
             UnifiedMediaEditDialog(
                 uris = urisToMove,
@@ -181,6 +203,7 @@ fun AppNavigation() {
                 initialFolderName = selectedFolderForMove
             )
         }
+        */
 
         if (isBottomBarVisible) {
             Box(

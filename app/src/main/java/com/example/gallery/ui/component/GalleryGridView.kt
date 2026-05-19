@@ -81,7 +81,9 @@ fun GalleryGridView(
     scrollToUri: String? = null, // 追加：戻り時にスクロールさせたいURI
     isFilterEnabled: Boolean = true, // 追加
     onPageChangedInViewer: (String) -> Unit = {}, // 追加：ビュワー内でのページ変更通知
-    onBulkEdit: ((List<String>) -> Unit)? = null // 追加: 一括編集のリクエスト
+    onBulkEdit: ((List<String>) -> Unit)? = null, // 追加: 一括編集のリクエスト
+    onSelectionChanged: (List<String>) -> Unit = {}, // 追加
+    isTrashMode: Boolean = false // 追加
 ) {
     val columnOptions = listOf(28, 7, 4, 3, 1)
     var currentColumnIndex by remember { mutableIntStateOf(2) } // 初期は4列
@@ -106,6 +108,11 @@ fun GalleryGridView(
     var isZooming by remember { mutableStateOf(false) }
     val selectedUris = remember { mutableStateListOf<String>() }
     var lastSelectedIndex by remember { mutableIntStateOf(-1) }
+
+    // 選択状態の変更を外部に通知
+    LaunchedEffect(selectedUris.toList()) {
+        onSelectionChanged(selectedUris.toList())
+    }
 
     // Lazy Loading 用の変数
     var visibleCount by remember { mutableIntStateOf(60) }
@@ -430,6 +437,20 @@ fun GalleryGridView(
                                     if (isLongPress && firstItemIndex != -1) {
                                         val dragChange = event.changes.first()
                                         val offset = dragChange.position
+                                        
+                                        // 自動スクロール処理
+                                        val viewHeight = size.height
+                                        val scrollThreshold = 100.dp.toPx()
+                                        if (offset.y < scrollThreshold) {
+                                            // 上部に近い場合、上にスクロール
+                                            val scrollAmount = ((scrollThreshold - offset.y) / scrollThreshold * -30f).toInt()
+                                            gridState.dispatchRawDelta(scrollAmount.toFloat())
+                                        } else if (offset.y > viewHeight - scrollThreshold) {
+                                            // 下部に近い場合、下にスクロール
+                                            val scrollAmount = ((offset.y - (viewHeight - scrollThreshold)) / scrollThreshold * 30f).toInt()
+                                            gridState.dispatchRawDelta(scrollAmount.toFloat())
+                                        }
+
                                         val beforePadding = gridState.layoutInfo.beforeContentPadding
                                         gridState.layoutInfo.visibleItemsInfo.find { 
                                             val itemTop = it.offset.y.toFloat() + beforePadding
@@ -710,17 +731,19 @@ fun GalleryGridView(
                         }
                         Row {
                             TooltipWrapper("すべて選択") { IconButton(onClick = { selectedUris.clear(); selectedUris.addAll(filteredList.map { it.uri }) }) { Icon(Icons.Default.SelectAll, contentDescription = "全選択") } }
-                            TooltipWrapper("お気に入りに追加") { IconButton(onClick = { scope.launch { galleryState.repository.bulkUpdateFavorite(selectedUris.toList(), true); isSelectionMode = false; selectedUris.clear() } }) { Icon(Icons.Default.Favorite, contentDescription = "お気に入り") } }
-                            TooltipWrapper("タグ・年齢制限を一括編集") { 
-                                IconButton(onClick = { 
-                                    if (onBulkEdit != null) {
-                                        onBulkEdit(selectedUris.toList())
-                                        isSelectionMode = false
-                                        selectedUris.clear()
-                                    } else {
-                                        showBulkEditDialog = true 
-                                    }
-                                }) { Icon(Icons.Default.LocalOffer, contentDescription = "一括編集") } 
+                            if (!isTrashMode) {
+                                TooltipWrapper("お気に入りに追加") { IconButton(onClick = { scope.launch { galleryState.repository.bulkUpdateFavorite(selectedUris.toList(), true); isSelectionMode = false; selectedUris.clear() } }) { Icon(Icons.Default.Favorite, contentDescription = "お気に入り") } }
+                                TooltipWrapper("タグ・年齢制限を一括編集") { 
+                                    IconButton(onClick = { 
+                                        if (onBulkEdit != null) {
+                                            onBulkEdit(selectedUris.toList())
+                                            isSelectionMode = false
+                                            selectedUris.clear()
+                                        } else {
+                                            showBulkEditDialog = true 
+                                        }
+                                    }) { Icon(Icons.Default.LocalOffer, contentDescription = "一括編集") } 
+                                }
                             }
                         }
                     }

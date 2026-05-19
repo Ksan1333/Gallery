@@ -58,7 +58,8 @@ fun GalleryBottomNavigationBar(
     val items = listOf(
         NavigationItem("home", "すべて", Icons.Default.Home),
         NavigationItem("folders", currentGalleryTitle, currentGalleryIcon, enabled = true),
-        NavigationItem("books", "本", Icons.AutoMirrored.Filled.MenuBook)
+        NavigationItem("books", "本", Icons.AutoMirrored.Filled.MenuBook),
+        NavigationItem("trash", "ゴミ箱", Icons.Default.Delete)
     )
 
     // ジェスチャー状態
