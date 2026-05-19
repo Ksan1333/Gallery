@@ -76,12 +76,19 @@ class ColorTaggingService(
                 }
 
                 val existingMetadata = mediaDao.getMetadata(media.uri)
+                // 既に SFW 以外（手動設定など）になっている場合は上書きしない
+                val finalAgeRating = if (existingMetadata?.ageRating != null && existingMetadata.ageRating != "SFW") {
+                    existingMetadata.ageRating
+                } else {
+                    colorAgeRating
+                }
+
                 mediaDao.insertMetadata(
                     MediaMetadataEntity(
                         uri = media.uri,
                         isFavorite = existingMetadata?.isFavorite ?: false,
                         colorComposition = json.toString(),
-                        ageRating = if (existingMetadata?.ageRating == "SFW" || existingMetadata?.ageRating == null) colorAgeRating else existingMetadata.ageRating
+                        ageRating = finalAgeRating
                     )
                 )
             } else {

@@ -5,16 +5,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.example.gallery.data.local.GalleryDatabase
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.data.repository.ColorTaggingService
 
 enum class GalleryViewMode { FOLDER, MYLIST, COLOR }
-enum class GroupingMode { NONE, DAY, MONTH, YEAR }
+enum class GroupingMode { NONE, DAY, MONTH, YEAR, STORAGE }
 enum class MediaTypeFilter { ALL, IMAGE, VIDEO, GIF }
 enum class AgeRatingFilter { ALL, SFW, R15, R18 }
 enum class DeviceFilter { ALL, SMARTPHONE, PC }
+enum class SortMode { DATE_ADDED, SIZE, NAME }
 
 class GalleryState(context: Context) {
     private val database = GalleryDatabase.getDatabase(context)
@@ -46,6 +48,9 @@ class GalleryState(context: Context) {
     var ageRatingFilter by mutableStateOf(AgeRatingFilter.SFW)
     var deviceFilter by mutableStateOf(DeviceFilter.ALL)
     var galleryViewMode by mutableStateOf(GalleryViewMode.FOLDER)
+    var sortMode by mutableStateOf(SortMode.DATE_ADDED)
+    var isAscending by mutableStateOf(false)
+    var videoSeekInterval by mutableIntStateOf(10) // デフォルト10秒
 
     val currentColumnIndex: Int = 4 // 3列
 }

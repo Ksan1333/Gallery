@@ -69,7 +69,9 @@ fun CategoryScreen(
     selectedCategoryMedia: List<MediaData> = emptyList(),
     onBackFromCategory: () -> Unit,
     onTabIconClick: (String) -> Unit = {},
-    showControlBar: Boolean = true
+    showControlBar: Boolean = true,
+    lastViewedUri: String? = null,
+    onPageChangedInViewer: (String) -> Unit = {} // 追加
 ) {
     var selectedImageIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val currentMediaListState = rememberSaveable(saver = MediaData.ListSaver) {
@@ -161,8 +163,7 @@ fun CategoryScreen(
                     ) {
                         GalleryTopControlBar(
                             galleryState = galleryState,
-                            showGroupingButton = true, // 元のUIに合わせる
-                            isGroupingEnabled = false // カテゴリ一覧画面（フォルダ・マイリスト・カラー）では日付グループ非活性
+                            isFilterEnabled = false // カテゴリ一覧画面ではフィルタ・並び替え非活性
                         )
                     }
                 }
@@ -214,7 +215,9 @@ fun CategoryScreen(
                 onSelectionModeChanged = { isSelectionModeActive = it },
                 title = selectedCategoryTitle,
                 onBackClick = onBackFromCategory,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                scrollToUri = if (selectedImageIndex == null) lastViewedUri else null,
+                onPageChangedInViewer = onPageChangedInViewer
             )
         }
 
@@ -228,7 +231,10 @@ fun CategoryScreen(
                     initialPage = index,
                     imageList = currentMediaList,
                     galleryState = galleryState,
-                    onPageSelected = { selectedImageIndex = it },
+                    onPageSelected = { 
+                        selectedImageIndex = it
+                        currentMediaList.getOrNull(it)?.uri?.let { uri -> onPageChangedInViewer(uri) }
+                    },
                     onNavigateToMedia = { uri ->
                         val idx = selectedCategoryMedia.indexOfFirst { it.uri == uri }
                         if (idx != -1) {
@@ -331,6 +337,7 @@ fun CategoryCard(
             color = Color.White,
             fontSize = 13.sp,
             maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
         Text(

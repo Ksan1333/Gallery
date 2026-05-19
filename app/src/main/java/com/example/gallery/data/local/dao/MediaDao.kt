@@ -20,6 +20,9 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTag(tag: TagEntity)
 
+    @Query("DELETE FROM media_tags WHERE tag IN ('R15', 'R18', 'SFW')")
+    suspend fun cleanupAgeRatingTags()
+
     @Delete
     suspend fun deleteTag(tag: TagEntity)
 

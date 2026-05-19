@@ -1,9 +1,11 @@
 package com.example.gallery.ui.component
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -47,10 +49,12 @@ import com.example.gallery.ui.GroupingMode
 import com.example.gallery.ui.MediaTypeFilter
 import com.example.gallery.ui.AgeRatingFilter
 import com.example.gallery.ui.DeviceFilter
+import com.example.gallery.ui.SortMode
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -59,6 +63,7 @@ import android.net.Uri
 import android.util.Log
 import android.app.Activity
 import android.graphics.Bitmap
+import android.widget.Toast
 import kotlin.math.roundToInt
 
 @Composable
@@ -67,13 +72,15 @@ fun GalleryGridView(
     onImageClick: (Int, List<MediaData>) -> Unit,
     modifier: Modifier = Modifier,
     isLoading: Boolean = false,
-    showGroupingButton: Boolean = true,
     galleryState: GalleryState = com.example.gallery.ui.rememberGalleryState(LocalContext.current),
     onTabIconClick: ((String) -> Unit)? = null,
     clearSelectionSignal: Int = 0,
     onSelectionModeChanged: (Boolean) -> Unit = {},
     title: String? = null,
-    onBackClick: (() -> Unit)? = null
+    onBackClick: (() -> Unit)? = null,
+    scrollToUri: String? = null, // 追加：戻り時にスクロールさせたいURI
+    isFilterEnabled: Boolean = true, // 追加
+    onPageChangedInViewer: (String) -> Unit = {} // 追加：ビュワー内でのページ変更通知
 ) {
     val columnOptions = listOf(28, 7, 4, 3, 1)
     var currentColumnIndex by remember { mutableIntStateOf(2) } // 初期は4列
@@ -102,8 +109,13 @@ fun GalleryGridView(
     // Lazy Loading 用の変数
     var visibleCount by remember { mutableIntStateOf(60) }
     
+    // 戻り時のハイライト用
+    var highlightUri by remember { mutableStateOf<String?>(null) }
+    
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
+
+    val context = LocalContext.current
 
     // トップバーの表示/非表示制御 (タイトル + 操作バーの両方を含める)
     val topTitleHeight = if (title != null) AppConstants.HeaderHeight else 0.dp
@@ -172,7 +184,10 @@ fun GalleryGridView(
             else {
                 typeFiltered.filter { item ->
                     val meta = metadataMap[item.uri]
+                    // メタデータがない場合はデフォルトの SFW として扱う
                     val rating = meta?.ageRating ?: "SFW"
+                    
+                    // 厳密なフィルタリング (指定されたレベルのみを表示)
                     when (galleryState.ageRatingFilter) {
                         AgeRatingFilter.SFW -> rating == "SFW"
                         AgeRatingFilter.R15 -> rating == "R15"
@@ -182,7 +197,7 @@ fun GalleryGridView(
                 }
             }
 
-            if (galleryState.deviceFilter == DeviceFilter.ALL) ageFiltered
+            val deviceFiltered = if (galleryState.deviceFilter == DeviceFilter.ALL) ageFiltered
             else {
                 ageFiltered.filter { item ->
                     if (item.isVideo || item.width <= 0 || item.height <= 0) false
@@ -201,6 +216,14 @@ fun GalleryGridView(
                     }
                 }
             }
+
+            // 並び替え適用
+            val sorted = when (galleryState.sortMode) {
+                SortMode.DATE_ADDED -> deviceFiltered.sortedBy { it.dateAdded }
+                SortMode.SIZE -> deviceFiltered.sortedBy { it.fileSize }
+                SortMode.NAME -> deviceFiltered.sortedWith(compareBy({ !it.fileName.first().isDigit() }, { it.fileName }))
+            }
+            if (galleryState.isAscending) sorted else sorted.reversed()
         }
     }
 
@@ -222,6 +245,13 @@ fun GalleryGridView(
                 GroupingMode.YEAR -> {
                     val fmt = SimpleDateFormat("yyyy年", Locale.getDefault())
                     filteredList.groupBy { fmt.format(Date(it.dateAdded)) }.toList()
+                }
+                GroupingMode.STORAGE -> {
+                    filteredList.groupBy { item ->
+                        if (item.uri.contains("emulated/0")) "内部ストレージ"
+                        else if (item.uri.contains("sdcard") || item.uri.contains("-")) "SDカード・外部ストレージ"
+                        else "その他"
+                    }.toList()
                 }
             }
 
@@ -258,6 +288,52 @@ fun GalleryGridView(
         }
     }
 
+    // scrollToUri が指定された場合、その画像の位置までスクロール
+    LaunchedEffect(scrollToUri, filteredList, groupedForDisplay) {
+        if (scrollToUri != null && filteredList.isNotEmpty()) {
+            // グループ化（ヘッダー）を考慮した正確なグリッド上のインデックスを計算
+            var targetGridIndex = -1
+            var currentGridIndex = 0
+            
+            for (group in groupedForDisplay) {
+                if (galleryState.groupingMode != GroupingMode.NONE) {
+                    currentGridIndex++ // ヘッダーの分
+                }
+                val items = group.second
+                val localIndex = items.indexOfFirst { it.uri == scrollToUri }
+                if (localIndex != -1) {
+                    targetGridIndex = currentGridIndex + localIndex
+                    break
+                }
+                currentGridIndex += items.size
+            }
+
+            if (targetGridIndex != -1) {
+                // 表示件数を拡張する必要があるか確認
+                if (targetGridIndex >= visibleCount) {
+                    visibleCount = targetGridIndex + 100
+                }
+                
+                // スクロール実行（少し余裕を持って表示するため offset も考慮可能だがまずはシンプルに）
+                gridState.scrollToItem(targetGridIndex)
+                
+                // ハイライト表示を開始
+                highlightUri = scrollToUri
+                delay(1200) // 1秒強表示
+                if (highlightUri == scrollToUri) {
+                    highlightUri = null
+                }
+            } else {
+                // まだリストに読み込まれていない可能性があるため、visibleCountを一時的に増やして再試行
+                if (visibleCount < filteredList.size) {
+                    visibleCount += 200
+                } else {
+                    Toast.makeText(context, "元のギャラリーにない画像のため、移動できません", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     Box(
         modifier = modifier.fillMaxSize()
             .background(AppConstants.BackgroundColor)
@@ -270,8 +346,79 @@ fun GalleryGridView(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columnOptions[currentColumnIndex]), 
-                userScrollEnabled = !isZooming && !isSelectionMode,
+                userScrollEnabled = !isZooming,
                 modifier = Modifier.fillMaxSize()
+                    .pointerInput(currentFlatImageList, groupedForDisplay) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var isLongPress = false
+                                var firstItemIndex = -1
+                                
+                                // 長押し判定
+                                val timeout = 1200L // 長押し時間をさらに延長
+                                val startTime = System.currentTimeMillis()
+                                
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val currentTime = System.currentTimeMillis()
+                                    
+                                    if (currentTime - startTime > timeout && !isLongPress) {
+                                        isLongPress = true
+                                        // 開始位置のアイテムを特定
+                                        val offset = down.position
+                                        val beforePadding = gridState.layoutInfo.beforeContentPadding
+                                        gridState.layoutInfo.visibleItemsInfo.find { 
+                                            val itemTop = it.offset.y.toFloat() + beforePadding
+                                            val itemBottom = itemTop + it.size.height
+                                            offset.x in it.offset.x.toFloat()..(it.offset.x + it.size.width).toFloat() && 
+                                            offset.y in itemTop..itemBottom
+                                        }?.let { itemInfo ->
+                                            val uri = itemInfo.key as? String
+                                            if (uri != null && !uri.startsWith("header:")) {
+                                                if (!isSelectionMode) isSelectionMode = true
+                                                if (!selectedUris.contains(uri)) selectedUris.add(uri)
+                                                firstItemIndex = currentFlatImageList.indexOfFirst { it.uri == uri }
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (isLongPress && firstItemIndex != -1) {
+                                        val dragChange = event.changes.first()
+                                        val offset = dragChange.position
+                                        val beforePadding = gridState.layoutInfo.beforeContentPadding
+                                        gridState.layoutInfo.visibleItemsInfo.find { 
+                                            val itemTop = it.offset.y.toFloat() + beforePadding
+                                            val itemBottom = itemTop + it.size.height
+                                            offset.x in it.offset.x.toFloat()..(it.offset.x + it.size.width).toFloat() && 
+                                            offset.y in itemTop..itemBottom
+                                        }?.let { itemInfo ->
+                                            val currentUri = itemInfo.key as? String
+                                            if (currentUri != null && !currentUri.startsWith("header:")) {
+                                                val currentIndex = currentFlatImageList.indexOfFirst { it.uri == currentUri }
+                                                if (currentIndex != -1) {
+                                                    // 起点から現在の地点までの範囲をすべて選択
+                                                    val start = minOf(firstItemIndex, currentIndex)
+                                                    val end = maxOf(firstItemIndex, currentIndex)
+                                                    
+                                                    // 選択状態を更新（範囲内のアイテムを追加）
+                                                    for (i in start..end) {
+                                                        val uriToSelect = currentFlatImageList[i].uri
+                                                        if (!selectedUris.contains(uriToSelect)) {
+                                                            selectedUris.add(uriToSelect)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        dragChange.consume()
+                                    }
+                                    
+                                    if (event.changes.any { !it.pressed }) break
+                                }
+                            }
+                        }
+                    }
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             while (true) {
@@ -309,12 +456,12 @@ fun GalleryGridView(
                         }
                     },
                 state = gridState,
-                contentPadding = PaddingValues(top = totalTopBarHeight + 8.dp, bottom = totalBottomPadding)
+                contentPadding = PaddingValues(top = totalTopBarHeight + 8.dp, bottom = totalBottomPadding, end = 40.dp)
             ) {
                 var itemsThresholdReached = false
                 groupedForDisplay.forEach { (header, items) ->
                     if (galleryState.groupingMode != GroupingMode.NONE) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { Text(text = header, color = Color.White, modifier = Modifier.padding(16.dp), fontSize = AppConstants.HeaderFontSize) }
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "header:$header") { Text(text = header, color = Color.White, modifier = Modifier.padding(16.dp), fontSize = AppConstants.HeaderFontSize) }
                     }
                     itemsIndexed(items = items, key = { _, item -> item.uri }) { localIndex, item ->
                         // インデックス計算を最適化（indexOfを避ける）
@@ -337,6 +484,11 @@ fun GalleryGridView(
                             .then(if (columnOptions[currentColumnIndex] > 1) Modifier.aspectRatio(1f) else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp)))
                             .padding(if (columnOptions[currentColumnIndex] > 1) 1.dp else 0.dp)
                             .then(if (columnOptions[currentColumnIndex] in 2..27) Modifier.clip(RoundedCornerShape(2.dp)) else Modifier)
+                            .then(
+                                if (highlightUri == item.uri) {
+                                    Modifier.border(2.dp, Color.White, if (columnOptions[currentColumnIndex] > 1) RoundedCornerShape(2.dp) else RoundedCornerShape(12.dp))
+                                } else Modifier
+                            )
                             .combinedClickable(
                                 onClick = { 
                                     if (isSelectionMode) {
@@ -353,6 +505,8 @@ fun GalleryGridView(
                                     } else {
                                         val finalIndex = currentFlatImageList.indexOf(item)
                                         onImageClick(finalIndex, currentFlatImageList)
+                                        // クリックしたURIを即座に記録
+                                        onPageChangedInViewer(item.uri)
                                     }
                                 },
                                 onLongClick = {
@@ -360,21 +514,15 @@ fun GalleryGridView(
                                     if (!isSelectionMode) {
                                         isSelectionMode = true
                                         selectedUris.add(item.uri)
-                                        lastSelectedIndex = currentIndex
                                     } else {
-                                        // 範囲選択
-                                        if (lastSelectedIndex != -1) {
-                                            val start = minOf(lastSelectedIndex, currentIndex)
-                                            val end = maxOf(lastSelectedIndex, currentIndex)
-                                            for (i in start..end) {
-                                                val uri = filteredList[i].uri
-                                                if (!selectedUris.contains(uri)) {
-                                                    selectedUris.add(uri)
-                                                }
-                                            }
+                                        if (selectedUris.contains(item.uri)) {
+                                            selectedUris.remove(item.uri)
+                                            if (selectedUris.isEmpty()) isSelectionMode = false
+                                        } else {
+                                            selectedUris.add(item.uri)
                                         }
-                                        lastSelectedIndex = currentIndex
                                     }
+                                    lastSelectedIndex = currentIndex
                                 }
                             )
                     ) {
@@ -488,11 +636,10 @@ fun GalleryGridView(
                             TooltipWrapper("タグ・年齢制限を一括編集") { IconButton(onClick = { showBulkEditDialog = true }) { Icon(Icons.Default.LocalOffer, contentDescription = "一括編集") } }
                         }
                     }
-                } else if (showGroupingButton) {
+                } else {
                     GalleryTopControlBar(
                         galleryState = galleryState,
-                        showGroupingButton = true,
-                        isGroupingEnabled = true // グリッド表示（フォルダ詳細など）では日付グループ活性
+                        isFilterEnabled = isFilterEnabled
                     )
                 }
             }
@@ -548,40 +695,37 @@ fun GalleryGridView(
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(100.dp) // 日付表示のために幅を調整
+                        .width(40.dp) // タップ判定範囲を狭める (100dp -> 40dp)
                         .padding(top = totalTopBarHeight + 8.dp, bottom = totalBottomPadding + 8.dp)
                         .align(Alignment.CenterEnd)
                         .zIndex(5f) // 確実に最前面へ
                         .pointerInput(totalItemsCount) {
-                            detectDragGestures(
-                                onDragStart = { isPressed = true },
-                                onDragEnd = { isPressed = false },
-                                onDragCancel = { isPressed = false },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    val availableHeightPx = size.height.toFloat()
-                                    val targetPercent = (change.position.y / availableHeightPx).coerceIn(0f, 1f)
-                                    val targetIndex = (targetPercent * totalItemsCount).toInt().coerceAtMost(totalItemsCount - 1)
-                                    scope.launch {
-                                        gridState.scrollToItem(targetIndex)
-                                    }
-                                }
-                            )
-                        }
-                        .pointerInput(totalItemsCount) {
-                            detectTapGestures(
-                                onPress = { offset ->
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val down = awaitFirstDown()
                                     isPressed = true
                                     val availableHeightPx = size.height.toFloat()
-                                    val targetPercent = (offset.y / availableHeightPx).coerceIn(0f, 1f)
-                                    val targetIndex = (targetPercent * totalItemsCount).toInt().coerceAtMost(totalItemsCount - 1)
+                                    
+                                    // タップ位置にジャンプ
+                                    var targetPercent = (down.position.y / availableHeightPx).coerceIn(0f, 1f)
+                                    var targetIndex = (targetPercent * totalItemsCount).toInt().coerceAtMost(totalItemsCount - 1)
                                     scope.launch {
                                         gridState.scrollToItem(targetIndex)
                                     }
-                                    tryAwaitRelease()
+                                    
+                                    // そのままドラッグ/長押し
+                                    drag(down.id) { change ->
+                                        change.consume()
+                                        targetPercent = (change.position.y / availableHeightPx).coerceIn(0f, 1f)
+                                        targetIndex = (targetPercent * totalItemsCount).toInt().coerceAtMost(totalItemsCount - 1)
+                                        scope.launch {
+                                            gridState.scrollToItem(targetIndex)
+                                        }
+                                    }
+                                    
                                     isPressed = false
                                 }
-                            )
+                            }
                         }
                 ) {
                     val availableHeight = maxHeight
@@ -612,8 +756,8 @@ fun GalleryGridView(
                             .width(1.dp)
                             .fillMaxHeight()
                             .align(Alignment.CenterEnd)
-                            .offset(x = (-20).dp) // 右端から20dp左へ
-                            .background(Color.White.copy(alpha = 0.5f)) // 少し明るく
+                            .offset(x = (-20).dp)
+                            .background(Color.White.copy(alpha = 0.5f))
                     )
 
                     // 2. バー (つまみ)
@@ -623,11 +767,11 @@ fun GalleryGridView(
                             .height(thumbHeight)
                             .align(Alignment.TopEnd)
                             .offset(
-                                x = (-20).dp + (0.5).dp - (thumbWidth / 2), // 縦線の中心に合わせる
+                                x = (-20.5).dp + (thumbWidth / 2), // センターを揃える (-20.5 + 6 = -14.5)
                                 y = (availableHeight - thumbHeight) * scrollPositionPercent
                             )
                             .clip(CircleShape)
-                            .background(if (isPressed) Color.Cyan else Color.White.copy(alpha = 0.8f)) // より不透明に
+                            .background(if (isPressed) Color.Cyan else Color.White.copy(alpha = 0.8f))
                     )
                 }
             }

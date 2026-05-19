@@ -35,10 +35,17 @@ fun ColorListScreen(
     val scope = rememberCoroutineScope()
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
     
+    // カテゴリ詳細が表示されているかどうかの状態
+    var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
+
     // 親にカテゴリ選択状態を通知
     LaunchedEffect(selectedCategoryId) {
-        onSubCategorySelected(selectedCategoryId != null)
+        isSubCategorySelected = selectedCategoryId != null
+        onSubCategorySelected(isSubCategorySelected)
     }
+
+    // 最後に表示していたメディアURIを保持（戻り時のスクロール用）
+    var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     // 色の並び順を定義
     val colorOrder = listOf("レッド系", "オレンジ系", "イエロー系", "グリーン系", "ブルー系", "パープル系", "ピンク系", "ホワイト系", "グレー系", "ブラック系")
@@ -128,7 +135,7 @@ fun ColorListScreen(
     CategoryScreen(
         title = "カラーリスト",
         categories = filteredColorCategories,
-        isLoading = isLoadingState || isGlobalLoading,
+        isLoading = isLoadingState && unanalyzedCount > 0, // 全くデータがない場合のみロード表示
         galleryState = galleryState,
         onCategoryClick = { selectedCategoryId = it.id },
         onShowViewer = onShowViewer,
@@ -189,7 +196,9 @@ fun ColorListScreen(
         selectedCategoryTitle = selectedCategoryId,
         selectedCategoryMedia = taggedMedia,
         onBackFromCategory = { selectedCategoryId = null },
-        onTabIconClick = { onBackToColorList() }
+        onTabIconClick = { onBackToColorList() },
+        lastViewedUri = lastViewedUri,
+        onPageChangedInViewer = { lastViewedUri = it }
     )
 
     if (showWarning && selectedCategoryId == null) {

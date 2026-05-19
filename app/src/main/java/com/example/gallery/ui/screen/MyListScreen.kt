@@ -40,9 +40,13 @@ fun MyListScreen(
     var selectedCategoryType by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedTagName by rememberSaveable { mutableStateOf<String?>(null) }
     
+    // カテゴリ詳細が表示されているかどうかの状態
+    var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
+
     // 親にカテゴリ選択状態を通知
     LaunchedEffect(selectedCategoryType) {
-        onSubCategorySelected(selectedCategoryType != null)
+        isSubCategorySelected = selectedCategoryType != null
+        onSubCategorySelected(isSubCategorySelected)
     }
 
     val selectedCategoryTitle = remember(selectedCategoryType, selectedTagName) {
@@ -56,6 +60,9 @@ fun MyListScreen(
 
     var showTagCreateDialog by remember { mutableStateOf(false) }
     var newTagName by remember { mutableStateOf("") }
+
+    // 最後に表示していたメディアURIを保持（戻り時のスクロール用）
+    var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     // 全メディアを取得
     var allMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
@@ -102,8 +109,8 @@ fun MyListScreen(
         when (galleryState.ageRatingFilter) {
             AgeRatingFilter.ALL -> true
             AgeRatingFilter.SFW -> rating == "SFW"
-            AgeRatingFilter.R15 -> rating == "SFW" || rating == "R15"
-            AgeRatingFilter.R18 -> true
+            AgeRatingFilter.R15 -> rating == "R15"
+            AgeRatingFilter.R18 -> rating == "R18"
         }
     }
     
@@ -144,7 +151,7 @@ fun MyListScreen(
                 ))
             }
         }
-        list.sortedBy { it.title }
+        list.sortedByDescending { it.count }
     }
 
     var taggedMediaDetail by remember { mutableStateOf<List<MediaData>>(emptyList()) }
@@ -202,7 +209,9 @@ fun MyListScreen(
             selectedCategoryType = null
             selectedTagName = null
         },
-        onTabIconClick = { onBackToMyList() }
+        onTabIconClick = { onBackToMyList() },
+        lastViewedUri = lastViewedUri,
+        onPageChangedInViewer = { lastViewedUri = it }
     )
 
     if (showTagCreateDialog) {
@@ -230,8 +239,8 @@ fun MyListScreen(
                     when (galleryState.ageRatingFilter) {
                         AgeRatingFilter.ALL -> true
                         AgeRatingFilter.SFW -> rating == "SFW"
-                        AgeRatingFilter.R15 -> rating == "SFW" || rating == "R15"
-                        AgeRatingFilter.R18 -> true
+                        AgeRatingFilter.R15 -> rating == "R15"
+                        AgeRatingFilter.R18 -> rating == "R18"
                     }
                 }
             }

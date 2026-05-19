@@ -1,5 +1,8 @@
 package com.example.gallery.ui.component
 
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -33,10 +36,13 @@ import com.example.gallery.ui.GalleryState
 import kotlinx.coroutines.delay
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.List
 import com.example.gallery.ui.AgeRatingFilter
 import com.example.gallery.ui.DeviceFilter
 import com.example.gallery.ui.GroupingMode
 import com.example.gallery.ui.MediaTypeFilter
+import com.example.gallery.ui.SortMode
 
 @Composable
 fun TooltipWrapper(
@@ -94,12 +100,10 @@ fun TooltipWrapper(
 @Composable
 fun GalleryTopControlBar(
     galleryState: GalleryState,
-    showGroupingButton: Boolean = true,
-    isGroupingEnabled: Boolean = true // 新規：日付グループの活性/非活性制御
+    isFilterEnabled: Boolean = true // 新規：フィルタ・並び替えの活性/非活性
 ) {
     var showFilterMenu by remember { mutableStateOf(false) }
     var showAgeFilterMenu by remember { mutableStateOf(false) }
-    var showGroupingMenu by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -111,18 +115,21 @@ fun GalleryTopControlBar(
             IconButton(
                 onClick = { showFilterMenu = true },
                 onLongClick = { showFilterTooltip = true },
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(36.dp),
+                enabled = isFilterEnabled
             ) { 
-                Icon(Icons.Default.FilterAlt, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                    Text("メディア種別", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
-                    MediaTypeFilter.entries.forEach { filter ->
-                        DropdownMenuItem(text = { Text(text = when (filter) { MediaTypeFilter.ALL -> "すべて"; MediaTypeFilter.IMAGE -> "画像"; MediaTypeFilter.VIDEO -> "動画"; MediaTypeFilter.GIF -> "GIF" }, color = if(galleryState.mediaTypeFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.mediaTypeFilter = filter; showFilterMenu = false })
-                    }
-                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
-                    Text("デバイス背景", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
-                    DeviceFilter.entries.forEach { filter ->
-                        DropdownMenuItem(text = { Text(text = when (filter) { DeviceFilter.ALL -> "すべて"; DeviceFilter.SMARTPHONE -> "スマホ背景"; DeviceFilter.PC -> "PC背景" }, color = if(galleryState.deviceFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.deviceFilter = filter; showFilterMenu = false })
+                Icon(Icons.Default.FilterAlt, null, tint = if (isFilterEnabled) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
+                if (isFilterEnabled) {
+                    DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
+                        Text("メディア種別", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
+                        MediaTypeFilter.entries.forEach { filter ->
+                            DropdownMenuItem(text = { Text(text = when (filter) { MediaTypeFilter.ALL -> "すべて"; MediaTypeFilter.IMAGE -> "画像"; MediaTypeFilter.VIDEO -> "動画"; MediaTypeFilter.GIF -> "GIF" }, color = if(galleryState.mediaTypeFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.mediaTypeFilter = filter; showFilterMenu = false })
+                        }
+                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
+                        Text("デバイス背景", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
+                        DeviceFilter.entries.forEach { filter ->
+                            DropdownMenuItem(text = { Text(text = when (filter) { DeviceFilter.ALL -> "すべて"; DeviceFilter.SMARTPHONE -> "スマホ背景"; DeviceFilter.PC -> "PC背景" }, color = if(galleryState.deviceFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.deviceFilter = filter; showFilterMenu = false })
+                        }
                     }
                 }
             }
@@ -136,9 +143,9 @@ fun GalleryTopControlBar(
             IconButton(
                 onClick = { showAgeFilterMenu = true },
                 onLongClick = { showAgeTooltip = true },
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(36.dp)
             ) {
-                Icon(imageVector = Icons.Default.PrivacyTip, contentDescription = null, modifier = Modifier.size(18.dp), tint = when(galleryState.ageRatingFilter) {
+                Icon(imageVector = Icons.Default.PrivacyTip, contentDescription = null, modifier = Modifier.size(20.dp), tint = when(galleryState.ageRatingFilter) {
                     AgeRatingFilter.SFW -> Color.Green; AgeRatingFilter.R15 -> Color.Yellow; AgeRatingFilter.R18 -> Color.Red; else -> Color.White
                 })
                 DropdownMenu(expanded = showAgeFilterMenu, onDismissRequest = { showAgeFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
@@ -152,14 +159,55 @@ fun GalleryTopControlBar(
 
         Spacer(modifier = Modifier.width(4.dp))
 
+        var showSortMenu by remember { mutableStateOf(false) }
+        var showSortTooltip by remember { mutableStateOf(false) }
+        TooltipWrapper(description = "並び替え", showExternally = showSortTooltip) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { showSortMenu = true },
+                    onLongClick = { showSortTooltip = true },
+                    modifier = Modifier.size(36.dp),
+                    enabled = isFilterEnabled
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Sort, null, tint = if (isFilterEnabled) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
+                    if (isFilterEnabled) {
+                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
+                            SortMode.entries.forEach { mode ->
+                                DropdownMenuItem(
+                                    text = { Text(text = when (mode) { SortMode.DATE_ADDED -> "追加日"; SortMode.SIZE -> "サイズ"; SortMode.NAME -> "名前" }, color = if(galleryState.sortMode == mode) Color.Cyan else Color.White) },
+                                    onClick = { galleryState.sortMode = mode; showSortMenu = false }
+                                )
+                            }
+                        }
+                    }
+                }
+                IconButton(
+                    onClick = { galleryState.isAscending = !galleryState.isAscending },
+                    modifier = Modifier.size(32.dp),
+                    enabled = isFilterEnabled
+                ) {
+                    Icon(
+                        imageVector = if (galleryState.isAscending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                        contentDescription = "昇順/降順",
+                        tint = if (isFilterEnabled) Color.White.copy(alpha = 0.7f) else Color.Gray,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+        if (showSortTooltip) { LaunchedEffect(Unit) { delay(2000); showSortTooltip = false } }
+
+
+        Spacer(modifier = Modifier.width(4.dp))
+
         var showSearchTooltip by remember { mutableStateOf(false) }
         TooltipWrapper(description = "画像検索", showExternally = showSearchTooltip) {
             val context = LocalContext.current
             IconButton(
                 onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ascii2d.net/"))) },
                 onLongClick = { showSearchTooltip = true },
-                modifier = Modifier.size(28.dp)
-            ) { Icon(Icons.Default.ImageSearch, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
+                modifier = Modifier.size(36.dp) // 28dp -> 36dp
+            ) { Icon(Icons.Default.ImageSearch, null, tint = Color.White, modifier = Modifier.size(20.dp)) } // 18dp -> 20dp
         }
         if (showSearchTooltip) { LaunchedEffect(Unit) { delay(2000); showSearchTooltip = false } }
     }

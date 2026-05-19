@@ -88,12 +88,24 @@ fun HomeGalleryScreen(
         }
     }
     
+    // 最後に表示していたメディアURIを保持（戻り時のスクロール用）
+    var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
+    
     // ツールバーとビュワーの状態を同期
     LaunchedEffect(selectedIndex) {
         if (selectedIndex != null) {
             onShowViewer()
         } else {
             onHideViewer()
+        }
+    }
+    
+    // selectedIndex が変わるたびに URI を更新
+    LaunchedEffect(selectedIndex, flatListForViewer) {
+        selectedIndex?.let { idx ->
+            flatListForViewer.getOrNull(idx)?.uri?.let { uri ->
+                lastViewedUri = uri
+            }
         }
     }
     
@@ -187,7 +199,10 @@ fun HomeGalleryScreen(
                 isLoading = isLoading,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
-                title = if (galleryState.isMockMode) "すべて (MOCK)" else "すべて"
+                title = if (galleryState.isMockMode) "すべて (MOCK)" else "すべて",
+                scrollToUri = if (selectedIndex == null) lastViewedUri else null,
+                isFilterEnabled = true, // ホーム画面では常に有効
+                onPageChangedInViewer = { lastViewedUri = it }
             )
         }
 

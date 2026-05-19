@@ -27,14 +27,16 @@ fun CommonFloatingActionButton(
     containerColor: Color = Color.Transparent,
     contentColor: Color = Color.White,
     contentDescription: String? = null,
-    tooltipDescription: String? = null 
+    tooltipDescription: String? = null,
+    size: androidx.compose.ui.unit.Dp = 48.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 24.dp
 ) {
     val context = LocalContext.current
     
     Box(modifier = modifier) {
         Surface(
             modifier = Modifier
-                .size(48.dp)
+                .size(size)
                 .combinedClickable(
                     enabled = enabled,
                     onClick = onClick,
@@ -57,7 +59,7 @@ fun CommonFloatingActionButton(
                 Icon(
                     imageVector = icon,
                     contentDescription = contentDescription ?: tooltipDescription,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(iconSize)
                 )
             }
         }

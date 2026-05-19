@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import java.io.File
 import com.example.gallery.data.local.dao.MediaDao
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
@@ -104,41 +105,67 @@ class MediaRepository(
             val mediaList = mutableListOf<MediaData>()
             val projection = arrayOf(
                 MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DATA, // 常に実際のパスを取得
                 MediaStore.MediaColumns.DATE_ADDED,
                 MediaStore.MediaColumns.MIME_TYPE,
                 MediaStore.MediaColumns.DURATION,
                 MediaStore.MediaColumns.WIDTH,
-                MediaStore.MediaColumns.HEIGHT
+                MediaStore.MediaColumns.HEIGHT,
+                MediaStore.MediaColumns.SIZE,
+                MediaStore.MediaColumns.DISPLAY_NAME
             )
             val sortOrder = "${MediaStore.MediaColumns.DATE_ADDED} DESC"
 
-            val collections = listOf(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            )
+            // 全てのボリューム（内部ストレージ、SDカードなど）をスキャン
+            val volumeNames = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.getExternalVolumeNames(context)
+            } else {
+                @Suppress("DEPRECATION")
+                setOf(MediaStore.VOLUME_EXTERNAL)
+            }
 
-            collections.forEach { collection ->
-                context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
-                    val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                    val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
-                    val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-                    val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
-                    val widthColumn = cursor.getColumnIndex(MediaStore.MediaColumns.WIDTH)
-                    val heightColumn = cursor.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
+            volumeNames.forEach { volumeName ->
+                val collections = listOf(
+                    MediaStore.Images.Media.getContentUri(volumeName),
+                    MediaStore.Video.Media.getContentUri(volumeName)
+                )
 
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getLong(idColumn)
-                        val date = cursor.getLong(dateColumn) * 1000
-                        val mime = cursor.getString(mimeColumn)
-                        val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
-                        val width = if (widthColumn != -1) cursor.getInt(widthColumn) else 0
-                        val height = if (heightColumn != -1) cursor.getInt(heightColumn) else 0
-                        val contentUri = ContentUris.withAppendedId(collection, id).toString()
-                        mediaList.add(MediaData(contentUri, date, mime, duration, width, height))
+                collections.forEach { collection ->
+                    try {
+                        context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
+                            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                            val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA) // DATAカラムを追加
+                            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                            val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                            val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
+                            val widthColumn = cursor.getColumnIndex(MediaStore.MediaColumns.WIDTH)
+                            val heightColumn = cursor.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
+                            val sizeColumn = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                            val nameColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+
+                            while (cursor.moveToNext()) {
+                                val id = cursor.getLong(idColumn)
+                                val date = cursor.getLong(dateColumn) * 1000
+                                val mime = cursor.getString(mimeColumn)
+                                val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
+                                val width = if (widthColumn != -1) cursor.getInt(widthColumn) else 0
+                                val height = if (heightColumn != -1) cursor.getInt(heightColumn) else 0
+                                val size = if (sizeColumn != -1) cursor.getLong(sizeColumn) else 0L
+                                val name = if (nameColumn != -1) cursor.getString(nameColumn) ?: "" else ""
+                                val path = if (dataColumn != -1) cursor.getString(dataColumn) else null
+                                val folderName = if (path != null) File(path).parentFile?.name ?: "Unknown" else "Unknown"
+                                
+                                val contentUri = ContentUris.withAppendedId(collection, id).toString()
+                                mediaList.add(MediaData(contentUri, date, mime, duration, width, height, size, name, folderName))
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("MediaRepository", "Error querying volume $volumeName: ${e.message}")
                     }
                 }
             }
-            val sorted = mediaList.sortedByDescending { it.dateAdded }
+            // 重複排除（同じファイルが複数のコレクションから出る場合があるため）
+            val sorted = mediaList.distinctBy { it.uri }.sortedByDescending { it.dateAdded }
             cachedMediaList = sorted
             lastCacheTime = now
             return sorted
@@ -173,7 +200,8 @@ class MediaRepository(
         }
     }
 
-    suspend fun bulkUpdateAgeRating(uris: List<String>, ageRating: String) {
+    suspend fun bulkUpdateAgeRating(uris: List<String>, ageRating: String?) {
+        if (ageRating == null) return // 変更なしの場合は何もしない
         uris.forEach { uri ->
             val current = getMetadata(uri)
             mediaDao.insertMetadata(
@@ -316,7 +344,7 @@ class MediaRepository(
             allMedia.count { item -> 
                 if (item.isVideo || item.uri in analyzedUris) return@count false
                 
-                // 年齢制限フィルタを適用
+                // 厳密な年齢制限フィルタを適用
                 val rating = metaMap[item.uri]?.ageRating ?: "SFW"
                 when (filter) {
                     AgeRatingFilter.ALL -> true
@@ -337,7 +365,7 @@ class MediaRepository(
             allMedia.count { item -> 
                 if (item.isVideo || item.uri in analyzedUris) return@count false
 
-                // 年齢制限フィルタを適用
+                // 厳密な年齢制限フィルタを適用
                 val rating = metaMap[item.uri]?.ageRating ?: "SFW"
                 when (filter) {
                     AgeRatingFilter.ALL -> true

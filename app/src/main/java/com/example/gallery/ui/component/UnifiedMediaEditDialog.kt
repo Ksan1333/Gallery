@@ -28,7 +28,7 @@ fun UnifiedMediaEditDialog(
     repository: MediaRepository,
     onDismiss: () -> Unit
 ) {
-    var selectedAgeRating by remember { mutableStateOf("SFW") }
+    var selectedAgeRating by remember { mutableStateOf<String?>(null) }
     val tagCounts by repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
     val allTags = remember(tagCounts) { tagCounts.map { it.tag } }
     val selectedTags = remember { mutableStateListOf<String>() }
@@ -56,9 +56,10 @@ fun UnifiedMediaEditDialog(
     LaunchedEffect(uris) {
         if (uris.size == 1) {
             val meta = repository.getMetadata(uris[0])
-            meta?.ageRating?.let { selectedAgeRating = it }
+            selectedAgeRating = meta?.ageRating ?: "SFW"
         } else {
-            selectedAgeRating = "SFW"
+            // 複数選択時は「変更なし」をデフォルトにするため null
+            selectedAgeRating = null
         }
     }
 
@@ -92,14 +93,22 @@ fun UnifiedMediaEditDialog(
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
                     item {
                         Text("対象年齢", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("SFW" to "健全", "R15" to "R-15", "R18" to "R-18").forEach { (code, label) ->
-                                FilterChip(
-                                    selected = selectedAgeRating == code,
-                                    onClick = { if (!isProcessing) selectedAgeRating = code },
-                                    label = { Text(label) },
-                                    enabled = !isProcessing
-                                )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(null to "変更なし", "SFW" to "健全", "R15" to "R-15", "R18" to "R-18").forEach { (code, label) ->
+                                if (uris.size > 1 || code != null) {
+                                    FilterChip(
+                                        selected = selectedAgeRating == code,
+                                        onClick = { if (!isProcessing) selectedAgeRating = code },
+                                        label = { Text(label) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
                             }
                         }
                     }

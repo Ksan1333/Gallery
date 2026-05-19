@@ -12,7 +12,10 @@ data class MediaData(
     val mimeType: String? = null,
     val duration: Long = 0,
     val width: Int = 0,
-    val height: Int = 0
+    val height: Int = 0,
+    val fileSize: Long = 0,
+    val fileName: String = "",
+    val folderName: String = "" // フォルダ名を保持
 ) {
     val isGif: Boolean get() = mimeType == "image/gif" || uri.lowercase().endsWith(".gif") || uri.contains("gif", ignoreCase = true)
     val isVideo: Boolean get() = mimeType?.startsWith("video") == true || uri.contains("video", ignoreCase = true)
@@ -26,6 +29,9 @@ data class MediaData(
         putLong("duration", duration)
         putInt("width", width)
         putInt("height", height)
+        putLong("fileSize", fileSize)
+        putString("fileName", fileName)
+        putString("folderName", folderName)
     }
 
     companion object {
@@ -35,7 +41,10 @@ data class MediaData(
             mimeType = bundle.getString("mimeType"),
             duration = bundle.getLong("duration"),
             width = bundle.getInt("width"),
-            height = bundle.getInt("height")
+            height = bundle.getInt("height"),
+            fileSize = bundle.getLong("fileSize"),
+            fileName = bundle.getString("fileName") ?: "",
+            folderName = bundle.getString("folderName") ?: ""
         )
 
         // Listを保存・復元するためのSaver

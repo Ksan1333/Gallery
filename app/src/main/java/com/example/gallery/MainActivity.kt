@@ -67,6 +67,11 @@ fun AppNavigation() {
     
     val galleryState = rememberGalleryState(context)
 
+    // DBクリーンアップ: タグテーブルに含まれる年齢制限ラベルを削除
+    LaunchedEffect(Unit) {
+        galleryState.repository.mediaDao.cleanupAgeRatingTags()
+    }
+
     // システムバーの設定
     val window = (context as? android.app.Activity)?.window
     fun setupSystemBars(visible: Boolean) {

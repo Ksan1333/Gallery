@@ -231,16 +231,26 @@ class AiTaggingService(
         }
         
         detectedTags.forEach { tagName ->
-            mediaDao.insertTag(TagEntity(media.uri, tagName))
+            // 年齢制限ラベルはタグテーブルには入れない（メタデータ側の ageRating で一元管理）
+            if (tagName != "R18" && tagName != "R15" && tagName != "SFW") {
+                mediaDao.insertTag(TagEntity(media.uri, tagName))
+            }
         }
 
         val current = mediaDao.getMetadata(media.uri)
+        // 既に SFW 以外（手動設定など）になっている場合は上書きしない
+        val finalAgeRating = if (current?.ageRating != null && current.ageRating != "SFW") {
+            current.ageRating
+        } else {
+            ageRating
+        }
+
         mediaDao.insertMetadata(
             MediaMetadataEntity(
                 uri = media.uri,
                 isFavorite = current?.isFavorite ?: false,
                 colorComposition = current?.colorComposition,
-                ageRating = if (current?.ageRating == "SFW" || current?.ageRating == null) ageRating else current.ageRating,
+                ageRating = finalAgeRating,
                 isAiAnalyzed = true
             )
         )

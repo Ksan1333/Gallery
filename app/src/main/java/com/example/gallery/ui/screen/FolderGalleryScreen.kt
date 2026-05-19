@@ -43,6 +43,9 @@ fun FolderGalleryScreen(
     
     // カテゴリ詳細が表示されているかどうかの状態
     var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
+    
+    // 最後に表示していたメディアURIを保持（戻り時のスクロール用）
+    var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     // メタデータ（年齢制限など）を監視 - モード切り替え時に初期値に戻るのを防ぐため、isMockModeをキーにremember
     val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataFlow() }
@@ -58,46 +61,20 @@ fun FolderGalleryScreen(
             galleryState.repository.getAllMetadata()
             
             val newFolderData = mutableMapOf<String, MutableList<MediaData>>()
+            val allMedia = galleryState.repository.getAllMedia()
+            
             if (galleryState.isMockMode) {
-                val allMedia = galleryState.repository.getAllMedia()
                 allMedia.forEach { item ->
                     val folderName = galleryState.repository.getMockFolder(item.uri) ?: "Unknown"
                     val list = newFolderData.getOrPut(folderName) { mutableListOf() }
                     list.add(item)
                 }
             } else {
-                // local helper for this scope
-                fun loadFromUri(collection: android.net.Uri) {
-                    val projection = arrayOf(
-                        MediaStore.MediaColumns._ID,
-                        MediaStore.MediaColumns.DATA,
-                        MediaStore.MediaColumns.DATE_ADDED,
-                        MediaStore.MediaColumns.MIME_TYPE,
-                        MediaStore.MediaColumns.DURATION
-                    )
-                    context.contentResolver.query(collection, projection, null, null, null)?.use { cursor ->
-                        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                        val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
-                        val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
-                        val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-                        val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
-
-                        while (cursor.moveToNext()) {
-                            val id = cursor.getLong(idColumn)
-                            val path = cursor.getString(dataColumn)
-                            val date = cursor.getLong(dateColumn) * 1000
-                            val mime = cursor.getString(mimeColumn)
-                            val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
-                            val folderName = File(path).parentFile?.name ?: "Unknown"
-                            val contentUri = ContentUris.withAppendedId(collection, id).toString()
-
-                            val list = newFolderData.getOrPut(folderName) { mutableListOf() }
-                            list.add(MediaData(contentUri, date, mime, duration))
-                        }
-                    }
+                // MediaData に保持されている folderName を使用してグループ化
+                allMedia.forEach { item ->
+                    val list = newFolderData.getOrPut(item.folderName) { mutableListOf() }
+                    list.add(item)
                 }
-                loadFromUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-                loadFromUri(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
             }
             newFolderData.keys.forEach { key ->
                 newFolderData[key]?.sortByDescending { it.dateAdded }
@@ -225,7 +202,9 @@ fun FolderGalleryScreen(
                         selectedFolderName = null
                         isSubCategorySelected = false
                     },
-                    onTabIconClick = { onBackToFolders() }
+                    onTabIconClick = { onBackToFolders() },
+                    lastViewedUri = lastViewedUri,
+                    onPageChangedInViewer = { lastViewedUri = it }
                 )
             }
             GalleryViewMode.MYLIST -> {
