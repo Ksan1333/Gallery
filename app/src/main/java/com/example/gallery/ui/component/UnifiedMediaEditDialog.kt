@@ -57,6 +57,7 @@ fun UnifiedMediaEditDialog(
     val selectedTags = remember { mutableStateListOf<String>() }
     var newTagName by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
     // 進捗管理用の状態
@@ -143,12 +144,13 @@ fun UnifiedMediaEditDialog(
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             pair.forEach { uri ->
                                 AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(uri)
-                                        .decoderFactory(VideoFrameDecoder.Factory())
-                                        .videoFrameMillis(1000) // 動画の場合は開始1秒を表示
-                                        .crossfade(true)
-                                        .build(),
+                                    model = remember(uri) {
+                                        ImageRequest.Builder(context)
+                                            .data(uri)
+                                            .videoFrameMillis(1000)
+                                            .crossfade(true)
+                                            .build()
+                                    },
                                     contentDescription = null,
                                     modifier = Modifier
                                         .size(88.dp)

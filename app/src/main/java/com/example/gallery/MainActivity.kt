@@ -85,6 +85,8 @@ fun AppNavigation() {
     // DBクリーンアップ
     LaunchedEffect(Unit) {
         galleryState.repository.mediaDao.cleanupAgeRatingTags()
+        // 方法3: サムネイル生成をバックグラウンドで開始
+        com.example.gallery.service.ThumbnailGenerationService.startGenerating(context, galleryState.repository)
     }
 
     // システムバーの設定

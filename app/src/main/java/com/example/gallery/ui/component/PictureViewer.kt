@@ -45,6 +45,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +64,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.ImageLoader
+import coil.imageLoader
 import coil.compose.rememberAsyncImagePainter
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
@@ -155,14 +157,7 @@ fun PictureViewer(
     var isSeeking by remember { mutableStateOf(false) }
     var seekTargetPosition by remember { mutableLongStateOf(0L) }
 
-    val imageLoader = remember {
-        ImageLoader.Builder(context).components {
-            if (Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory())
-            else add(GifDecoder.Factory())
-            add(GifDecoder.Factory())
-            add(VideoFrameDecoder.Factory())
-        }.build()
-    }
+    val imageLoader = context.imageLoader
 
     val window = (context as? Activity)?.window ?: return
     val insetsController = WindowCompat.getInsetsController(window, window.decorView)
@@ -401,6 +396,49 @@ fun PictureViewer(
                                 translationY = offsetY.value
                             }
                             .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+                                        
+                                        val currentScale = scale.value
+                                        val isZoomed = currentScale > 1.01f
+                                        
+                                        // 2本指操作またはズーム中ならこのレイヤーで消費
+                                        if (event.changes.size >= 2 || isZoomed) {
+                                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                                scope.launch {
+                                                    val newScale = (currentScale * zoomChange).coerceIn(0.5f, 5f)
+                                                    scale.snapTo(newScale)
+                                                    val panFactor = if (newScale < 1f) 0.5f else 1f
+                                                    
+                                                    // ズーム中のみ横移動を反映
+                                                    if (newScale > 1.05f) {
+                                                        offsetX.snapTo(offsetX.value + panChange.x * newScale * panFactor)
+                                                    } else {
+                                                        offsetX.snapTo(0f)
+                                                    }
+                                                    offsetY.snapTo(offsetY.value + panChange.y * newScale * panFactor)
+                                                }
+                                            }
+                                            // 1本指でのパンのみの場合は、Pagerの邪魔をしないように条件付きで消費
+                                            if (event.changes.size >= 2 || (isZoomed && panChange != Offset.Zero)) {
+                                                event.changes.forEach { if (it.pressed) it.consume() }
+                                            }
+                                        } else {
+                                            // 非ズーム時かつ1本指: 垂直移動が強く支配的な場合のみ消費（Pagerに渡さない）
+                                            if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 3.0f) {
+                                                scope.launch { offsetY.snapTo(offsetY.value + panChange.y) }
+                                                event.changes.forEach { if (it.pressed) it.consume() }
+                                            }
+                                            // 横方向（スワイプ）は消費せず、Pagerへ流す
+                                        }
+                                        if (event.changes.all { !it.pressed }) break
+                                    }
+                                }
+                            }
+                            .pointerInput(Unit) {
                                 detectTapGestures(
                                     onTap = { onToggle() },
                                     onDoubleTap = {
@@ -413,30 +451,6 @@ fun PictureViewer(
                                             } else {
                                                 scale.animateTo(3.0f)
                                             }
-                                        }
-                                    }
-                                )
-                            }
-                            .pointerInput(Unit) {
-                                detectTransformGestures(
-                                    panZoomLock = true,
-                                    onGesture = { centroid, pan, zoom, _ ->
-                                        scope.launch {
-                                            val newScale = (scale.value * zoom).coerceIn(0.5f, 5f)
-                                            scale.snapTo(newScale)
-                                            val panFactor = if (newScale < 1f) 0.5f else 1f
-
-                                            // ズームしている時のみ横移動(pan.x)を許可し、pagerを妨げないようにする
-                                            if (newScale > 1.05f) {
-                                                offsetX.snapTo(offsetX.value + pan.x * newScale * panFactor)
-                                            } else {
-                                                offsetX.snapTo(0f)
-                                                // 拡大していない時は横移動を制限してPagerのスワイプを優先させる
-                                                // ただし pan.x が非常に大きくても、ここでは snapTo(0) なのでPagerにイベントが流れるはず
-                                            }
-
-                                            // 垂直移動はズームに関わらず許可（詳細表示/閉じる用）
-                                            offsetY.snapTo(offsetY.value + pan.y * newScale * panFactor)
                                         }
                                     }
                                 )

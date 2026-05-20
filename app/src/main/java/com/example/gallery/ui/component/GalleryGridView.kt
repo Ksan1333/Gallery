@@ -52,6 +52,7 @@ import com.example.gallery.ui.MediaTypeFilter
 import com.example.gallery.ui.AgeRatingFilter
 import com.example.gallery.ui.DeviceFilter
 import com.example.gallery.ui.SortMode
+import com.example.gallery.service.ThumbnailGenerationService
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
@@ -68,6 +69,17 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.widget.Toast
 import kotlin.math.roundToInt
+
+// グリッド表示用の平坦化されたアイテム型
+sealed class GridItem {
+    data class Header(val title: String) : GridItem()
+    data class Media(val data: MediaData) : GridItem()
+    
+    val key: String get() = when(this) {
+        is Header -> "header_$title"
+        is Media -> data.uri
+    }
+}
 
 @Composable
 fun GalleryGridView(
@@ -158,22 +170,33 @@ fun GalleryGridView(
         }
     }
 
-    val groupedForDisplay by remember(galleryState.groupingMode, filteredList, visibleCount, currentColumnIndex) {
+    // 平坦化されたリストの計算（1万件でも高速に動作するように最適化）
+    val flatGridItems by remember(filteredList, galleryState.groupingMode, currentColumnIndex) {
         derivedStateOf {
             val is28 = columnOptions[currentColumnIndex] == 28
-            val baseGroups = when (galleryState.groupingMode) {
-                GroupingMode.NONE -> listOf("All" to filteredList)
-                GroupingMode.DAY -> filteredList.groupBy { val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }; "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日" }.toList()
-                GroupingMode.MONTH -> filteredList.groupBy { val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }; "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月" }.toList()
-                GroupingMode.YEAR -> filteredList.groupBy { val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }; "${cal.get(Calendar.YEAR)}年" }.toList()
-                GroupingMode.STORAGE -> filteredList.groupBy { if (it.uri.contains("emulated/0")) "内部ストレージ" else if (it.uri.contains("sdcard") || it.uri.contains("-")) "SDカード・外部ストレージ" else "その他" }.toList()
-            }
-            var currentCount = 0; val result = mutableListOf<Pair<String, List<MediaData>>>()
-            for (group in baseGroups) {
-                val items = group.second; val processedItems = if (is28 && galleryState.groupingMode == GroupingMode.YEAR && items.size > 224) { val sampled = mutableListOf<MediaData>(); val step = items.size.toDouble() / 224.0; for (i in 0 until 224) sampled.add(items[(i * step).toInt().coerceAtMost(items.size - 1)]); sampled } else items
-                val itemsToTake = minOf(processedItems.size, (visibleCount - currentCount).coerceAtLeast(0))
-                if (itemsToTake > 0) { result.add(group.first to processedItems.take(itemsToTake)); currentCount += itemsToTake }
-                if (currentCount >= visibleCount) break
+            val result = mutableListOf<GridItem>()
+            
+            if (galleryState.groupingMode == GroupingMode.NONE) {
+                filteredList.forEach { result.add(GridItem.Media(it)) }
+            } else {
+                val groups = when (galleryState.groupingMode) {
+                    GroupingMode.DAY -> filteredList.groupBy { val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }; "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日" }
+                    GroupingMode.MONTH -> filteredList.groupBy { val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }; "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月" }
+                    GroupingMode.YEAR -> filteredList.groupBy { val cal = Calendar.getInstance().apply { timeInMillis = it.dateAdded }; "${cal.get(Calendar.YEAR)}年" }
+                    GroupingMode.STORAGE -> filteredList.groupBy { if (it.uri.contains("emulated/0")) "内部ストレージ" else if (it.uri.contains("sdcard") || it.uri.contains("-")) "SDカード・外部ストレージ" else "その他" }
+                    else -> emptyMap()
+                }
+                
+                groups.forEach { (header, items) ->
+                    result.add(GridItem.Header(header))
+                    val processedItems = if (is28 && galleryState.groupingMode == GroupingMode.YEAR && items.size > 224) {
+                        val sampled = mutableListOf<MediaData>()
+                        val step = items.size.toDouble() / 224.0
+                        for (i in 0 until 224) sampled.add(items[(i * step).toInt().coerceAtMost(items.size - 1)])
+                        sampled
+                    } else items
+                    processedItems.forEach { result.add(GridItem.Media(it)) }
+                }
             }
             result
         }
@@ -182,21 +205,13 @@ fun GalleryGridView(
     val currentFlatImageList = filteredList
     LaunchedEffect(currentColumnIndex) {
         isChangingColumns = true; delay(10)
-        visibleCount = when { columnOptions[currentColumnIndex] >= 28 -> 1500; columnOptions[currentColumnIndex] >= 7 -> 500; else -> 80 }
         delay(100); isChangingColumns = false
     }
 
-    LaunchedEffect(scrollToUri, filteredList, groupedForDisplay) {
+    LaunchedEffect(scrollToUri, filteredList, flatGridItems) {
         if (scrollToUri != null && filteredList.isNotEmpty()) {
-            var targetGridIndex = -1; var currentGridIndex = 0
-            for (group in groupedForDisplay) {
-                if (galleryState.groupingMode != GroupingMode.NONE) currentGridIndex++
-                val localIndex = group.second.indexOfFirst { it.uri == scrollToUri }
-                if (localIndex != -1) { targetGridIndex = currentGridIndex + localIndex; break }
-                currentGridIndex += group.second.size
-            }
+            val targetGridIndex = flatGridItems.indexOfFirst { it is GridItem.Media && it.data.uri == scrollToUri }
             if (targetGridIndex != -1) {
-                if (targetGridIndex >= visibleCount) visibleCount = targetGridIndex + 100
                 val isAlreadyVisible = gridState.layoutInfo.visibleItemsInfo.any { it.key == scrollToUri }
                 if (!isAlreadyVisible) {
                     val jumpIndex = (targetGridIndex - columnOptions[currentColumnIndex] * 2).coerceAtLeast(0)
@@ -278,22 +293,54 @@ fun GalleryGridView(
                             }
                         }
                 ) {
-                    groupedForDisplay.forEach { (header, items) ->
-                        if (galleryState.groupingMode != GroupingMode.NONE) item(span = { GridItemSpan(maxLineSpan) }, key = "header:$header") { Text(header, color = Color.White, modifier = Modifier.padding(16.dp), fontSize = AppConstants.HeaderFontSize) }
-                        itemsIndexed(items, key = { _, item -> item.uri }) { localIndex, item ->
-                            if (localIndex >= items.size - 5 && visibleCount < filteredList.size) SideEffect { visibleCount += 200 }
-                            val thumbSize = when { columnOptions[targetIndex] >= 28 -> 8; columnOptions[targetIndex] >= 7 -> 128; columnOptions[targetIndex] >= 4 -> 512; else -> 1024 }
-                            if (columnOptions[targetIndex] >= 28) {
-                                Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(0.5.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { val idx = currentFlatImageList.indexOf(item); onImageClick(idx, currentFlatImageList); onPageChangedInViewer(item.uri) }) {
-                                    AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(item.uri).size(thumbSize).memoryCachePolicy(coil.request.CachePolicy.ENABLED).diskCachePolicy(coil.request.CachePolicy.ENABLED).bitmapConfig(Bitmap.Config.RGB_565).crossfade(false).decoderFactory(VideoFrameDecoder.Factory()).videoFrameMillis(1000).build(), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    items(flatGridItems, key = { it.key }, span = { item ->
+                        if (item is GridItem.Header) GridItemSpan(maxLineSpan)
+                        else GridItemSpan(1)
+                    }) { item ->
+                        when (item) {
+                            is GridItem.Header -> {
+                                Text(item.title, color = Color.White, modifier = Modifier.padding(16.dp), fontSize = AppConstants.HeaderFontSize)
+                            }
+                            is GridItem.Media -> {
+                                val media = item.data
+                                val thumbSize = when { columnOptions[targetIndex] >= 28 -> 8; columnOptions[targetIndex] >= 7 -> 128; columnOptions[targetIndex] >= 4 -> 512; else -> 1024 }
+                                
+                                // 自前サムネイルが存在するかチェック
+                                val customThumbFile = remember(media.uri) {
+                                    com.example.gallery.util.ThumbnailUtils.getThumbnailFile(context, media.uri)
                                 }
-                            } else {
-                                Box(modifier = Modifier.fillMaxWidth().then(if (columnOptions[targetIndex] <= 4) Modifier.animateItem() else Modifier).then(if (columnOptions[targetIndex] > 1) Modifier.aspectRatio(1f) else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp))).padding(if (columnOptions[targetIndex] > 1) 1.dp else 0.dp).then(if (columnOptions[targetIndex] in 2..27) Modifier.clip(RoundedCornerShape(2.dp)) else Modifier).then(if (highlightUri == item.uri) Modifier.border(3.dp, Color.Cyan, if (columnOptions[targetIndex] > 1) RoundedCornerShape(4.dp) else RoundedCornerShape(12.dp)) else Modifier).combinedClickable(onClick = { if (isSelectionMode) { if (selectedUris.contains(item.uri)) { selectedUris.remove(item.uri); if (selectedUris.isEmpty()) { isSelectionMode = false; lastSelectedIndex = -1 } } else { selectedUris.add(item.uri); lastSelectedIndex = filteredList.indexOf(item) } } else { val idx = currentFlatImageList.indexOf(item); onImageClick(idx, currentFlatImageList); onPageChangedInViewer(item.uri) } }, onLongClick = { val idx = filteredList.indexOf(item); if (!isSelectionMode) { isSelectionMode = true; selectedUris.add(item.uri) } else { if (selectedUris.contains(item.uri)) { selectedUris.remove(item.uri); if (selectedUris.isEmpty()) isSelectionMode = false } else selectedUris.add(item.uri) }; lastSelectedIndex = idx })) {
-                                    AsyncImage(model = ImageRequest.Builder(context).data(item.uri).size(thumbSize).apply { if (columnOptions[targetIndex] >= 7) { bitmapConfig(Bitmap.Config.RGB_565); crossfade(false) } else crossfade(true) }.decoderFactory(VideoFrameDecoder.Factory()).videoFrameMillis(1000).memoryCachePolicy(coil.request.CachePolicy.ENABLED).diskCachePolicy(coil.request.CachePolicy.ENABLED).build(), null, modifier = Modifier.fillMaxSize(), contentScale = if (columnOptions[targetIndex] > 1) ContentScale.Crop else ContentScale.FillWidth)
-                                    if (metadataMap[item.uri]?.isFavorite == true) Box(modifier = Modifier.fillMaxSize().padding(4.dp), contentAlignment = Alignment.BottomStart) { Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(if (columnOptions[targetIndex] > 7) 8.dp else 16.dp)) }
-                                    if (selectedUris.contains(item.uri)) Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.3f)), contentAlignment = Alignment.TopEnd) { Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(4.dp).size(24.dp)) }
-                                    val label = when { item.isGif -> "GIF"; item.isVideo -> formatDuration(item.duration); else -> null }
-                                    if (label != null) Surface(color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)) { Text(label, color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) }
+                                val displayData = if (customThumbFile.exists()) customThumbFile else media.uri
+
+                                val request = remember(displayData, thumbSize) {
+                                    ImageRequest.Builder(context)
+                                        .data(displayData)
+                                        .size(thumbSize)
+                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .apply {
+                                            if (columnOptions[targetIndex] >= 7) {
+                                                bitmapConfig(Bitmap.Config.RGB_565)
+                                                crossfade(false)
+                                            } else {
+                                                crossfade(true)
+                                            }
+                                        }
+                                        .videoFrameMillis(1000)
+                                        .build()
+                                }
+                                
+                                if (columnOptions[targetIndex] >= 28) {
+                                    Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(0.5.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { val idx = currentFlatImageList.indexOf(media); onImageClick(idx, currentFlatImageList); onPageChangedInViewer(media.uri) }) {
+                                        AsyncImage(model = request, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    }
+                                } else {
+                                    Box(modifier = Modifier.fillMaxWidth().then(if (columnOptions[targetIndex] <= 4) Modifier.animateItem() else Modifier).then(if (columnOptions[targetIndex] > 1) Modifier.aspectRatio(1f) else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp))).padding(if (columnOptions[targetIndex] > 1) 1.dp else 0.dp).then(if (columnOptions[targetIndex] in 2..27) Modifier.clip(RoundedCornerShape(2.dp)) else Modifier).then(if (highlightUri == media.uri) Modifier.border(3.dp, Color.Cyan, if (columnOptions[targetIndex] > 1) RoundedCornerShape(4.dp) else RoundedCornerShape(12.dp)) else Modifier).combinedClickable(onClick = { if (isSelectionMode) { if (selectedUris.contains(media.uri)) { selectedUris.remove(media.uri); if (selectedUris.isEmpty()) { isSelectionMode = false; lastSelectedIndex = -1 } } else { selectedUris.add(media.uri); lastSelectedIndex = filteredList.indexOf(media) } } else { val idx = currentFlatImageList.indexOf(media); onImageClick(idx, currentFlatImageList); onPageChangedInViewer(media.uri) } }, onLongClick = { val idx = filteredList.indexOf(media); if (!isSelectionMode) { isSelectionMode = true; selectedUris.add(media.uri) } else { if (selectedUris.contains(media.uri)) { selectedUris.remove(media.uri); if (selectedUris.isEmpty()) isSelectionMode = false } else selectedUris.add(media.uri) }; lastSelectedIndex = idx })) {
+                                        AsyncImage(model = request, null, modifier = Modifier.fillMaxSize(), contentScale = if (columnOptions[targetIndex] > 1) ContentScale.Crop else ContentScale.FillWidth)
+                                        if (metadataMap[media.uri]?.isFavorite == true) Box(modifier = Modifier.fillMaxSize().padding(4.dp), contentAlignment = Alignment.BottomStart) { Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(if (columnOptions[targetIndex] > 7) 8.dp else 16.dp)) }
+                                        if (selectedUris.contains(media.uri)) Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.3f)), contentAlignment = Alignment.TopEnd) { Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(4.dp).size(24.dp)) }
+                                        val label = when { media.isGif -> "GIF"; media.isVideo -> formatDuration(media.duration); else -> null }
+                                        if (label != null) Surface(color = Color.Black.copy(alpha = 0.7f), shape = RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)) { Text(label, color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) }
+                                    }
                                 }
                             }
                         }
@@ -327,6 +374,28 @@ fun GalleryGridView(
                         }
                     }
                 } else GalleryTopControlBar(galleryState, isFilterEnabled)
+            }
+            
+            // サムネイル生成プログレスバー
+            val isProcessing by ThumbnailGenerationService.isProcessing.collectAsState()
+            val progress by ThumbnailGenerationService.progress.collectAsState()
+            val statusText by ThumbnailGenerationService.statusText.collectAsState()
+            
+            if (isProcessing && progress < 1f) {
+                Column(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.7f))) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().height(2.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color.Transparent
+                    )
+                    Text(
+                        text = statusText,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
 

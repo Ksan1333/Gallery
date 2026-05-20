@@ -543,11 +543,12 @@ private fun GroupThumbnailItem(uri: String?) {
     } else {
         Image(
             painter = rememberAsyncImagePainter(
-                model = ImageRequest.Builder(context)
-                    .data(uri)
-                    .decoderFactory(VideoFrameDecoder.Factory())
-                    .videoFrameMillis(1000)
-                    .build()
+                model = remember(uri) {
+                    ImageRequest.Builder(context)
+                        .data(uri)
+                        .videoFrameMillis(1000)
+                        .build()
+                }
             ),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
@@ -636,7 +637,14 @@ fun CategoryCard(
                     }
                 } else {
                     Image(
-                        painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(data.thumbnail).decoderFactory(VideoFrameDecoder.Factory()).videoFrameMillis(1000).build()),
+                        painter = rememberAsyncImagePainter(
+                            model = remember(data.thumbnail) {
+                                ImageRequest.Builder(context)
+                                    .data(data.thumbnail)
+                                    .videoFrameMillis(1000)
+                                    .build()
+                            }
+                        ),
                         contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
                     )
                 }
