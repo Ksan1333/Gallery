@@ -1,67 +1,29 @@
 package com.example.gallery.ui.screen
 
 import android.Manifest
-import android.app.Activity
-import android.content.ContentUris
 import android.os.Build
-import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
-import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import coil.compose.rememberAsyncImagePainter
-import com.example.gallery.ui.component.CommonFloatingCloseButton
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.component.PictureViewer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.AgeRatingFilter
-import com.example.gallery.ui.DeviceFilter
-import com.example.gallery.ui.MediaTypeFilter
 import android.util.Log
 import androidx.compose.runtime.saveable.rememberSaveable
 
-private const val TAG = "HomeGalleryScreen"
 
 @Composable
 fun HomeGalleryScreen(
@@ -69,48 +31,33 @@ fun HomeGalleryScreen(
     onHideViewer: () -> Unit,
     galleryState: GalleryState,
     initialMediaUri: String? = null,
-    onBulkEdit: ((List<String>) -> Unit)? = null // 追加
+    onMenuClick: (() -> Unit)? = null,
+    onBulkEdit: ((List<String>) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val imageList = remember { mutableStateListOf<MediaData>() }
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    val flatListForViewerState = remember {
-        mutableStateOf(emptyList<MediaData>()) 
-    }
+    val flatListForViewerState = remember { mutableStateOf(emptyList<MediaData>()) }
     var flatListForViewer by flatListForViewerState
     val scope = rememberCoroutineScope()
-    
-    // 回転後の復元処理: imageListが読み込まれたらflatListForViewerを同期する
+
     LaunchedEffect(imageList.size) {
         if (selectedIndex != null && flatListForViewer.isEmpty() && imageList.isNotEmpty()) {
-            Log.d(TAG, "Restoring flatListForViewer after rotation")
             flatListForViewer = imageList.toList()
         }
     }
-    
-    // 最後に表示していたメディアURIを保持（戻り時のスクロール用）
+
     var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
-    
-    // ツールバーとビュワーの状態を同期
+
     LaunchedEffect(selectedIndex) {
-        if (selectedIndex != null) {
-            onShowViewer()
-        } else {
-            onHideViewer()
-        }
+        if (selectedIndex != null) onShowViewer() else onHideViewer()
     }
-    
-    // selectedIndex が変わるたびに URI を更新
+
     LaunchedEffect(selectedIndex, flatListForViewer) {
-        selectedIndex?.let { idx ->
-            flatListForViewer.getOrNull(idx)?.uri?.let { uri ->
-                lastViewedUri = uri
-            }
-        }
+        selectedIndex?.let { idx -> flatListForViewer.getOrNull(idx)?.uri?.let { uri -> lastViewedUri = uri } }
     }
-    
-    // 初期URI指定がある場合、自動でビュワーを開く
+
     LaunchedEffect(imageList.size, initialMediaUri) {
         if (initialMediaUri != null && imageList.isNotEmpty()) {
             val idx = imageList.indexOfFirst { it.uri == initialMediaUri }
@@ -122,7 +69,6 @@ fun HomeGalleryScreen(
         }
     }
 
-    // 選択解除用のシグナル
     var clearSelectionSignal by remember { mutableIntStateOf(0) }
     var isSelectionModeActive by remember { mutableStateOf(false) }
 
@@ -130,19 +76,13 @@ fun HomeGalleryScreen(
         if (selectedIndex != null) {
             selectedIndex = null
             onHideViewer()
-        } else if (isSelectionModeActive) {
-            clearSelectionSignal++
-        }
+        } else if (isSelectionModeActive) clearSelectionSignal++
     }
 
     fun localLoadImages() {
-        Log.d(TAG, "localLoadImages: Start")
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { isLoading = true }
-            
-            // メタデータも読み込みを待つ
             galleryState.repository.getAllMetadata()
-            
             val allMedia = galleryState.repository.getAllMedia()
             withContext(Dispatchers.Main) {
                 imageList.clear()
@@ -153,56 +93,33 @@ fun HomeGalleryScreen(
         }
     }
 
-    val permissionLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestMultiplePermissions()
-        ) { permissions ->
-            if (permissions.values.any { it }) { 
-                localLoadImages()
-            }
-        }
-
-    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
-        localLoadImages()
+    val permissionLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+        if (permissions.values.any { it }) localLoadImages()
     }
+
+    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) { localLoadImages() }
 
     LaunchedEffect(Unit) {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(
-                Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO
-            )
-        } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
-        
-        val allGranted = permissions.all {
-            androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-        
-        if (allGranted) {
-            localLoadImages()
-        } else {
-            permissionLauncher.launch(permissions)
-        }
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        } else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        val allGranted = permissions.all { androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        if (allGranted) localLoadImages() else permissionLauncher.launch(permissions)
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
         Column(modifier = Modifier.fillMaxSize()) {
             GalleryGridView(
                 imageList = imageList,
-                onImageClick = { index, list ->
-                    flatListForViewer = list
-                    selectedIndex = index
-                    onShowViewer()
-                },
+                onImageClick = { index, list -> flatListForViewer = list; selectedIndex = index; onShowViewer() },
                 galleryState = galleryState,
                 isLoading = isLoading,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
                 title = if (galleryState.isMockMode) "すべて (MOCK)" else "すべて",
                 scrollToUri = if (selectedIndex == null) lastViewedUri else null,
-                isFilterEnabled = true, // ホーム画面では常に有効
+                isFilterEnabled = true,
+                onMenuClick = onMenuClick,
                 onPageChangedInViewer = { lastViewedUri = it },
                 onBulkEdit = onBulkEdit
             )
@@ -211,41 +128,23 @@ fun HomeGalleryScreen(
         selectedIndex?.let { initialPage ->
             if (flatListForViewer.isNotEmpty()) {
                 PictureViewer(
-                    onClickedClose = {
-                        selectedIndex = null
-                        onHideViewer()
-                    },
+                    onClickedClose = { selectedIndex = null; onHideViewer() },
                     initialPage = initialPage,
                     imageList = flatListForViewer,
                     galleryState = galleryState,
                     onPageSelected = { selectedIndex = it },
                     onNavigateToMedia = { uri ->
                         val idx = imageList.indexOfFirst { it.uri == uri }
-                        if (idx != -1) {
-                            flatListForViewer = imageList.toList()
-                            selectedIndex = idx
-                        } else {
-                            // リスト外の場合、フィルタを解除して全件から探す
-                            galleryState.ageRatingFilter = AgeRatingFilter.ALL
-                            galleryState.deviceFilter = DeviceFilter.ALL
-                            galleryState.mediaTypeFilter = MediaTypeFilter.ALL
-                            
+                        if (idx != -1) { flatListForViewer = imageList.toList(); selectedIndex = idx }
+                        else {
                             scope.launch {
-                                delay(200) // フィルタ解除によるリスト更新を待つ
                                 val allMedia = galleryState.repository.getAllMedia()
                                 val newIdx = allMedia.indexOfFirst { it.uri == uri }
-                                if (newIdx != -1) {
-                                    flatListForViewer = allMedia
-                                    selectedIndex = newIdx
-                                } else {
-                                    // それでも見つからない（ありえないはずだが）場合は単一表示
-                                    scope.launch(Dispatchers.IO) {
-                                        val meta = galleryState.repository.getMetadata(uri)
-                                        // 最小限のMediaDataを生成して表示
-                                        withContext(Dispatchers.Main) {
-                                            flatListForViewer = listOf(MediaData(uri, System.currentTimeMillis()))
-                                            selectedIndex = 0
-                                        }
+                                if (newIdx != -1) { flatListForViewer = allMedia; selectedIndex = newIdx }
+                                else {
+                                    withContext(Dispatchers.Main) {
+                                        flatListForViewer = listOf(MediaData(uri, System.currentTimeMillis()))
+                                        selectedIndex = 0
                                     }
                                 }
                             }

@@ -4,10 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,18 +31,15 @@ fun MyListScreen(
     onHideViewer: () -> Unit,
     onStartAnalysis: () -> Unit,
     galleryState: GalleryState,
+    onMenuClick: (() -> Unit)? = null,
     onBackToMyList: () -> Unit = {},
     topBarActions: @Composable RowScope.() -> Unit = {},
     onSubCategorySelected: (Boolean) -> Unit = {}
 ) {
-    val context = LocalContext.current
     var selectedCategoryType by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedTagName by rememberSaveable { mutableStateOf<String?>(null) }
-    
-    // カテゴリ詳細が表示されているかどうかの状態
     var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
 
-    // 親にカテゴリ選択状態を通知
     LaunchedEffect(selectedCategoryType) {
         isSubCategorySelected = selectedCategoryType != null
         onSubCategorySelected(isSubCategorySelected)
@@ -60,39 +56,22 @@ fun MyListScreen(
 
     var showTagCreateDialog by remember { mutableStateOf(false) }
     var newTagName by remember { mutableStateOf("") }
-
-    // 最後に表示していたメディアURIを保持（戻り時のスクロール用）
     var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
-
-    // 全メディアを取得
     var allMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var isLoadingMedia by remember { mutableStateOf(true) }
-    
-    // メタデータの取得 - モード切り替え時のリセットを防ぐ
+
     val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataFlow() }
     val allMetadata by metadataFlow.collectAsState(initial = emptyList())
     val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
 
-    // タグ情報の取得
-    val allTagsData by galleryState.repository.mediaDao.getAllTagsWithUris().collectAsState(initial = emptyList())
-    
-    // タグ名 -> URIリストのマップを作成
-    val tagToUrisMap = remember(allTagsData) {
-        allTagsData.groupBy({ it.tag }, { it.uri })
-    }
+    val allTagsData by galleryState.repository.getAllTagsWithUris().collectAsState(initial = emptyList())
+    val tagToUrisMap = remember(allTagsData) { allTagsData.groupBy({ it.tag }, { it.uri }) }
+    val taggedUriSet = remember(allTagsData) { allTagsData.filter { !it.tag.endsWith("系") }.map { it.uri }.toSet() }
 
-    // タグ付け済みURIの取得（「〜系」は除外して判定）
-    val taggedUriSet = remember(allTagsData) {
-        allTagsData.filter { !it.tag.endsWith("系") }.map { it.uri }.toSet()
-    }
-
-    // メディアのロード
-    LaunchedEffect(galleryState.isMockMode) {
+    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
         isLoadingMedia = true
         withContext(Dispatchers.IO) {
-            // メタデータの準備を待つ
             galleryState.repository.getAllMetadata()
-            
             val media = galleryState.repository.getAllMedia()
             withContext(Dispatchers.Main) {
                 allMedia = media
@@ -102,7 +81,6 @@ fun MyListScreen(
         }
     }
 
-    // 共通のフィルタリング関数
     val filterItem: (MediaData) -> Boolean = { item ->
         val meta = metadataMap[item.uri]
         val rating = meta?.ageRating ?: "SFW"
@@ -113,45 +91,24 @@ fun MyListScreen(
             AgeRatingFilter.R18 -> rating == "R18"
         }
     }
-    
-    // お気に入り（フィルタ適用済み）
+
     val favorites = remember(allMedia, metadataMap, galleryState.ageRatingFilter) {
-        allMedia.filter { item -> 
-            metadataMap[item.uri]?.isFavorite == true && filterItem(item)
-        }
+        allMedia.filter { metadataMap[it.uri]?.isFavorite == true && filterItem(it) }
     }
-    
-    // タグなし（フィルタ適用済み）
     val untaggedMedia = remember(allMedia, taggedUriSet, galleryState.ageRatingFilter, metadataMap) {
-        allMedia.filter { item -> 
-            !item.isVideo && item.uri !in taggedUriSet && filterItem(item)
-        }
+        allMedia.filter { !it.isVideo && it.uri !in taggedUriSet && filterItem(it) }
     }
 
-    // 各カテゴリの構築（フィルタを即座に反映）
     val categories = remember(allMedia, tagToUrisMap, favorites, untaggedMedia, galleryState.ageRatingFilter, metadataMap) {
         val allMediaMap = allMedia.associateBy { it.uri }
-        val list = mutableListOf<CategoryData>()
-        
-        if (favorites.isNotEmpty()) {
-            list.add(CategoryData("Favorites", "お気に入り", favorites.size, favorites.firstOrNull()?.uri))
-        }
-        if (untaggedMedia.isNotEmpty()) {
-            list.add(CategoryData("Untagged", "タグなし", untaggedMedia.size, untaggedMedia.firstOrNull()?.uri))
-        }
-        
-        tagToUrisMap.filter { !it.key.endsWith("系") }.forEach { (tag, uris) ->
-            val filteredForTag = uris.mapNotNull { allMediaMap[it] }.filter { filterItem(it) }
-            if (filteredForTag.isNotEmpty()) {
-                list.add(CategoryData(
-                    "Tag:$tag", 
-                    tag, 
-                    filteredForTag.size, 
-                    filteredForTag.firstOrNull()?.uri
-                ))
+        mutableListOf<CategoryData>().apply {
+            if (favorites.isNotEmpty()) add(CategoryData("Favorites", "お気に入り", favorites.size, favorites.firstOrNull()?.uri))
+            if (untaggedMedia.isNotEmpty()) add(CategoryData("Untagged", "タグなし", untaggedMedia.size, untaggedMedia.firstOrNull()?.uri))
+            tagToUrisMap.filter { !it.key.endsWith("系") }.forEach { (tag, uris) ->
+                val filtered = uris.mapNotNull { allMediaMap[it] }.filter { filterItem(it) }
+                if (filtered.isNotEmpty()) add(CategoryData("Tag:$tag", tag, filtered.size, filtered.firstOrNull()?.uri))
             }
-        }
-        list.sortedByDescending { it.count }
+        }.sortedByDescending { it.count }
     }
 
     var taggedMediaDetail by remember { mutableStateOf<List<MediaData>>(emptyList()) }
@@ -167,17 +124,12 @@ fun MyListScreen(
         }
     }
 
-    val unanalyzedCount by remember(galleryState.ageRatingFilter) { 
-        galleryState.repository.getUnanalyzedAiCount(galleryState.ageRatingFilter) 
-    }.collectAsState(initial = 0)
+    val unanalyzedCount by remember(galleryState.ageRatingFilter) { galleryState.repository.getUnanalyzedAiCount(galleryState.ageRatingFilter) }.collectAsState(initial = 0)
     var showWarning by remember { mutableStateOf(false) }
 
     LaunchedEffect(unanalyzedCount) {
         if (unanalyzedCount > 0) {
-            delay(1000)
-            showWarning = true
-            delay(4000)
-            showWarning = false
+            delay(1000); showWarning = true; delay(4000); showWarning = false
         }
     }
 
@@ -186,29 +138,24 @@ fun MyListScreen(
         categories = categories,
         isLoading = isLoadingMedia,
         galleryState = galleryState,
+        onMenuClick = if (selectedCategoryType == null) onMenuClick else null,
         onCategoryClick = { category ->
-            if (category.id == "Favorites") {
-                selectedCategoryType = "Favorites"
-            } else if (category.id == "Untagged") {
-                selectedCategoryType = "Untagged"
-            } else if (category.id.startsWith("Tag:")) {
-                selectedCategoryType = "Tag"
-                selectedTagName = category.title
+            when {
+                category.id == "Favorites" -> selectedCategoryType = "Favorites"
+                category.id == "Untagged" -> selectedCategoryType = "Untagged"
+                category.id.startsWith("Tag:") -> { selectedCategoryType = "Tag"; selectedTagName = category.title }
             }
         },
         onShowViewer = onShowViewer,
         onHideViewer = onHideViewer,
         topBarActions = {
             topBarActions()
-            IconButton(onClick = onStartAnalysis) { Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "AI・カラー自動解析", tint = Color.White) }
-            IconButton(onClick = { showTagCreateDialog = true }) { Icon(Icons.Default.Add, contentDescription = "タグ作成", tint = Color.White) }
+            IconButton(onClick = onStartAnalysis) { Icon(Icons.Default.AutoAwesome, "AI解析", tint = Color.White) }
+            IconButton(onClick = { showTagCreateDialog = true }) { Icon(Icons.Default.Add, "タグ作成", tint = Color.White) }
         },
         selectedCategoryTitle = selectedCategoryTitle,
         selectedCategoryMedia = taggedMediaDetail,
-        onBackFromCategory = {
-            selectedCategoryType = null
-            selectedTagName = null
-        },
+        onBackFromCategory = { selectedCategoryType = null; selectedTagName = null },
         onTabIconClick = { onBackToMyList() },
         lastViewedUri = lastViewedUri,
         onPageChangedInViewer = { lastViewedUri = it }
@@ -221,49 +168,22 @@ fun MyListScreen(
             title = { Text("新規タグ作成", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
             text = {
                 TextField(value = newTagName, onValueChange = { newTagName = it }, placeholder = { Text("タグ名を入力", color = Color.Gray) }, singleLine = true,
-                    colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedContainerColor = Color.Black.copy(alpha = 0.3f), unfocusedContainerColor = Color.Black.copy(alpha = 0.3f), focusedIndicatorColor = MaterialTheme.colorScheme.primary, unfocusedIndicatorColor = Color.Gray),
+                    colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedContainerColor = Color.Black.copy(alpha = 0.3f), unfocusedContainerColor = Color.Black.copy(alpha = 0.3f)),
                     modifier = Modifier.fillMaxWidth())
             },
-            confirmButton = { Button(onClick = { if (newTagName.isNotBlank()) { showTagCreateDialog = false; newTagName = "" } }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("作成", color = Color.White) } },
-            dismissButton = { TextButton(onClick = { showTagCreateDialog = false }) { Text("キャンセル", color = Color.Gray) } },
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+            confirmButton = { Button(onClick = { if (newTagName.isNotBlank()) { showTagCreateDialog = false; newTagName = "" } }) { Text("作成") } },
+            dismissButton = { TextButton(onClick = { showTagCreateDialog = false }) { Text("キャンセル") } },
+            shape = RoundedCornerShape(16.dp)
         )
     }
 
     if (showWarning && selectedCategoryType == null) {
         Box(modifier = Modifier.fillMaxSize()) {
-            val displayMediaList = remember(allMedia, galleryState.ageRatingFilter, metadataMap) {
-                allMedia.filter { item ->
-                    val meta = metadataMap[item.uri]
-                    val rating = meta?.ageRating ?: "SFW"
-                    when (galleryState.ageRatingFilter) {
-                        AgeRatingFilter.ALL -> true
-                        AgeRatingFilter.SFW -> rating == "SFW"
-                        AgeRatingFilter.R15 -> rating == "R15"
-                        AgeRatingFilter.R18 -> rating == "R18"
-                    }
-                }
-            }
-            if (displayMediaList.isNotEmpty()) {
-                FloatingRandomImage(
-                    mediaList = displayMediaList,
-                    ageRatingFilter = galleryState.ageRatingFilter,
-                    metadataMap = metadataMap
-                )
-            }
             Surface(
-                color = Color.Black.copy(alpha = 0.9f),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp, start = 32.dp, end = 32.dp)
+                color = Color.Black.copy(alpha = 0.9f), shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp, start = 32.dp, end = 32.dp)
             ) {
-                Text(
-                    text = "${unanalyzedCount}件が未分析です。右上から分析してください",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                )
+                Text("${unanalyzedCount}件が未分析です。右上から分析してください", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
             }
         }
     }

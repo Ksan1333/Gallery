@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material3.*
@@ -18,7 +17,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.GalleryState
-import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.component.CategoryCard
 import com.example.gallery.ui.component.CategoryData
 import kotlinx.coroutines.Dispatchers
@@ -42,16 +40,16 @@ fun FolderPickerScreen(
         scope.launch(Dispatchers.IO) {
             isLoading = true
             val allMedia = galleryState.repository.getAllMedia()
-            val groups = allMedia.groupBy { it.folderName }
-            val categories = groups.map { (name, images) ->
-                CategoryData(
-                    id = name,
-                    title = name,
-                    count = images.size,
-                    thumbnail = images.firstOrNull()?.uri
-                )
-            }.sortedBy { it.title }
-            
+            val categories = allMedia.groupBy { it.folderName }
+                .map { (name, images) ->
+                    CategoryData(
+                        id = name,
+                        title = name,
+                        count = images.size,
+                        thumbnail = images.firstOrNull()?.uri
+                    )
+                }.sortedBy { it.title }
+
             withContext(Dispatchers.Main) {
                 folderData = categories
                 isLoading = false
@@ -59,9 +57,7 @@ fun FolderPickerScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        loadFolders()
-    }
+    LaunchedEffect(Unit) { loadFolders() }
 
     Scaffold(
         topBar = {
@@ -77,9 +73,7 @@ fun FolderPickerScreen(
                         Icon(Icons.Default.CreateNewFolder, contentDescription = "新規フォルダ", tint = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = Color.Black
-                )
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Black)
             )
         },
         containerColor = AppConstants.BackgroundColor
@@ -94,11 +88,8 @@ fun FolderPickerScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(folderData) { category ->
-                        CategoryCard(
-                            data = category,
-                            onClick = { onFolderSelected(category.id) }
-                        )
+                    items(folderData, key = { it.id }) { category ->
+                        CategoryCard(data = category, onClick = { onFolderSelected(category.id) })
                     }
                 }
             }
@@ -112,7 +103,7 @@ fun FolderPickerScreen(
             text = {
                 Column {
                     Text("DCIM直下に作成されます", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newFolderName,
                         onValueChange = { newFolderName = it },
@@ -127,23 +118,17 @@ fun FolderPickerScreen(
                     onClick = {
                         if (newFolderName.isNotBlank()) {
                             scope.launch {
-                                val success = galleryState.repository.createFolderUnderDCIM(newFolderName)
-                                if (success) {
-                                    // 作成したフォルダをそのまま選択
+                                if (galleryState.repository.createFolderUnderDCIM(newFolderName)) {
                                     onFolderSelected(newFolderName)
                                 }
                                 showCreateFolderDialog = false
                             }
                         }
                     }
-                ) {
-                    Text("作成して選択")
-                }
+                ) { Text("作成して選択") }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateFolderDialog = false }) {
-                    Text("キャンセル")
-                }
+                TextButton(onClick = { showCreateFolderDialog = false }) { Text("キャンセル") }
             }
         )
     }

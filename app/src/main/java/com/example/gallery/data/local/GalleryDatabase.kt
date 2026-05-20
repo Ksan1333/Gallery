@@ -10,13 +10,13 @@ import com.example.gallery.data.local.entity.TagEntity
 
 @Database(
     entities = [
-        MediaMetadataEntity::class, 
-        TagEntity::class, 
-        com.example.gallery.data.local.entity.FolderGroupEntity::class, 
+        MediaMetadataEntity::class,
+        TagEntity::class,
+        com.example.gallery.data.local.entity.FolderGroupEntity::class,
         com.example.gallery.data.local.entity.FolderGroupMemberEntity::class,
         com.example.gallery.data.local.entity.FolderOrderEntity::class,
         com.example.gallery.data.local.entity.ManagedFolderEntity::class
-    ], 
+    ],
     version = 8,
     exportSchema = false
 )

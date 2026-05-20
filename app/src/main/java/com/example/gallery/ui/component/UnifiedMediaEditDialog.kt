@@ -49,7 +49,7 @@ fun UnifiedMediaEditDialog(
     var selectedAgeRating by rememberSaveable { mutableStateOf<String?>(null) }
     val tagCounts by repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
     val allTags = remember(tagCounts) { tagCounts.map { it.tag } }
-    
+
     // 既存の全フォルダ名を取得（MediaDataのフォルダ名とメタデータのフォルダ名の両方を考慮）
     val allMetadata by repository.getAllMetadataFlow().collectAsState(initial = emptyList())
     // フォルダ移動のUIを簡略化したため existingFolders は不要になった
@@ -89,7 +89,7 @@ fun UnifiedMediaEditDialog(
                             isProcessing = true
                             scope.launch {
                                 val total = uris.size
-                                
+
                                 // フォルダ移動の処理 (フォルダが指定されている場合)
                                 if (targetFolderName.isNotBlank()) {
                                     repository.moveMediaToFolder(uris, targetFolderName)
@@ -210,7 +210,7 @@ fun UnifiedMediaEditDialog(
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("フォルダ移動", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
                     Text("移動先フォルダを選択してください", fontSize = 12.sp, color = Color.Gray)
-                    
+
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedCard(
                             onClick = { if (!isProcessing) onSelectFolder?.invoke() },
@@ -235,11 +235,11 @@ fun UnifiedMediaEditDialog(
                         }
                     }
                 }
-                
+
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("タグ設定", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
-                    
+
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextField(
                             value = newTagName,
@@ -262,7 +262,7 @@ fun UnifiedMediaEditDialog(
                             Icon(Icons.Default.Add, contentDescription = "追加", tint = Color.White)
                         }
                     }
-                    
+
                     if (selectedTags.isNotEmpty()) {
                         Text("追加するタグ:", fontSize = 12.sp, color = Color.Gray)
                         FlowRow(
@@ -280,7 +280,7 @@ fun UnifiedMediaEditDialog(
                             }
                         }
                     }
-                    
+
                     val existingTags = allTags.filter { !it.endsWith("系") }
                     if (existingTags.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))

@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import com.example.gallery.data.local.GalleryDatabase
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.data.repository.ColorTaggingService
+import com.example.gallery.data.repository.AiTaggingService
 
 enum class GalleryViewMode { FOLDER, MYLIST, COLOR }
 enum class GroupingMode { NONE, DAY, MONTH, YEAR, STORAGE }
@@ -26,23 +27,15 @@ class GalleryState(context: Context) {
 
     fun toggleMockMode() {
         isMockMode = !isMockMode
+        repository.clearMockData()
     }
 
-    val repository: MediaRepository = MediaRepository(
-        context,
-        database.mediaDao(),
-        this
-    )
-    val colorTaggingService: ColorTaggingService = ColorTaggingService(
-        context,
-        database.mediaDao()
-    )
-    val aiTaggingService: com.example.gallery.data.repository.AiTaggingService = com.example.gallery.data.repository.AiTaggingService(
-        context,
-        database.mediaDao()
-    )
+    fun refreshTriggerFlow(): kotlinx.coroutines.flow.Flow<Int> = androidx.compose.runtime.snapshotFlow { refreshTrigger }
 
-    // 永続化を無効化しつつ、セッション内で維持される状態
+    val repository: MediaRepository = MediaRepository(context, database.mediaDao(), this)
+    val colorTaggingService: ColorTaggingService = ColorTaggingService(context, repository)
+    val aiTaggingService: AiTaggingService = AiTaggingService(context, repository)
+
     var groupingMode by mutableStateOf(GroupingMode.NONE)
     var mediaTypeFilter by mutableStateOf(MediaTypeFilter.ALL)
     var ageRatingFilter by mutableStateOf(AgeRatingFilter.SFW)
@@ -50,20 +43,23 @@ class GalleryState(context: Context) {
     var galleryViewMode by mutableStateOf(GalleryViewMode.FOLDER)
     var sortMode by mutableStateOf(SortMode.DATE_ADDED)
     var isAscending by mutableStateOf(false)
-    var videoSeekInterval by mutableIntStateOf(10) // デフォルト10秒
+    var videoSeekInterval by mutableIntStateOf(10)
 
-    // 一括編集用の状態
     var urisToMove by mutableStateOf<List<String>>(emptyList())
     var selectedFolderForMove by mutableStateOf("")
 
     var refreshTrigger by mutableIntStateOf(0)
         private set
 
+    // 操作状態
+    var isZooming by mutableStateOf(false)
+    var lastViewedUri by mutableStateOf<String?>(null)
+
     fun refresh() {
         refreshTrigger++
     }
 
-    val currentColumnIndex: Int = 4 // 3列
+    val currentColumnIndex: Int = 4
 }
 
 @Composable

@@ -46,7 +46,7 @@ interface MediaDao {
 
     @Query("SELECT uri FROM media_tags WHERE tag = :tag LIMIT 1")
     fun getThumbnailForTag(tag: String): Flow<String?>
-    
+
     @Query("SELECT uri FROM media_metadata WHERE isFavorite = 1")
     fun getFavoriteUris(): Flow<List<String>>
 
@@ -73,6 +73,18 @@ interface MediaDao {
 
     @Query("UPDATE media_metadata SET isDeleted = :isDeleted, deletedDate = :deletedDate WHERE uri IN (:uris)")
     suspend fun bulkSetDeleted(uris: List<String>, isDeleted: Boolean, deletedDate: Long?)
+
+    @Query("UPDATE media_metadata SET isFavorite = :isFavorite WHERE uri = :uri")
+    suspend fun updateFavorite(uri: String, isFavorite: Boolean)
+
+    @Query("UPDATE media_metadata SET isFavorite = :isFavorite WHERE uri IN (:uris)")
+    suspend fun bulkUpdateFavorite(uris: List<String>, isFavorite: Boolean)
+
+    @Query("UPDATE media_metadata SET ageRating = :ageRating WHERE uri IN (:uris)")
+    suspend fun bulkUpdateAgeRating(uris: List<String>, ageRating: String)
+
+    @Query("UPDATE media_metadata SET folderName = :folderName WHERE uri IN (:uris)")
+    suspend fun bulkUpdateFolderName(uris: List<String>, folderName: String)
 
     // フォルダグループ用
     @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)

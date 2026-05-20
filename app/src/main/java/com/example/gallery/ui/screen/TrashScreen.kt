@@ -3,6 +3,7 @@ package com.example.gallery.ui.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,11 +22,12 @@ import kotlinx.coroutines.launch
 fun TrashScreen(
     onShowViewer: () -> Unit,
     onHideViewer: () -> Unit,
-    galleryState: GalleryState
+    galleryState: GalleryState,
+    onMenuClick: (() -> Unit)? = null // 追加
 ) {
     val scope = rememberCoroutineScope()
     val trashMedia by galleryState.repository.getTrashMedia().collectAsState(initial = emptyList())
-    
+
     var selectedImageIndex by remember { mutableStateOf<Int?>(null) }
     var clearSelectionSignal by remember { mutableIntStateOf(0) }
     var isSelectionModeActive by remember { mutableStateOf(false) }
@@ -36,6 +38,13 @@ fun TrashScreen(
             // ヘッダー
             TopAppBar(
                 title = { Text("ゴミ箱", color = Color.White) },
+                navigationIcon = {
+                    if (onMenuClick != null) {
+                        IconButton(onClick = onMenuClick) {
+                            Icon(Icons.Default.Menu, contentDescription = "メニュー", tint = Color.White)
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black),
                 actions = {
                     if (isSelectionModeActive && selectedUris.isNotEmpty()) {

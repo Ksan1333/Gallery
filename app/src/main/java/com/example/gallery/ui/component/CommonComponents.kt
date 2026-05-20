@@ -66,7 +66,7 @@ fun TooltipWrapper(
                 alignment = Alignment.BottomCenter,
                 offset = androidx.compose.ui.unit.IntOffset(0, -100), // 下部に表示（ナビゲーションバーより少し上）
                 properties = PopupProperties(
-                    focusable = false, 
+                    focusable = false,
                     dismissOnClickOutside = true,
                     clippingEnabled = false,
                     usePlatformDefaultWidth = false // タップイベントの吸い込み防止のため
@@ -117,7 +117,7 @@ fun GalleryTopControlBar(
                 onLongClick = { showFilterTooltip = true },
                 modifier = Modifier.size(36.dp),
                 enabled = isFilterEnabled
-            ) { 
+            ) {
                 Icon(Icons.Default.FilterAlt, null, tint = if (isFilterEnabled) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
                 if (isFilterEnabled) {
                     DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {

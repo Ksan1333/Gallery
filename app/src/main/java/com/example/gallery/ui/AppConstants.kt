@@ -7,7 +7,7 @@ import androidx.compose.ui.unit.sp
 object AppConstants {
     // 背景色
     val BackgroundColor = Color.DarkGray
-    
+
     // レイアウト
     val HeaderHeight = 56.dp
 

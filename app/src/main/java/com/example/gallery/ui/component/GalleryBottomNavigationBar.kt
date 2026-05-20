@@ -37,8 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 fun GalleryBottomNavigationBar(
     navController: NavHostController,
     galleryState: GalleryState,
-    onIconClick: (String) -> Unit = {},
-    onMockModeToggle: () -> Unit = {}
+    onIconClick: (String) -> Unit = {}
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -56,24 +55,36 @@ fun GalleryBottomNavigationBar(
     }
 
     val items = listOf(
-        NavigationItem("home", "すべて", Icons.Default.Home),
-        NavigationItem("folders", currentGalleryTitle, currentGalleryIcon, enabled = true),
-        NavigationItem("books", "本", Icons.AutoMirrored.Filled.MenuBook),
-        NavigationItem("trash", "ゴミ箱", Icons.Default.Delete)
+        BottomNavItem("home", "すべて", Icons.Default.Home),
+        BottomNavItem(
+            route = when (galleryState.galleryViewMode) {
+                GalleryViewMode.FOLDER -> "folders"
+                GalleryViewMode.MYLIST -> "mylist"
+                GalleryViewMode.COLOR -> "colorlist"
+            },
+            title = currentGalleryTitle,
+            icon = currentGalleryIcon,
+            enabled = true
+        ),
+        BottomNavItem("books", "本", Icons.AutoMirrored.Filled.MenuBook)
     )
 
     // ジェスチャー状態
     var isDraggingGallery by remember { mutableStateOf(false) }
     var isGalleryMenuOpenedByTap by remember { mutableStateOf(false) }
     var dragAmountY by remember { mutableFloatStateOf(0f) }
+    var isDriftCancelled by remember { mutableStateOf(false) } // 追加: 横ずれによる一時キャンセル
 
     // 表示フラグ
     val isGallerySwitcherVisible = isDraggingGallery || isGalleryMenuOpenedByTap
 
     // フォルダ切替のしきい値
-    val hoverGalleryMode by remember(dragAmountY) {
+    val hoverGalleryMode by remember(dragAmountY, isDriftCancelled) {
         derivedStateOf {
+            if (isDriftCancelled) return@derivedStateOf null
             when {
+                dragAmountY > 500f -> null // キャンセル状態
+                dragAmountY < -270f -> null // ゴミ箱（特別な遷移）
                 dragAmountY < -180f -> GalleryViewMode.COLOR
                 dragAmountY < -90f -> GalleryViewMode.MYLIST
                 else -> GalleryViewMode.FOLDER
@@ -109,7 +120,8 @@ fun GalleryBottomNavigationBar(
                 items.forEach { item ->
                     val isSelected = currentRoute == item.route
                     val isActuallyEnabled = item.enabled
-                    val isFoldersItem = item.route == "folders"
+                    // currentRouteが"folders", "mylist", "colorlist"のいずれかなら、真ん中のボタンとして扱う
+                    val isGalleryItem = item.route == "folders" || item.route == "mylist" || item.route == "colorlist"
 
                     Box(
                         modifier = Modifier
@@ -124,37 +136,78 @@ fun GalleryBottomNavigationBar(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(
-                                    if (isFoldersItem && isActuallyEnabled) {
+                                    if (isGalleryItem && isActuallyEnabled) {
                                         Modifier
                                             .pointerInput(item.route) {
                                                 detectDragGesturesAfterLongPress(
                                                     onDragStart = {
+                                                        Log.d("BottomNav", "Drag Start")
                                                         isDraggingGallery = true
                                                         dragAmountY = 0f
+                                                        isDriftCancelled = false
                                                     },
                                                     onDrag = { change, drag ->
                                                         change.consume()
+                                                        
+                                                        val screenWidth = size.width
+                                                        val centerX = screenWidth / 2f
+                                                        val currentX = change.position.x
+                                                        val horizontalOffset = Math.abs(currentX - centerX)
+                                                        val cancelThreshold = (screenWidth / 4f) * 1.5f
+                                                        
+                                                        // 横ずれ判定: 一定以上離れたらキャンセル、戻ったら復帰
+                                                        isDriftCancelled = horizontalOffset > cancelThreshold
+                                                        
                                                         dragAmountY += drag.y
+                                                        if (Math.abs(drag.y) > 1f) Log.d("BottomNav", "Dragging: Y=$dragAmountY, drift=$isDriftCancelled")
                                                     },
                                                     onDragEnd = {
-                                                        galleryState.galleryViewMode =
-                                                            currentHoverGalleryMode
-                                                        isDraggingGallery = false
-                                                        if (currentRoute != "folders") {
-                                                            navController.navigate("folders") {
+                                                        Log.d("BottomNav", "Drag End: finalY=$dragAmountY, drift=$isDriftCancelled")
+                                                        if (isDriftCancelled || dragAmountY > 500f) {
+                                                            isDraggingGallery = false
+                                                        } else if (dragAmountY < -270f) {
+                                                            isDraggingGallery = false
+                                                            navController.navigate("trash") {
                                                                 popUpTo(navController.graph.findStartDestination().id) {
                                                                     saveState = true
                                                                 }
                                                                 launchSingleTop = true
                                                                 restoreState = true
                                                             }
+                                                            onIconClick("trash")
+                                                        } else {
+                                                            val mode = currentHoverGalleryMode
+                                                            if (mode != null) {
+                                                                galleryState.galleryViewMode = mode
+                                                                isDraggingGallery = false
+                                                                
+                                                                val targetRoute = when (mode) {
+                                                                    GalleryViewMode.FOLDER -> "folders"
+                                                                    GalleryViewMode.MYLIST -> "mylist"
+                                                                    GalleryViewMode.COLOR -> "colorlist"
+                                                                }
+                                                                
+                                                                if (currentRoute != targetRoute) {
+                                                                    navController.navigate(targetRoute) {
+                                                                        popUpTo(navController.graph.findStartDestination().id) {
+                                                                            saveState = true
+                                                                        }
+                                                                        launchSingleTop = true
+                                                                        restoreState = true
+                                                                    }
+                                                                }
+                                                                onIconClick(targetRoute)
+                                                            } else {
+                                                                isDraggingGallery = false
+                                                            }
                                                         }
-                                                        onIconClick("folders")
                                                         dragAmountY = 0f
+                                                        isDriftCancelled = false
                                                     },
                                                     onDragCancel = {
                                                         isDraggingGallery = false
                                                         dragAmountY = 0f
+                                                        isDriftCancelled = false
                                                     }
                                                 )
                                             }
@@ -213,7 +266,7 @@ fun GalleryBottomNavigationBar(
                         }
 
                         // アイコンの右上に上矢印を表示 (ドラッグ中でない時)
-                        if (isFoldersItem && !isDraggingGallery) {
+                        if (isGalleryItem && !isDraggingGallery) {
                             Icon(
                                 imageVector = Icons.Default.ArrowDropUp,
                                 contentDescription = "メニュー展開",
@@ -232,44 +285,6 @@ fun GalleryBottomNavigationBar(
                             )
                         }
                     }
-                }
-
-                VerticalDivider(
-                    modifier = Modifier
-                        .height(32.dp)
-                        .padding(horizontal = 4.dp),
-                    color = Color.Gray.copy(alpha = 0.3f)
-                )
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .combinedClickable(
-                            onClick = {
-                                galleryState.toggleMockMode()
-                                onMockModeToggle()
-                            },
-                            onLongClick = { },
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple()
-                        )
-                        .padding(horizontal = 12.dp)
-                ) {
-                    Icon(
-                        imageVector = if (galleryState.isMockMode) Icons.Default.BugReport else Icons.Default.SdStorage,
-                        contentDescription = "MOCK",
-                        tint = if (galleryState.isMockMode) Color.Yellow else Color.Gray,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "MOCK",
-                        color = if (galleryState.isMockMode) Color.Yellow else Color.Gray,
-                        fontSize = 10.sp,
-                        fontWeight = if (galleryState.isMockMode) androidx.compose.ui.text.font.FontWeight.Bold else null
-                    )
                 }
             }
         }
@@ -327,47 +342,90 @@ fun GalleryBottomNavigationBar(
                                 verticalArrangement = Arrangement.spacedBy(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                listOf(
-                                    GalleryViewMode.COLOR,
-                                    GalleryViewMode.MYLIST,
-                                    GalleryViewMode.FOLDER
-                                ).forEach { mode ->
-                                    val icon = when (mode) {
-                                        GalleryViewMode.FOLDER -> Icons.AutoMirrored.Filled.List
-                                        GalleryViewMode.MYLIST -> Icons.Default.Favorite
-                                        GalleryViewMode.COLOR -> Icons.Default.Palette
-                                    }
-                                    val isHovered =
-                                        !isGalleryMenuOpenedByTap && hoverGalleryMode == mode
-                                    val isSelected =
-                                        isGalleryMenuOpenedByTap && galleryState.galleryViewMode == mode
-                                    val isActive = isHovered || isSelected
-                                    val color =
-                                        if (isActive) Color.Cyan else Color.White.copy(alpha = 0.5f)
-                                    val scale = if (isActive) 1.3f else 1.0f
+                                // ゴミ箱も他のモードと同様にホバー/タップで選択できるように変更
+                                val isTrashHovered = !isGalleryMenuOpenedByTap && dragAmountY < -270f
+                                val trashColor = if (isTrashHovered) Color.Cyan else Color.White.copy(alpha = 0.5f)
+                                val trashScale = if (isTrashHovered) 1.3f else 1.0f
 
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
-                                        modifier = Modifier.size(60.dp).clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = ripple(bounded = false, radius = 30.dp)
-                                        ) {
-                                            galleryState.galleryViewMode = mode
-                                            isDraggingGallery = false
-                                            isGalleryMenuOpenedByTap = false
-                                            if (currentRoute != "folders") {
-                                                navController.navigate("folders") {
-                                                    popUpTo(navController.graph.findStartDestination().id) {
-                                                        saveState = true
-                                                    }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
-                                            }
-                                            onIconClick("folders")
-                                        }
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.size(60.dp).clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = ripple(bounded = false, radius = 30.dp)
                                     ) {
+                                        isDraggingGallery = false
+                                        isGalleryMenuOpenedByTap = false
+                                        navController.navigate("trash") {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = trashColor,
+                                        modifier = Modifier.size((28 * trashScale).dp)
+                                    )
+                                    Text(
+                                        text = "ゴミ箱",
+                                        color = trashColor,
+                                        fontSize = (9 * trashScale).sp,
+                                        fontWeight = if (isTrashHovered) androidx.compose.ui.text.font.FontWeight.Bold else null
+                                    )
+                                }
+
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.2f), modifier = Modifier.width(80.dp))
+
+                                            listOf(
+                                                GalleryViewMode.COLOR,
+                                                GalleryViewMode.MYLIST,
+                                                GalleryViewMode.FOLDER
+                                            ).forEach { mode ->
+                                                val icon = when (mode) {
+                                                    GalleryViewMode.FOLDER -> Icons.AutoMirrored.Filled.List
+                                                    GalleryViewMode.MYLIST -> Icons.Default.Favorite
+                                                    GalleryViewMode.COLOR -> Icons.Default.Palette
+                                                }
+                                                val isHovered = !isGalleryMenuOpenedByTap && currentHoverGalleryMode == mode
+                                                val isSelected = isGalleryMenuOpenedByTap && galleryState.galleryViewMode == mode
+                                                val isActive = isHovered || isSelected
+                                                val color = if (isActive) Color.Cyan else Color.White.copy(alpha = 0.5f)
+                                                val scale = if (isActive) 1.3f else 1.0f
+
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center,
+                                                modifier = Modifier.size(60.dp).clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = ripple(bounded = false, radius = 30.dp)
+                                                ) {
+                                                    galleryState.galleryViewMode = mode
+                                                    isDraggingGallery = false
+                                                    isGalleryMenuOpenedByTap = false
+                                                    
+                                                    val targetRoute = when (mode) {
+                                                        GalleryViewMode.FOLDER -> "folders"
+                                                        GalleryViewMode.MYLIST -> "mylist"
+                                                        GalleryViewMode.COLOR -> "colorlist"
+                                                    }
+                                                    
+                                                    if (currentRoute != targetRoute) {
+                                                        navController.navigate(targetRoute) {
+                                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                                saveState = true
+                                                            }
+                                                            launchSingleTop = true
+                                                            restoreState = true
+                                                        }
+                                                    }
+                                                    onIconClick(targetRoute)
+                                                }
+                                            ) {
                                         Icon(
                                             imageVector = icon,
                                             contentDescription = null,
@@ -394,4 +452,4 @@ fun GalleryBottomNavigationBar(
     }
 }
 
-data class NavigationItem(val route: String, val title: String, val icon: ImageVector, val enabled: Boolean = true)
+data class BottomNavItem(val route: String, val title: String, val icon: ImageVector, val enabled: Boolean = true)

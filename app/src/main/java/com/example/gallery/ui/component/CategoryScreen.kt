@@ -77,6 +77,7 @@ fun CategoryScreen(
     onCategoryClick: (CategoryData) -> Unit,
     onShowViewer: () -> Unit,
     onHideViewer: () -> Unit,
+    onMenuClick: (() -> Unit)? = null, // 追加
     topBarActions: @Composable RowScope.() -> Unit = {},
     emptyContent: @Composable BoxScope.() -> Unit = { Text("データがありません", color = Color.Gray) },
     loadingContent: @Composable BoxScope.() -> Unit = { CircularProgressIndicator(color = Color.White) },
@@ -193,7 +194,7 @@ fun CategoryScreen(
         selectedCategoryIds.isNotEmpty() && selectedCategoryIds.all { id -> previewCategories.find { it.id == id }?.isGroup == true }
     }
     val selectedGroupTitles = remember(selectedCategoryIds, previewCategories) {
-        selectedCategoryIds.mapNotNull { id -> 
+        selectedCategoryIds.mapNotNull { id ->
             val cat = previewCategories.find { it.id == id }
             if (cat?.isGroup == true) cat.title else null
         }
@@ -252,7 +253,15 @@ fun CategoryScreen(
                             }
                         }
                     } else {
-                        Text(title, color = Color.White, fontSize = AppConstants.HeaderFontSize)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (onMenuClick != null) {
+                                IconButton(onClick = onMenuClick) {
+                                    Icon(Icons.Default.Menu, contentDescription = "メニュー", tint = Color.White)
+                                }
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(title, color = Color.White, fontSize = AppConstants.HeaderFontSize)
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) { topBarActions() }
                     }
                 }
@@ -300,7 +309,7 @@ fun CategoryScreen(
                                                         draggedCategoryId = category.id
                                                         dragOffset = Offset.Zero
                                                         initialDragLocalOffset = screenLayoutCoordinates?.windowToLocal(rect.topLeft) ?: Offset.Zero
-                                                        
+
                                                         // 選択されていないアイテムをドラッグし始めたら選択に追加
                                                         if (!selectedCategoryIds.contains(category.id)) {
                                                             if (!isCategorySelectionMode) {
@@ -315,7 +324,7 @@ fun CategoryScreen(
                                                         change.consume()
                                                         dragOffset += dragAmount
                                                         val currentCenter = initialDragCenter + dragOffset
-                                                        
+
                                                         // ターゲットの検索
                                                         val foundTarget = categoryBounds.entries.find { (id, bounds) ->
                                                             id != category.id && bounds.contains(currentCenter)
@@ -325,10 +334,10 @@ fun CategoryScreen(
                                                             val targetId = foundTarget.key
                                                             val targetBounds = foundTarget.value
                                                             val targetCat = previewCategories.find { it.id == targetId }
-                                                            
+
                                                             // グループ化判定 (ターゲットがグループ かつ ドラッグ中心がターゲットの中央付近にある場合)
                                                             val groupZone = targetBounds.deflate(targetBounds.width * 0.2f)
-                                                            
+
                                                             if (targetCat?.isGroup == true && groupZone.contains(currentCenter) && !selectedCategoryIds.contains(targetId)) {
                                                                 hoveredCategoryId = targetId
                                                             } else {
@@ -336,10 +345,10 @@ fun CategoryScreen(
                                                                 // 並び替えアニメーション用プレビューの更新
                                                                 val fromIndex = previewCategories.indexOfFirst { it.id == category.id }
                                                                 val toIndex = previewCategories.indexOfFirst { it.id == targetId }
-                                                                
+
                                                                 // ターゲットの端の方にいる時だけ入れ替える（ホバー中の安定性向上のため）
                                                                 val swapThreshold = targetBounds.width * 0.15f
-                                                                val isNearEdges = currentCenter.x < targetBounds.left + swapThreshold || 
+                                                                val isNearEdges = currentCenter.x < targetBounds.left + swapThreshold ||
                                                                                  currentCenter.x > targetBounds.right - swapThreshold ||
                                                                                  currentCenter.y < targetBounds.top + swapThreshold ||
                                                                                  currentCenter.y > targetBounds.bottom - swapThreshold
@@ -397,7 +406,7 @@ fun CategoryScreen(
                                         isDragging = isDragging,
                                         isDragTarget = hoveredCategoryId == category.id && category.isGroup,
                                         alpha = if (isDragging) 0f else 1f, // ドラッグ中は非表示（背後にあるため）
-                                        onClick = { 
+                                        onClick = {
                                             if (isCategorySelectionMode) {
                                                 if (selectedCategoryIds.contains(category.id)) {
                                                     selectedCategoryIds.remove(category.id)
@@ -468,7 +477,7 @@ fun CategoryScreen(
                     initialPage = index,
                     imageList = currentMediaList,
                     galleryState = galleryState,
-                    onPageSelected = { 
+                    onPageSelected = {
                         selectedImageIndex = it
                         currentMediaList.getOrNull(it)?.uri?.let { uri -> onPageChangedInViewer(uri) }
                     },
@@ -511,7 +520,7 @@ fun CategoryScreen(
                 UnifiedMediaEditDialog(
                     uris = allMediaInSelectedCategories.toList(),
                     repository = galleryState.repository,
-                    onDismiss = { 
+                    onDismiss = {
                         showBulkEditDialog = false
                         isCategorySelectionMode = false
                         selectedCategoryIds.clear()

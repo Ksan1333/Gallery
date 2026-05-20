@@ -47,9 +47,9 @@ fun PinterestScreen() {
                     color = Color.White,
                     fontSize = AppConstants.TitleFontSize
                 )
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 if (!isLoggedIn) {
                     Button(onClick = { isLoggedIn = true }) {
                         Text("Pinterestにログイン")
