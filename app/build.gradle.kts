@@ -35,6 +35,9 @@ android {
     buildFeatures {
         compose = true
     }
+    aaptOptions {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -73,4 +76,7 @@ dependencies {
     // ML Kit Local AI
     implementation(libs.mlkit.image.labeling)
     implementation(libs.kotlinx.coroutines.play.services)
+
+    // MediaPipe (Vector Search)
+    implementation(libs.mediapipe.tasks.vision)
 }

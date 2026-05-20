@@ -136,6 +136,7 @@ fun PictureViewer(
     val recommendationDragOffset = remember { Animatable(0f) }
 
     var recommendedMediaWithScores by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
+    var recommendedMediaWithVisualScores by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
     var currentColorComposition by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
     var currentMediaTags by remember { mutableStateOf<List<String>>(emptyList()) }
     var taggedMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
@@ -235,6 +236,9 @@ fun PictureViewer(
                 val map = mutableMapOf<String, Float>()
                 json.keys().forEach { k -> map[k] = json.getDouble(k).toFloat() }
                 currentColorComposition = map
+            }
+            if (meta?.featureVector != null) {
+                recommendedMediaWithVisualScores = galleryState?.repository?.findSimilarVisualMedia(mediaItem.uri) ?: emptyList()
             }
         }
     }
@@ -595,6 +599,9 @@ fun PictureViewer(
                                     } else Text("解析データなし", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
                                 }
                                 item { if (recommendedMediaWithScores.isEmpty()) { if (isAnalyzingCurrentMedia) { Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) } } else Text("似た色の画像が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaWithScores) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) { scope.launch { pagerState.scrollToPage(index); onPageSelected?.invoke(index) } } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
+
+                                item { Text("似た雰囲気の画像 (AIベクトル)", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                                item { if (recommendedMediaWithVisualScores.isEmpty()) { Text("準備中または見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaWithVisualScores) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) { scope.launch { pagerState.scrollToPage(index); onPageSelected?.invoke(index) } } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
                             } else if (!isTrashMode) {
                                 item { Text("他の動画", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                                 item { val otherVideos = remember(imageList) { imageList.filter { it.isVideo && it.uri != currentMedia.uri } }; if (otherVideos.isEmpty()) Text("他の動画が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(otherVideos) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } } }

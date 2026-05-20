@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import com.example.gallery.data.local.dao.MediaDao
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
@@ -17,9 +18,10 @@ import com.example.gallery.data.local.entity.TagEntity
         com.example.gallery.data.local.entity.FolderOrderEntity::class,
         com.example.gallery.data.local.entity.ManagedFolderEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
+@TypeConverters(Converters::class)
 abstract class GalleryDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
 

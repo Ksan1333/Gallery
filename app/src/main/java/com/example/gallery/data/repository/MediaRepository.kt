@@ -733,4 +733,26 @@ class MediaRepository(
         allKeys.forEach { key -> distance += Math.abs((c1[key] ?: 0f) - (c2[key] ?: 0f)) }
         return distance
     }
+
+    suspend fun findSimilarVisualMedia(uri: String): List<MediaSimilarity> = withContext(Dispatchers.Default) {
+        val targetMetadata = getMetadata(uri) ?: return@withContext emptyList()
+        val targetVector = targetMetadata.featureVector ?: return@withContext emptyList()
+        val targetAgeRating = targetMetadata.ageRating
+
+        val allMetadataList = getAllMetadata().filter { 
+            it.uri != uri && it.featureVector != null && it.ageRating == targetAgeRating 
+        }
+        val allMediaMap = getAllMedia().associateBy { it.uri }
+
+        allMetadataList.asSequence()
+            .map { meta ->
+                val score = VectorSearchService.cosineSimilarity(targetVector, meta.featureVector!!)
+                meta.uri to score
+            }
+            .filter { it.second > 0.6f } // 類似度 60% 以上
+            .sortedByDescending { it.second }
+            .take(20)
+            .mapNotNull { (resUri, score) -> allMediaMap[resUri]?.let { MediaSimilarity(it, score) } }
+            .toList()
+    }
 }
