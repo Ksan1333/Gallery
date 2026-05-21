@@ -14,7 +14,6 @@ import com.google.mediapipe.tasks.vision.imageembedder.ImageEmbedder
 import com.google.mediapipe.tasks.vision.imageembedder.ImageEmbedder.ImageEmbedderOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.sqrt
 
 class VectorSearchService(
     private val context: Context,
@@ -24,17 +23,32 @@ class VectorSearchService(
 
     init {
         try {
-            val modelFile = ModelDownloader.getModelFile(context)
+            val modelFile = ModelDownloader.getVectorModelFile(context)
             if (modelFile.exists()) {
-                val baseOptions = BaseOptions.builder()
+                val baseOptionsBuilder = BaseOptions.builder()
                     .setModelAssetPath(modelFile.absolutePath)
-                    .build()
-                val options = ImageEmbedderOptions.builder()
-                    .setBaseOptions(baseOptions)
-                    .setL2Normalize(true) // 類似度計算のために正規化を有効にする
-                    .setQuantize(false)
-                    .build()
-                imageEmbedder = ImageEmbedder.createFromOptions(context, options)
+
+                // まずGPUを試す。失敗したらCPUにフォールバック
+                try {
+                    val baseOptions = baseOptionsBuilder.setDelegate(com.google.mediapipe.tasks.core.Delegate.GPU).build()
+                    val options = ImageEmbedderOptions.builder()
+                        .setBaseOptions(baseOptions)
+                        .setL2Normalize(true)
+                        .setQuantize(false)
+                        .build()
+                    imageEmbedder = ImageEmbedder.createFromOptions(context, options)
+                    Log.d("VectorSearchService", "ImageEmbedder initialized with GPU")
+                } catch (e: Exception) {
+                    Log.w("VectorSearchService", "GPU not available for ImageEmbedder, falling back to CPU", e)
+                    val baseOptions = baseOptionsBuilder.setDelegate(com.google.mediapipe.tasks.core.Delegate.CPU).build()
+                    val options = ImageEmbedderOptions.builder()
+                        .setBaseOptions(baseOptions)
+                        .setL2Normalize(true)
+                        .setQuantize(false)
+                        .build()
+                    imageEmbedder = ImageEmbedder.createFromOptions(context, options)
+                    Log.d("VectorSearchService", "ImageEmbedder initialized with CPU")
+                }
             }
         } catch (e: Exception) {
             Log.e("VectorSearchService", "Failed to initialize ImageEmbedder", e)
@@ -49,22 +63,12 @@ class VectorSearchService(
             val mpImage = BitmapImageBuilder(bitmap).build()
             val result = imageEmbedder?.embed(mpImage)
             
+            // ImageEmbedderResult -> EmbedderResult (via embeddingResult()) -> List<Embedding> -> float[]
             val embedding = result?.embeddingResult()?.embeddings()?.firstOrNull()
             val vector = embedding?.floatEmbedding()
 
             if (vector != null) {
-                val current = repository.getMetadata(media.uri)
-                repository.saveMetadata(
-                    MediaMetadataEntity(
-                        uri = media.uri,
-                        isFavorite = current?.isFavorite ?: false,
-                        colorComposition = current?.colorComposition,
-                        ageRating = current?.ageRating ?: "SFW",
-                        isAiAnalyzed = current?.isAiAnalyzed ?: false,
-                        featureVector = vector,
-                        folderName = current?.folderName ?: media.folderName
-                    )
-                )
+                repository.updateFeatureVector(media.uri, vector)
             }
             bitmap.recycle()
         } catch (e: Exception) {
@@ -74,14 +78,36 @@ class VectorSearchService(
 
     private fun decodeBitmap(uriString: String): Bitmap? {
         return try {
+            val context = context
+            val uri = Uri.parse(uriString)
+
+            // 1. サイズだけを取得
             val options = BitmapFactory.Options().apply {
-                // MediaPipe MobileNetV3は224x224程度の入力で十分
-                inSampleSize = 2
+                inJustDecodeBounds = true
             }
-            context.contentResolver.openInputStream(Uri.parse(uriString))?.use {
+            context.contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, options)
             }
-        } catch (e: Exception) { null }
+
+            // MobileNetV3 (ImageEmbedder) は通常 224x224
+            var inSampleSize = 1
+            if (options.outHeight > 224 || options.outWidth > 224) {
+                val halfHeight = options.outHeight / 2
+                val halfWidth = options.outWidth / 2
+                while (halfHeight / inSampleSize >= 224 && halfWidth / inSampleSize >= 224) {
+                    inSampleSize *= 2
+                }
+            }
+
+            // 2. 実際にデコード
+            val decodeOptions = BitmapFactory.Options().apply {
+                this.inSampleSize = inSampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, decodeOptions)
+            }
+        } catch (_: Exception) { null }
     }
 
     fun close() {

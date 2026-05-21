@@ -4,6 +4,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -43,6 +44,72 @@ import com.example.gallery.ui.DeviceFilter
 import com.example.gallery.ui.GroupingMode
 import com.example.gallery.ui.MediaTypeFilter
 import com.example.gallery.ui.SortMode
+
+import androidx.compose.ui.zIndex
+import com.example.gallery.service.GlobalOperationService
+
+@Composable
+fun GlobalProgressOverlay() {
+    val isProcessing by GlobalOperationService.isProcessing.collectAsState()
+    val progress by GlobalOperationService.progress.collectAsState()
+    val statusTitle by GlobalOperationService.statusTitle.collectAsState()
+    val statusText by GlobalOperationService.statusText.collectAsState()
+
+    if (isProcessing && progress < 1f) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .zIndex(2000f),
+            color = Color.Black.copy(alpha = 0.85f),
+            shape = RoundedCornerShape(12.dp),
+            shadowElevation = 8.dp,
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = statusTitle,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                    Text(
+                        text = "${(progress * 100).toInt()}%",
+                        color = Color.Cyan,
+                        fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = Color.Cyan,
+                    trackColor = Color.White.copy(alpha = 0.15f)
+                )
+                if (statusText.isNotEmpty()) {
+                    Text(
+                        text = statusText,
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 6.dp),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun TooltipWrapper(

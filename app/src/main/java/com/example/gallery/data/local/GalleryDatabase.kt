@@ -18,7 +18,7 @@ import com.example.gallery.data.local.entity.TagEntity
         com.example.gallery.data.local.entity.FolderOrderEntity::class,
         com.example.gallery.data.local.entity.ManagedFolderEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

@@ -31,6 +31,7 @@ import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.ui.AppConstants
+import com.example.gallery.service.GlobalOperationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -51,7 +52,7 @@ fun UnifiedMediaEditDialog(
     val allTags = remember(tagCounts) { tagCounts.map { it.tag } }
 
     // 既存の全フォルダ名を取得（MediaDataのフォルダ名とメタデータのフォルダ名の両方を考慮）
-    val allMetadata by repository.getAllMetadataFlow().collectAsState(initial = emptyList())
+    val allMetadata by repository.getAllMetadataSummaryFlow().collectAsState(initial = emptyList())
     // フォルダ移動のUIを簡略化したため existingFolders は不要になった
 
     val selectedTags = remember { mutableStateListOf<String>() }
@@ -60,9 +61,8 @@ fun UnifiedMediaEditDialog(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // 進捗管理用の状態
+    // 進捗管理用の状態 (GlobalOperationService を使うため削除)
     var isProcessing by remember { mutableStateOf(false) }
-    var progress by remember { mutableFloatStateOf(0f) }
 
     // 初期値のロード
     LaunchedEffect(uris) {
@@ -81,7 +81,7 @@ fun UnifiedMediaEditDialog(
                 title = { Text("一括編集 (${uris.size} 件)", color = Color.White) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss, enabled = !isProcessing) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = if (!isProcessing) Color.White else Color.Gray)
                     }
                 },
                 actions = {
@@ -89,6 +89,7 @@ fun UnifiedMediaEditDialog(
                         onClick = {
                             isProcessing = true
                             scope.launch {
+                                GlobalOperationService.startOperation("アイテムを更新中...")
                                 val total = uris.size
 
                                 // フォルダ移動の処理 (フォルダが指定されている場合)
@@ -101,9 +102,12 @@ fun UnifiedMediaEditDialog(
                                     if (selectedTags.isNotEmpty()) {
                                         repository.bulkAddTags(listOf(uri), selectedTags.toList())
                                     }
-                                    progress = (index + 1).toFloat() / total
+                                    val currentProgress = (index + 1).toFloat() / total
+                                    GlobalOperationService.updateProgress(currentProgress, "${index + 1} / $total")
                                     if (total > 50) delay(1)
                                 }
+                                GlobalOperationService.finishOperation()
+                                isProcessing = false
                                 onDismiss()
                             }
                         },
@@ -115,7 +119,8 @@ fun UnifiedMediaEditDialog(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Black)
             )
         },
-        containerColor = AppConstants.BackgroundColor
+        containerColor = AppConstants.BackgroundColor,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0) // ナビゲーションバー等の余白を無視
     ) { padding ->
         Column(
             modifier = Modifier
@@ -168,21 +173,7 @@ fun UnifiedMediaEditDialog(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            if (isProcessing) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
-                ) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth().height(8.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = Color.Gray.copy(alpha = 0.3f)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("${(progress * 100).toInt()}% 更新中...", fontSize = 14.sp, color = Color.White)
-                }
-            }
+            // if (isProcessing) は削除。GlobalProgressOverlay が表示するため。
 
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 item {
@@ -197,6 +188,7 @@ fun UnifiedMediaEditDialog(
                                     selected = selectedAgeRating == code,
                                     onClick = { if (!isProcessing) selectedAgeRating = code },
                                     label = { Text(label) },
+                                    enabled = !isProcessing,
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                                         selectedLabelColor = Color.White,
@@ -216,6 +208,7 @@ fun UnifiedMediaEditDialog(
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedCard(
                             onClick = { if (!isProcessing) onSelectFolder?.invoke() },
+                            enabled = !isProcessing,
                             modifier = Modifier.weight(1f),
                             colors = CardDefaults.outlinedCardColors(
                                 containerColor = Color.DarkGray.copy(alpha = 0.5f)
@@ -261,7 +254,7 @@ fun UnifiedMediaEditDialog(
                             },
                             enabled = !isProcessing
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "追加", tint = Color.White)
+                            Icon(Icons.Default.Add, contentDescription = "追加", tint = if (!isProcessing) Color.White else Color.Gray)
                         }
                     }
 
@@ -303,7 +296,7 @@ fun UnifiedMediaEditDialog(
                                         label = { Text(tag) },
                                         enabled = !isProcessing,
                                         colors = FilterChipDefaults.filterChipColors(
-                                            labelColor = Color.White,
+                                            labelColor = if (!isProcessing) Color.White else Color.Gray,
                                             selectedLabelColor = Color.White
                                         )
                                     )
@@ -324,6 +317,7 @@ fun UnifiedMediaEditDialog(
                             }
                         },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        enabled = !isProcessing,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null)

@@ -11,7 +11,8 @@ import androidx.room.Index
 )
 data class TagEntity(
     val uri: String,
-    val tag: String
+    val tag: String,
+    val confidence: Float = 0f // AI分析時のスコア
 )
 
 data class TagCount(

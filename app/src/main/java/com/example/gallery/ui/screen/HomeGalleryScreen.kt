@@ -32,7 +32,8 @@ fun HomeGalleryScreen(
     galleryState: GalleryState,
     initialMediaUri: String? = null,
     onMenuClick: (() -> Unit)? = null,
-    onBulkEdit: ((List<String>) -> Unit)? = null
+    onBulkEdit: ((List<String>) -> Unit)? = null,
+    onNavigateToTag: ((String) -> Unit)? = null // 追加
 ) {
     val context = LocalContext.current
     val imageList = remember { mutableStateListOf<MediaData>() }
@@ -48,14 +49,8 @@ fun HomeGalleryScreen(
         }
     }
 
-    var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(selectedIndex) {
-        if (selectedIndex != null) onShowViewer() else onHideViewer()
-    }
-
     LaunchedEffect(selectedIndex, flatListForViewer) {
-        selectedIndex?.let { idx -> flatListForViewer.getOrNull(idx)?.uri?.let { uri -> lastViewedUri = uri } }
+        selectedIndex?.let { idx -> flatListForViewer.getOrNull(idx)?.uri?.let { uri -> galleryState.lastViewedUri = uri } }
     }
 
     LaunchedEffect(imageList.size, initialMediaUri) {
@@ -82,7 +77,7 @@ fun HomeGalleryScreen(
     fun localLoadImages() {
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { isLoading = true }
-            galleryState.repository.getAllMetadata()
+            galleryState.repository.getAllMetadataSummary()
             val allMedia = galleryState.repository.getAllMedia()
             withContext(Dispatchers.Main) {
                 imageList.clear()
@@ -117,11 +112,12 @@ fun HomeGalleryScreen(
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
                 title = if (galleryState.isMockMode) "すべて (MOCK)" else "すべて",
-                scrollToUri = if (selectedIndex == null) lastViewedUri else null,
+                scrollToUri = if (selectedIndex == null) galleryState.lastViewedUri else null,
                 isFilterEnabled = true,
                 onMenuClick = onMenuClick,
-                onPageChangedInViewer = { lastViewedUri = it },
-                onBulkEdit = onBulkEdit
+                onPageChangedInViewer = { galleryState.lastViewedUri = it },
+                onBulkEdit = onBulkEdit,
+                onScrollConsumed = { galleryState.lastViewedUri = null }
             )
         }
 
@@ -132,6 +128,11 @@ fun HomeGalleryScreen(
                     initialPage = initialPage,
                     imageList = flatListForViewer,
                     galleryState = galleryState,
+                    onNavigateToTag = { tag ->
+                        selectedIndex = null
+                        onHideViewer()
+                        onNavigateToTag?.invoke(tag)
+                    },
                     onPageSelected = { selectedIndex = it },
                     onNavigateToMedia = { uri ->
                         val idx = imageList.indexOfFirst { it.uri == uri }

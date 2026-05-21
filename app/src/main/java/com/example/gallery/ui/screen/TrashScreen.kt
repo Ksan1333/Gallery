@@ -86,7 +86,8 @@ fun TrashScreen(
                     },
                     modifier = Modifier.fillMaxSize(),
                     isFilterEnabled = false, // ゴミ箱ではフィルタ無効
-                    isTrashMode = true
+                    isTrashMode = true,
+                    onScrollConsumed = { /* URI同期はゴミ箱では不要かもしれないが、一応渡せる */ }
                 )
             }
         }

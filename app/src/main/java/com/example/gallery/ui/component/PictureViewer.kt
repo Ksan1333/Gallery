@@ -102,6 +102,7 @@ fun PictureViewer(
     modifier: Modifier = Modifier,
     galleryState: GalleryState? = null,
     onNavigateToMedia: ((String) -> Unit)? = null, // 外部への移動通知
+    onNavigateToTag: ((String) -> Unit)? = null, // タグギャラリーへの移動通知
     onPageSelected: ((Int) -> Unit)? = null, // ページが切り替わったことを親に通知
     showDeleteButton: Boolean = true, // 追加: 削除ボタンを表示するかどうか
     isTrashMode: Boolean = false // 追加: ゴミ箱モード
@@ -135,15 +136,24 @@ fun PictureViewer(
     var isRecommendationVisible by rememberSaveable { mutableStateOf(false) }
     val recommendationDragOffset = remember { Animatable(0f) }
 
-    var recommendedMediaWithScores by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
-    var recommendedMediaWithVisualScores by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
-    var currentColorComposition by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
-    var currentMediaTags by remember { mutableStateOf<List<String>>(emptyList()) }
-    var taggedMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
-    var randomMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
-    var isAnalyzingCurrentMedia by remember { mutableStateOf(false) }
+    val currentMedia = remember(pagerState.currentPage, imageList) { imageList.getOrNull(pagerState.currentPage) }
 
-    val deletedUris by (galleryState?.repository?.mediaDao?.getDeletedMetadataFlow() ?: kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(initial = emptyList())
+    // メタデータとタグをFlowで監視
+    val currentMetadata by remember(currentMedia?.uri) {
+        galleryState?.repository?.mediaDao?.getMetadataSummaryFlow(currentMedia?.uri ?: "")
+            ?: kotlinx.coroutines.flow.flowOf(null)
+    }.collectAsState(initial = null)
+
+    val currentMediaTagsFlow by remember(currentMedia?.uri) {
+        galleryState?.repository?.getTagsForMedia(currentMedia?.uri ?: "")
+            ?: kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsState(initial = emptyList())
+
+    var recommendedMediaByVisual by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
+    var recommendedMediaByTags by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
+    var randomMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
+
+    val deletedUris by (galleryState?.repository?.mediaDao?.getDeletedMetadataSummaryFlow() ?: kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(initial = emptyList())
     val deletedUriSet = remember(deletedUris) { deletedUris.map { it.uri }.toSet() }
 
     var isFrameSteppingVisible by remember { mutableStateOf(false) }
@@ -151,58 +161,102 @@ fun PictureViewer(
     var currentFrameIndex by remember { mutableIntStateOf(0) }
     var isExtractingFrames by remember { mutableStateOf(false) }
 
-    var isVideoPlaying by remember { mutableStateOf(true) }
-    var videoDuration by remember { mutableLongStateOf(0L) }
-    var videoPosition by remember { mutableLongStateOf(0L) }
-    var isMuted by remember { mutableStateOf(true) }
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekTargetPosition by remember { mutableLongStateOf(0L) }
+    var isVideoPlaying by remember(pagerState.currentPage) { mutableStateOf(true) }
+    var videoDuration by remember(pagerState.currentPage) { mutableLongStateOf(0L) }
+    var videoPosition by remember(pagerState.currentPage) { mutableLongStateOf(0L) }
+    var isMuted by rememberSaveable { mutableStateOf(true) }
+    var isSeeking by remember(pagerState.currentPage) { mutableStateOf(false) }
+    var seekTargetPosition by remember(pagerState.currentPage) { mutableLongStateOf(-1L) }
 
-    val imageLoader = context.imageLoader
-
-    val window = (context as? Activity)?.window ?: return
-    val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-
-    val toggleSystemBars = { visible: Boolean ->
-        if (visible) {
-            insetsController.show(WindowInsetsCompat.Type.systemBars())
-        } else {
-            insetsController.hide(WindowInsetsCompat.Type.systemBars())
-        }
+    // ページ切り替え時に親に通知し、状態をリセット
+    LaunchedEffect(pagerState.currentPage) {
+        onPageSelected?.invoke(pagerState.currentPage)
+        // タイミングによっては上記 remember(currentPage) だけでは不十分な場合があるため明示的にもリセット
+        videoPosition = 0L
+        videoDuration = 0L
+        isSeeking = false
+        seekTargetPosition = -1L
+        isVideoPlaying = true // 次の動画も自動再生
     }
 
-    DisposableEffect(isLandscape) {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    val imageLoader = context.imageLoader
+    val window = (context as? Activity)?.window
+    val insetsController = remember(window) {
+        window?.let { WindowCompat.getInsetsController(it, it.decorView) }
+    }
 
-        if (isLandscape) {
-            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+    LaunchedEffect(isUiVisible, insetsController) {
+        insetsController?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (!isUiVisible) {
+            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
         } else {
-            if (isUiVisible) insetsController.show(WindowInsetsCompat.Type.systemBars())
-            else insetsController.hide(WindowInsetsCompat.Type.systemBars())
-        }
-
-        onDispose {
-            insetsController.show(WindowInsetsCompat.Type.systemBars())
-            (context as Activity).requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
     SideEffect {
         if (screenOrientation != android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-            (context as Activity).requestedOrientation = screenOrientation
+            (context as? Activity)?.requestedOrientation = screenOrientation
         }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        onPageSelected?.invoke(pagerState.currentPage)
-        thumbnailListState.scrollToItem((pagerState.currentPage - 4).coerceAtLeast(0))
-        isFrameSteppingVisible = false
-        gifFrames = emptyList()
-        currentFrameIndex = 0
-        isRecommendationVisible = false
+    DisposableEffect(Unit) {
+        onDispose {
+            (context as? Activity)?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    LaunchedEffect(isRecommendationVisible) {
+        if (isRecommendationVisible && currentMedia != null) {
+            val currentAgeRating = currentMetadata?.ageRating ?: "SFW"
+            
+            if (currentMedia.isVideo) {
+                // 動画の場合はランダムな動画を取得 (全動画からランダム抽選)
+                val allMedia = galleryState?.repository?.getAllMedia() ?: emptyList()
+                randomMediaList = allMedia.filter { it.isVideo && it.uri != currentMedia.uri }.shuffled().take(20)
+                
+                // 動画でもAIタグセクションを復活させるため、必要データを取得
+                scope.launch {
+                    if (currentMetadata?.isAiAnalyzed == true) {
+                        recommendedMediaByTags = galleryState?.repository?.findMediaByTagSimilarity(currentMedia.uri) ?: emptyList()
+                    } else if (galleryState != null) {
+                        galleryState.aiTaggingService.analyzeSingle(currentMedia)
+                        recommendedMediaByTags = galleryState.repository.findMediaByTagSimilarity(currentMedia.uri)
+                    }
+                }
+                recommendedMediaByVisual = emptyList()
+            } else {
+                // 1枚のBitmapデコードを待つ間に他のデータを並列で開始
+                scope.launch {
+                    randomMediaList = galleryState?.repository?.getRandomMediaByAgeRating(20, currentAgeRating) ?: emptyList()
+                }
+
+                scope.launch {
+                    if (currentMetadata?.isAiAnalyzed == true) {
+                        recommendedMediaByTags = galleryState?.repository?.findMediaByTagSimilarity(currentMedia.uri) ?: emptyList()
+                    } else {
+                        recommendedMediaByTags = emptyList()
+                        if (galleryState != null) {
+                            galleryState.aiTaggingService.analyzeSingle(currentMedia)
+                            recommendedMediaByTags = galleryState.repository.findMediaByTagSimilarity(currentMedia.uri)
+                        }
+                    }
+                }
+
+                scope.launch {
+                    if (currentMetadata?.hasFeatureVector == true) {
+                        recommendedMediaByVisual = galleryState?.repository?.findSimilarVisualMedia(currentMedia.uri) ?: emptyList()
+                    } else {
+                        recommendedMediaByVisual = emptyList()
+                        if (galleryState != null) {
+                            galleryState.vectorSearchService.analyzeSingle(currentMedia)
+                            recommendedMediaByVisual = galleryState.repository.findSimilarVisualMedia(currentMedia.uri)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     val onShowSimilarity: (MediaData) -> Unit = { mediaItem ->
@@ -210,43 +264,9 @@ fun PictureViewer(
         scope.launch { recommendationDragOffset.snapTo(0f) }
     }
 
-    LaunchedEffect(isRecommendationVisible, pagerState.currentPage, imageList.size) {
-        if (isRecommendationVisible && pagerState.currentPage in imageList.indices) {
-            val mediaItem = imageList[pagerState.currentPage]
-            var meta = galleryState?.repository?.getMetadata(mediaItem.uri)
-            val currentAgeRating = meta?.ageRating ?: "SFW"
-            val tags = (galleryState?.repository?.getTagsForMedia(mediaItem.uri)?.first() ?: emptyList())
-            currentMediaTags = tags
-            val normalTags = tags.filter { !it.endsWith("系") }
-            if (normalTags.isNotEmpty()) {
-                taggedMediaList = galleryState?.repository?.getMediaForTags(normalTags, currentAgeRating) ?: emptyList()
-            } else {
-                taggedMediaList = emptyList()
-            }
-            randomMediaList = galleryState?.repository?.getRandomMediaByAgeRating(20, currentAgeRating) ?: emptyList()
-            if (meta?.colorComposition == null) {
-                isAnalyzingCurrentMedia = true
-                galleryState?.colorTaggingService?.processSingleMedia(mediaItem)
-                meta = galleryState?.repository?.getMetadata(mediaItem.uri)
-                isAnalyzingCurrentMedia = false
-            }
-            if (meta?.colorComposition != null) {
-                recommendedMediaWithScores = galleryState?.repository?.findSimilarColorMedia(mediaItem.uri) ?: emptyList()
-                val json = JSONObject(meta.colorComposition)
-                val map = mutableMapOf<String, Float>()
-                json.keys().forEach { k -> map[k] = json.getDouble(k).toFloat() }
-                currentColorComposition = map
-            }
-            if (meta?.featureVector != null) {
-                recommendedMediaWithVisualScores = galleryState?.repository?.findSimilarVisualMedia(mediaItem.uri) ?: emptyList()
-            }
-        }
-    }
-
     val onToggle = {
         if (!isRecommendationVisible) {
             isUiVisible = !isUiVisible
-            insetsController.hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -330,6 +350,7 @@ fun PictureViewer(
                                 }
                             }
                         },
+                        isScrollInProgress = pagerState.isScrollInProgress,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (mediaItem.isGif) {
@@ -402,7 +423,7 @@ fun PictureViewer(
                             .pointerInput(Unit) {
                                 awaitEachGesture {
                                     while (true) {
-                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        val event = awaitPointerEvent()
                                         val zoomChange = event.calculateZoom()
                                         val panChange = event.calculatePan()
                                         
@@ -426,10 +447,8 @@ fun PictureViewer(
                                                     offsetY.snapTo(offsetY.value + panChange.y * newScale * panFactor)
                                                 }
                                             }
-                                            // 1本指でのパンのみの場合は、Pagerの邪魔をしないように条件付きで消費
-                                            if (event.changes.size >= 2 || (isZoomed && panChange != Offset.Zero)) {
-                                                event.changes.forEach { if (it.pressed) it.consume() }
-                                            }
+                                            // イベントを消費
+                                            event.changes.forEach { if (it.pressed) it.consume() }
                                         } else {
                                             // 非ズーム時かつ1本指: 垂直移動が強く支配的な場合のみ消費（Pagerに渡さない）
                                             if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 3.0f) {
@@ -496,7 +515,7 @@ fun PictureViewer(
                 LaunchedEffect(showTagDialog) {
                     if (showTagDialog) {
                         delay(100)
-                        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                        insetsController?.hide(WindowInsetsCompat.Type.systemBars())
                     }
                 }
 
@@ -504,7 +523,7 @@ fun PictureViewer(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.85f))
                         .windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 2.dp)
                 ) {
-                    if (currentMedia.isVideo && videoDuration > 0) {
+                    if (currentMedia.isVideo && videoDuration > 0 && !pagerState.isScrollInProgress) {
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(text = "${formatTime(videoPosition)} / ${formatTime(videoDuration)}", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp))
@@ -586,44 +605,86 @@ fun PictureViewer(
                     androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                         val currentMedia = imageList.getOrNull(pagerState.currentPage)
                         if (currentMedia != null) {
-                            if (!currentMedia.isVideo && !isTrashMode) {
-                                item { Text("似た色の画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                                item {
-                                    if (currentColorComposition.isNotEmpty()) {
-                                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            currentColorComposition.entries.sortedByDescending { it.value }.take(6).forEach { (name, ratio) ->
-                                                val color = when (name) { "レッド系" -> Color.Red; "オレンジ系" -> Color(0xFFFFA500); "イエロー系" -> Color.Yellow; "グリーン系" -> Color.Green; "ブルー系" -> Color(0xFF007FFF); "パープル系" -> Color(0xFF800080); "ピンク系" -> Color(0xFFFFC0CB); "ホワイト系" -> Color.White; "グレー系" -> Color.Gray; "ブラック系" -> Color.Black; else -> Color.DarkGray }
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(color).border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape)); Text("${(ratio * 100).toInt()}%", color = Color.White, fontSize = 10.sp) }
-                                            }
-                                        }
-                                    } else Text("解析データなし", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
-                                }
-                                item { if (recommendedMediaWithScores.isEmpty()) { if (isAnalyzingCurrentMedia) { Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) } } else Text("似た色の画像が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaWithScores) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) { scope.launch { pagerState.scrollToPage(index); onPageSelected?.invoke(index) } } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
-
-                                item { Text("似た雰囲気の画像 (AIベクトル)", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                                item { if (recommendedMediaWithVisualScores.isEmpty()) { Text("準備中または見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaWithVisualScores) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) { scope.launch { pagerState.scrollToPage(index); onPageSelected?.invoke(index) } } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
-                            } else if (!isTrashMode) {
-                                item { Text("他の動画", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                                item { val otherVideos = remember(imageList) { imageList.filter { it.isVideo && it.uri != currentMedia.uri } }; if (otherVideos.isEmpty()) Text("他の動画が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(otherVideos) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } } }
-                            }
+                            // 元画像を表示
                             item {
-                                val normalTags = remember(currentMediaTags) { currentMediaTags.filter { !it.endsWith("系") } }
+                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                    Image(
+                                        painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(currentMedia.uri).build(), imageLoader = imageLoader),
+                                        contentDescription = "元画像",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(200.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                            }
+
+                            if (!currentMedia.isVideo && !isTrashMode) {
+                                item { Text("似た雰囲気の画像 (AIベクトル)", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                                item {
+                                    if (currentMetadata?.hasFeatureVector != true) {
+                                        Text("この画像は未分析です。分析すると似た画像を見つけられるようになります。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                                    } else if (recommendedMediaByVisual.isEmpty()) {
+                                        Text("似た画像が見つかりませんでした。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                                    } else {
+                                        LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaByVisual) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) { scope.launch { pagerState.scrollToPage(index); onPageSelected?.invoke(index) } } else onNavigateToMedia?.invoke(similarity.media.uri) } } }
+                                    }
+                                }
+                            } else if (!isTrashMode) {
+                                item { Text("ランダムな動画", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                                item { 
+                                    if (randomMediaList.isEmpty()) Text("動画が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) 
+                                    else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(randomMediaList) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } } 
+                                }
+                            }
+                            
+                            // タグセクション（ランダム系の上に配置）
+                            item {
+                                val normalTags = remember(currentMediaTagsFlow) {
+                                    currentMediaTagsFlow.filter { !it.tag.endsWith("系") && it.confidence >= 0.6f }
+                                        .sortedByDescending { it.confidence }
+                                }
                                 Column {
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                                         Icon(Icons.Default.LocalOffer, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(8.dp)); Text("タグ", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                                        var currentAgeRating by remember(currentMedia.uri) { mutableStateOf("SFW") }; LaunchedEffect(currentMedia.uri) { currentAgeRating = galleryState?.repository?.getMetadata(currentMedia.uri)?.ageRating ?: "SFW" }; Spacer(modifier = Modifier.width(12.dp)); Surface(color = when(currentAgeRating) { "R18" -> Color.Red.copy(alpha = 0.8f); "R15" -> Color.Yellow.copy(alpha = 0.8f); else -> Color.Green.copy(alpha = 0.8f) }, shape = RoundedCornerShape(4.dp)) { Text(text = if (isTrashMode) "$currentAgeRating ゴミ" else currentAgeRating, color = if (currentAgeRating == "R15") Color.Black else Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) }
+                                        val currentAgeRating = currentMetadata?.ageRating ?: "SFW"; Spacer(modifier = Modifier.width(12.dp)); Surface(color = when(currentAgeRating) { "R18" -> Color.Red.copy(alpha = 0.8f); "R15" -> Color.Yellow.copy(alpha = 0.8f); else -> Color.Green.copy(alpha = 0.8f) }, shape = RoundedCornerShape(4.dp)) { Text(text = if (isTrashMode) "$currentAgeRating ゴミ" else currentAgeRating, color = if (currentAgeRating == "R15") Color.Black else Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) }
                                     }
                                     var showTagAddDialog by remember { mutableStateOf(false) }
-                                    FlowRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { normalTags.forEach { tag -> Surface(color = Color.DarkGray, shape = RoundedCornerShape(16.dp)) { Text(text = tag, color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) } }; if (!isTrashMode) IconButton(onClick = { showTagAddDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp)) } }
-                                    if (showTagAddDialog && galleryState != null) UnifiedMediaEditDialog(uris = listOf(currentMedia.uri), repository = galleryState.repository, onDismiss = { showTagAddDialog = false; scope.launch { val tags = galleryState.repository.getTagsForMedia(currentMedia.uri).first(); currentMediaTags = tags; val metaInner = galleryState.repository.getMetadata(currentMedia.uri); val rating = metaInner?.ageRating ?: "SFW"; if (tags.isNotEmpty()) { val normalTagsInner = tags.filter { !it.endsWith("系") }; if (normalTagsInner.isNotEmpty()) taggedMediaList = galleryState.repository.getMediaForTags(normalTagsInner, rating) } } })
+                                    
+                                    if (currentMetadata?.isAiAnalyzed != true) {
+                                        Text("AIタグ未分析です。分析すると関連アイテムが表示されるようになります。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                                    }
+
+                                    FlowRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { 
+                                        normalTags.forEach { tagEntity -> 
+                                            Surface(
+                                                color = Color.DarkGray, 
+                                                shape = RoundedCornerShape(16.dp),
+                                                modifier = Modifier.clickable { onNavigateToTag?.invoke(tagEntity.tag) }
+                                            ) { 
+                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                                    Text(text = tagEntity.tag, color = Color.White, fontSize = 12.sp)
+                                                    if (tagEntity.confidence > 0f && tagEntity.confidence < 1f) {
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text(text = "${(tagEntity.confidence * 100).toInt()}%", color = Color.Gray, fontSize = 10.sp)
+                                                    }
+                                                }
+                                            } 
+                                        }
+                                        if (!isTrashMode) IconButton(onClick = { showTagAddDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp)) } 
+                                    }
+                                    if (showTagAddDialog && galleryState != null) UnifiedMediaEditDialog(uris = listOf(currentMedia.uri), repository = galleryState.repository, onDismiss = { showTagAddDialog = false })
                                 }
                             }
-                            item { if (!isTrashMode) { if (taggedMediaList.isEmpty()) Text("タグ付き画像がありません", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) else LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(taggedMediaList.filter { it.uri != currentMedia.uri }) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } } }
-                            if (!isTrashMode) {
+                            item { if (!isTrashMode) { if (recommendedMediaByTags.isEmpty()) Text("関連アイテムがありません", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) else LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaByTags) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
+
+                            if (!currentMedia.isVideo && !isTrashMode) {
                                 item { Text("ランダムな画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                                 item { if (randomMediaList.isEmpty()) Text("読込中...", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) else LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(randomMediaList) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } }
                             }
-                            item { val media = currentMedia; Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) { HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 16.dp)); Text("ファイル情報", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp)); MediaInfoRow("日時", SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault()).format(Date(media.dateAdded))); MediaInfoRow("ファイル名", media.fileName); val actualPath = remember(media.uri) { try { val cursor = context.contentResolver.query(Uri.parse(media.uri), arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null); cursor?.use { if (it.moveToFirst()) it.getString(0) else media.uri } ?: media.uri } catch (e: Exception) { media.uri } }; MediaInfoRow("ファイルパス", actualPath); val labels = currentMediaTags.filter { !it.endsWith("系") }; if (labels.isNotEmpty()) MediaInfoRow("画像情報", labels.joinToString(", ")); MediaInfoRow("画像サイズ", formatFileSize(media.fileSize)); if (media.width > 0 && media.height > 0) MediaInfoRow("画像の幅x高さ", "${media.width} x ${media.height}") } }
+
+                            item { val media = currentMedia; Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) { HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 16.dp)); Text("ファイル情報", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp)); MediaInfoRow("日時", SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault()).format(Date(media.dateAdded))); MediaInfoRow("ファイル名", media.fileName); val actualPath = remember(media.uri) { try { val cursor = context.contentResolver.query(Uri.parse(media.uri), arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null); cursor?.use { if (it.moveToFirst()) it.getString(0) else media.uri } ?: media.uri } catch (e: Exception) { media.uri } }; MediaInfoRow("ファイルパス", actualPath); val labels = currentMediaTagsFlow.filter { !it.tag.endsWith("系") }.map { it.tag }; if (labels.isNotEmpty()) MediaInfoRow("画像情報", labels.joinToString(", ")); MediaInfoRow("画像サイズ", formatFileSize(media.fileSize)); if (media.width > 0 && media.height > 0) MediaInfoRow("画像の幅x高さ", "${media.width} x ${media.height}") } }
                         }
                     }
                 }
@@ -692,7 +753,9 @@ fun VideoPlayer(
     uri: String, isUiVisible: Boolean, isPlaying: Boolean, isMuted: Boolean, seekToPosition: Long = -1L,
     onToggleUi: () -> Unit, onProgressChanged: (Long, Long) -> Unit, scale: Float, offsetX: Float, offsetY: Float,
     onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit,
-    onDoubleTap: () -> Unit, modifier: Modifier = Modifier
+    onDoubleTap: () -> Unit,
+    isScrollInProgress: Boolean = false, // 追加
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -700,7 +763,14 @@ fun VideoPlayer(
     LaunchedEffect(seekToPosition) { if (seekToPosition >= 0) exoPlayer.seekTo(seekToPosition) }
     LaunchedEffect(isPlaying) { exoPlayer.playWhenReady = isPlaying }
     LaunchedEffect(isMuted) { exoPlayer.volume = if (isMuted) 0f else 1f }
-    LaunchedEffect(exoPlayer, isUiVisible, isPlaying) { while (isPlaying) { if (exoPlayer.playbackState == Player.STATE_READY) onProgressChanged(exoPlayer.currentPosition, exoPlayer.duration.coerceAtLeast(0)); delay(500) } }
+    LaunchedEffect(exoPlayer, isUiVisible, isPlaying, isScrollInProgress) {
+        while (isPlaying && !isScrollInProgress) {
+            if (exoPlayer.playbackState == Player.STATE_READY) {
+                onProgressChanged(exoPlayer.currentPosition, exoPlayer.duration.coerceAtLeast(0))
+            }
+            delay(500)
+        }
+    }
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
     Box(modifier = modifier.background(Color.Black).graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY }
         .pointerInput(Unit) { detectTapGestures(onTap = { onToggleUi() }, onDoubleTap = { onDoubleTap() }) }

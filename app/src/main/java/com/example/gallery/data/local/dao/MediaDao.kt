@@ -2,6 +2,8 @@ package com.example.gallery.data.local.dao
 
 import androidx.room.*
 import com.example.gallery.data.local.entity.MediaMetadataEntity
+import com.example.gallery.data.local.entity.MediaMetadataSummary
+import com.example.gallery.data.local.entity.MediaVector
 import com.example.gallery.data.local.entity.TagCount
 import com.example.gallery.data.local.entity.TagEntity
 import kotlinx.coroutines.flow.Flow
@@ -10,6 +12,12 @@ import kotlinx.coroutines.flow.Flow
 interface MediaDao {
     @Query("SELECT * FROM media_metadata WHERE uri = :uri")
     suspend fun getMetadata(uri: String): MediaMetadataEntity?
+
+    @Query("SELECT * FROM media_metadata WHERE uri = :uri")
+    fun getMetadataFlow(uri: String): Flow<MediaMetadataEntity?>
+
+    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata WHERE uri = :uri")
+    fun getMetadataSummaryFlow(uri: String): Flow<MediaMetadataSummary?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMetadata(metadata: MediaMetadataEntity)
@@ -38,9 +46,6 @@ interface MediaDao {
     @Query("SELECT * FROM media_tags WHERE tag = :tag")
     fun getMediaForTag(tag: String): Flow<List<TagEntity>>
 
-    @Query("SELECT * FROM media_tags WHERE tag LIKE '%系'")
-    fun getAllColorTags(): Flow<List<TagEntity>>
-
     @Query("SELECT COUNT(*) FROM media_tags WHERE tag = :tag")
     fun getCountForTag(tag: String): Flow<Int>
 
@@ -50,7 +55,7 @@ interface MediaDao {
     @Query("SELECT uri FROM media_metadata WHERE isFavorite = 1")
     fun getFavoriteUris(): Flow<List<String>>
 
-    @Query("SELECT DISTINCT uri FROM media_tags WHERE tag NOT LIKE '%系'")
+    @Query("SELECT DISTINCT uri FROM media_tags")
     fun getManualTaggedUrisFlow(): Flow<List<String>>
 
     @Query("SELECT DISTINCT uri FROM media_tags")
@@ -65,8 +70,26 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata")
     fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
+    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata")
+    suspend fun getAllMetadataSummary(): List<MediaMetadataSummary>
+
+    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata")
+    fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
+
     @Query("SELECT * FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
     fun getDeletedMetadataFlow(): Flow<List<MediaMetadataEntity>>
+
+    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
+    fun getDeletedMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
+
+    @Query("SELECT * FROM media_metadata WHERE ageRating = :ageRating AND featureVector IS NOT NULL")
+    suspend fun getMetadataWithFeatureVectorByRating(ageRating: String): List<MediaMetadataEntity>
+
+    @Query("SELECT uri, featureVector FROM media_metadata WHERE ageRating = :ageRating AND featureVector IS NOT NULL")
+    suspend fun getVectorsByRating(ageRating: String): List<MediaVector>
+
+    @Query("SELECT uri, featureVector FROM media_metadata WHERE featureVector IS NOT NULL")
+    suspend fun getAllVectors(): List<MediaVector>
 
     @Query("UPDATE media_metadata SET isDeleted = :isDeleted, deletedDate = :deletedDate WHERE uri = :uri")
     suspend fun setDeleted(uri: String, isDeleted: Boolean, deletedDate: Long?)
@@ -85,6 +108,12 @@ interface MediaDao {
 
     @Query("UPDATE media_metadata SET folderName = :folderName WHERE uri IN (:uris)")
     suspend fun bulkUpdateFolderName(uris: List<String>, folderName: String)
+
+    @Query("UPDATE media_metadata SET ageRating = :ageRating, isAiAnalyzed = :isAiAnalyzed WHERE uri = :uri")
+    suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean)
+
+    @Query("UPDATE media_metadata SET featureVector = :featureVector WHERE uri = :uri")
+    suspend fun updateFeatureVector(uri: String, featureVector: FloatArray)
 
     // フォルダグループ用
     @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)

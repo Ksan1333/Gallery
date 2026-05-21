@@ -1,142 +1,192 @@
 package com.example.gallery.data.repository
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
-import androidx.core.net.toUri
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
 import com.example.gallery.ui.MediaData
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.label.ImageLabeling
-import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import com.example.gallery.util.ModelDownloader
+import com.example.gallery.ui.AppConstants
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.asDeferred
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.delay
+import java.nio.FloatBuffer
+import java.util.Collections
 
 class AiTaggingService(
     private val context: Context,
-    private val repository: MediaRepository
+    private val repository: MediaRepository,
 ) {
-    private val labelMap = mapOf(
-        "Cat" to listOf("猫"), "Dog" to listOf("犬"), "Food" to listOf("食べ物"),
-        "Flower" to listOf("花"), "Mountain" to listOf("山"), "Sea" to listOf("海"),
-        "Sky" to listOf("空"), "Tree" to listOf("木"), "Human" to listOf("人物"),
-        "Person" to listOf("人物"), "Smile" to listOf("笑顔"), "Girl" to listOf("女の子"),
-        "Boy" to listOf("男の子"), "Animation" to listOf("アニメ"), "Cartoon" to listOf("マンガ"),
-        "Art" to listOf("アート"), "Lingerie" to listOf("下着"), "Swimwear" to listOf("水着"),
-        "Undergarment" to listOf("下着"), "Erotica" to listOf("エロ"), "Abdomen" to listOf("お腹"),
-        "Thigh" to listOf("太もも"), "Long hair" to listOf("ロングヘア"), "Short hair" to listOf("ショートヘア"),
-        "Black hair" to listOf("黒髪"), "Brown hair" to listOf("茶髪"), "Blond hair" to listOf("金髪"),
-        "Pink hair" to listOf("ピンク髪"), "Blue hair" to listOf("青髪"), "Purple hair" to listOf("紫髪"),
-        "Red hair" to listOf("赤髪"), "Green hair" to listOf("緑髪"), "White hair" to listOf("白髪"),
-        "Silver hair" to listOf("銀髪"), "Eyewear" to listOf("眼鏡"), "Uniform" to listOf("制服"),
-        "School uniform" to listOf("学生服"), "Sailor suit" to listOf("セーラー服"), "Dress" to listOf("ドレス"),
-        "Skirt" to listOf("スカート"), "Leggings" to listOf("タイツ"), "Sock" to listOf("靴下"),
-        "Garter belt" to listOf("ガーターベルト"), "Stockings" to listOf("ストッキング"), "Pantyhose" to listOf("パンスト"),
-        "High heels" to listOf("ハイヒール"), "Hat" to listOf("帽子"), "Maid" to listOf("メイド"),
-        "Nurse" to listOf("ナース"), "Police" to listOf("ポリス"), "Kimono" to listOf("着物"),
-        "Yukata" to listOf("浴浴"), "Bunny girl" to listOf("バニーガール"), "Neko" to listOf("猫耳"),
-        "Ear" to listOf("ケモ耳"), "Tail" to listOf("しっぽ"), "Wing" to listOf("翼"),
-        "Demon" to listOf("悪魔"), "Elf" to listOf("エルフ"), "Vampire" to listOf("吸血鬼"),
-        "Nudity" to listOf("ヌード"), "Breast" to listOf("おっぱい"), "Chest" to listOf("胸"),
-        "Buttock" to listOf("お尻"), "Leg" to listOf("脚"), "Foot" to listOf("足"),
-        "Arm" to listOf("腕"), "Cleavage" to listOf("谷間"), "Pubic hair" to listOf("アンダーヘア"),
-        "Human skin" to listOf("肌"), "Expression" to listOf("表情"), "Blush" to listOf("赤面"),
-        "Bed" to listOf("ベッド"), "Beach" to listOf("海辺"), "Sunset" to listOf("夕焼け"),
-        "Night" to listOf("夜"), "Forest" to listOf("森"), "Room" to listOf("部屋"),
-        "City" to listOf("都会"), "Building" to listOf("建物"), "Car" to listOf("車"),
-        "Space" to listOf("宇宙"), "Robot" to listOf("ロボット"), "Weapon" to listOf("武器"),
-        "Sword" to listOf("剣"), "Gun" to listOf("銃"), "Gothic" to listOf("ゴシック"),
-        "Lolita" to listOf("ロリータ"), "Body" to listOf("身体"), "Bare feet" to listOf("裸足"),
-        "Sitting" to listOf("座る"), "Lying" to listOf("寝そべる"), "Standing" to listOf("立つ"),
-        "Back" to listOf("背中"), "Wet" to listOf("濡れ"), "Sweat" to listOf("汗"),
-        "Blonde" to listOf("金髪"), "Brunette" to listOf("茶髪"), "Crotch" to listOf("股間"),
-        "Navel" to listOf("へそ"), "Armpit" to listOf("脇"), "Shoulder" to listOf("肩"),
-        "Nipple" to listOf("乳首"), "Angel" to listOf("天使"), "Princess" to listOf("姫"),
-        "Queen" to listOf("女王"), "Knight" to listOf("騎士"), "Mage" to listOf("魔法使い"),
-        "Witch" to listOf("魔女"), "Fantasy" to listOf("ファンタジー"), "Sci-fi" to listOf("SF"),
-        "Cyberpunk" to listOf("サイバーパンク"), "Steampunk" to listOf("スチームパンク"), "Samurai" to listOf("侍"),
-        "Shrine maiden" to listOf("巫女"), "Idol" to listOf("アイドル"), "Singer" to listOf("歌手"),
-        "Dancer" to listOf("ダンサー"), "Chef" to listOf("料理人"), "Teacher" to listOf("教師"),
-        "Office lady" to listOf("OL"), "Gloves" to listOf("手袋"), "Cape" to listOf("マント"),
-        "Scarf" to listOf("マフラー"), "Ribbon" to listOf("リボン"), "Armor" to listOf("鎧"),
-        "Tattoo" to listOf("タトゥー"), "Piercing" to listOf("ピアス"), "Muscular" to listOf("筋肉"),
-        "Cute" to listOf("かわいい"), "Beautiful" to listOf("美人"), "Cool" to listOf("かっこいい"),
-        "Sexy" to listOf("セクシー"), "Chibi" to listOf("ちびキャラ"), "Animal ears" to listOf("獣耳"),
-        "Fox" to listOf("狐"), "Wolf" to listOf("狼"), "Dragon" to listOf("ドラゴン"),
-        "Fairy" to listOf("妖精"), "Magic" to listOf("魔法"), "Fire" to listOf("炎"),
-        "Water" to listOf("水"), "Ice" to listOf("氷"), "Lightning" to listOf("雷"),
-        "Snow" to listOf("雪"), "Rain" to listOf("雨"), "Cherry blossoms" to listOf("桜"),
-        "Moon" to listOf("月"), "Star" to listOf("星"), "Galaxy" to listOf("銀河")
-    )
+    private var ortEnv: OrtEnvironment? = null
+    private var ortSession: OrtSession? = null
+    private var tags: List<String> = emptyList()
+    private val threshold = 0.60f // 60%以上に設定
+    
+    // バッファの再利用
+    private val imgDataBuffer = FloatBuffer.allocate(1 * 448 * 448 * 3)
 
-    private val r18Labels = setOf("Lingerie", "Erotica", "Nudity", "Pubic hair", "Crotch", "Nipple", "Ahegao", "Fingering", "Tentacle", "BDSM", "Rope")
-    private val r15Labels = setOf("Swimwear", "Bikini", "Undergarment", "Breast", "Buttock", "Cleavage", "Wet", "Sweat")
-
-    private val labeler = ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.5f).build())
+    init {
+        try {
+            val modelFile = ModelDownloader.getDanbooruModelFile(context)
+            val tagsFile = ModelDownloader.getDanbooruTagsFile(context)
+            
+            if (modelFile.exists() && tagsFile.exists()) {
+                ortEnv = OrtEnvironment.getEnvironment()
+                
+                // NNAPI (ハードウェアアクセラレーション) を有効化
+                val options = OrtSession.SessionOptions().apply {
+                    addConfigEntry("session.load_model_format", "ONNX")
+                    try {
+                        addNnapi() // Androidのハードウェア加速
+                    } catch (e: Exception) {
+                        Log.w("AiTaggingService", "NNAPI not available, falling back to CPU", e)
+                    }
+                }
+                ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
+                
+                // selected_tags.csv の読み込み
+                // format: tag_id,name,category,count
+                tags = tagsFile.readLines()
+                    .drop(1) // ヘッダーをスキップ
+                    .map { line ->
+                        val parts = line.split(",")
+                        if (parts.size >= 2) parts[1] else ""
+                    }
+                    .filter { it.isNotEmpty() }
+            }
+        } catch (e: Exception) {
+            Log.e("AiTaggingService", "Failed to initialize SmilingWolf Tagger", e)
+        }
+    }
 
     suspend fun analyzeSingle(media: MediaData) = withContext(Dispatchers.IO) {
-        if (media.isVideo) return@withContext
-        
-        if (media.uri.startsWith("mock://")) {
-            mockAnalyze(media)
-            return@withContext
-        }
+        if (media.isVideo || ortSession == null || tags.isEmpty()) return@withContext
 
-        kotlinx.coroutines.yield()
         try {
-            val image = InputImage.fromFilePath(context, media.uri.toUri())
-            val labels = labeler.process(image).asDeferred().await()
-
+            val bitmap = decodeBitmap(media.uri) ?: return@withContext
+            val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 448, 448, true) // WD Tagger v3 は通常448x448
+            
+            val scores = runInference(resizedBitmap)
+            
+            val detectedTags = mutableMapOf<String, Float>()
             var ageRating = "SFW"
-            val detectedTags = mutableSetOf<String>()
-            labels.forEach { label ->
-                val englishLabel = label.text
-                if (r18Labels.contains(englishLabel)) ageRating = "R18"
-                else if (r15Labels.contains(englishLabel) && ageRating != "R18") ageRating = "R15"
-                labelMap[englishLabel]?.let { detectedTags.addAll(it) }
-            }
 
-            detectedTags.forEach { tagName ->
-                if (tagName !in listOf("R18", "R15", "SFW")) {
-                    repository.saveTag(TagEntity(media.uri, tagName))
+            // SmilingWolfのタグは非常に多いため、カテゴリ等も考慮可能だが、一旦簡易的に
+            // ratingタグ(general, sensitive, questionable, explicit)が含まれている
+            val ratingTags = mapOf(
+                "rating:general" to "SFW",
+                "rating:sensitive" to "SFW",
+                "rating:questionable" to "R15",
+                "rating:explicit" to "R18"
+            )
+
+            scores.forEachIndexed { index, score ->
+                if (score >= threshold) {
+                    val tagName = tags.getOrNull(index) ?: return@forEachIndexed
+                    
+                    // 1. 年齢制限の判定
+                    if (ratingTags.containsKey(tagName)) {
+                        val currentRating = ratingTags[tagName]!!
+                        if (ageRating == "SFW") ageRating = currentRating
+                        else if (ageRating == "R15" && currentRating == "R18") ageRating = "R18"
+                    } else {
+                        // 2. センシティブワードによる自動年齢制限
+                        val cleanTagName = tagName.replace("_", " ")
+                        if (AppConstants.R18Keywords.any { cleanTagName.contains(it, ignoreCase = true) }) {
+                            ageRating = "R18"
+                        } else if (ageRating != "R18" && AppConstants.R15Keywords.any { cleanTagName.contains(it, ignoreCase = true) }) {
+                            ageRating = "R15"
+                        }
+
+                        // 3. 日本語翻訳 (マップにない場合はアンダースコアを除去してそのまま)
+                        val translatedTag = AppConstants.TagTranslationMap[tagName] ?: cleanTagName
+                        detectedTags[translatedTag] = score
+                    }
                 }
             }
 
-            val current = repository.getMetadata(media.uri)
-            val finalAgeRating = if (current?.ageRating != null && current.ageRating != "SFW") current.ageRating else ageRating
+            // タグの保存
+            detectedTags.forEach { (tagName, score) ->
+                repository.saveTag(TagEntity(media.uri, tagName, score))
+            }
 
-            repository.saveMetadata(
-                MediaMetadataEntity(
-                    uri = media.uri,
-                    isFavorite = current?.isFavorite ?: false,
-                    colorComposition = current?.colorComposition,
-                    ageRating = finalAgeRating,
-                    isAiAnalyzed = true,
-                    folderName = current?.folderName ?: media.folderName
-                )
+            repository.updateAiAnalysisResult(
+                uri = media.uri,
+                ageRating = ageRating,
+                isAiAnalyzed = true
             )
-        } catch (e: Exception) { Log.e("AiTaggingService", "Error analyzing ${media.uri}", e) }
+            resizedBitmap.recycle()
+            if (bitmap != resizedBitmap) bitmap.recycle()
+        } catch (e: Exception) {
+            Log.e("AiTaggingService", "Error in SmilingWolf analysis: ${media.uri}", e)
+        }
     }
 
-    private suspend fun mockAnalyze(media: MediaData) {
-        delay(100)
-        val i = media.uri.substringAfter("mock://picsum/").substringBefore("?").toIntOrNull() ?: 0
-        val ageRating = when { i % 7 == 0 -> "R18"; i % 5 == 0 -> "R15"; else -> "SFW" }
-        val current = repository.getMetadata(media.uri)
-        repository.saveMetadata(
-            MediaMetadataEntity(
-                uri = media.uri,
-                isFavorite = current?.isFavorite ?: false,
-                colorComposition = current?.colorComposition,
-                ageRating = ageRating,
-                isAiAnalyzed = true,
-                folderName = current?.folderName ?: media.folderName
-            )
-        )
-        // 適当なタグを追加
-        repository.saveTag(TagEntity(media.uri, "AI解析済(MOCK)"))
-        if (i % 2 == 0) repository.saveTag(TagEntity(media.uri, "人物"))
+    private fun runInference(bitmap: Bitmap): FloatArray {
+        imgDataBuffer.rewind()
+
+        val pixels = IntArray(448 * 448)
+        bitmap.getPixels(pixels, 0, 448, 0, 0, 448, 448)
+
+        for (i in 0 until 448 * 448) {
+            val pixel = pixels[i]
+            imgDataBuffer.put((pixel shr 16 and 0xFF).toFloat())
+            imgDataBuffer.put((pixel shr 8 and 0xFF).toFloat())
+            imgDataBuffer.put((pixel and 0xFF).toFloat())
+        }
+        imgDataBuffer.rewind()
+
+        val inputTensor = OnnxTensor.createTensor(ortEnv, imgDataBuffer, longArrayOf(1, 448, 448, 3))
+        val output = ortSession?.run(Collections.singletonMap("input", inputTensor))
+        
+        val result = output?.get(0)?.value as? Array<FloatArray>
+        inputTensor.close()
+        output?.close()
+
+        return result?.get(0) ?: FloatArray(0)
+    }
+
+    private fun decodeBitmap(uriString: String): Bitmap? {
+        return try {
+            val context = context
+            val uri = Uri.parse(uriString)
+            
+            // 1. サイズだけを取得して inSampleSize を計算
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, options)
+            }
+
+            // WD Tagger v3 は 448x448 なので、それに近いサイズまで縮小してデコード
+            var inSampleSize = 1
+            if (options.outHeight > 448 || options.outWidth > 448) {
+                val halfHeight = options.outHeight / 2
+                val halfWidth = options.outWidth / 2
+                while (halfHeight / inSampleSize >= 448 && halfWidth / inSampleSize >= 448) {
+                    inSampleSize *= 2
+                }
+            }
+
+            // 2. 実際にデコード
+            val decodeOptions = BitmapFactory.Options().apply {
+                this.inSampleSize = inSampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, decodeOptions)
+            }
+        } catch (_: Exception) { null }
+    }
+
+    fun close() {
+        ortSession?.close()
+        ortEnv?.close()
     }
 }

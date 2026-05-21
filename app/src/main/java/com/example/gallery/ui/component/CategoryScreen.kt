@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +58,7 @@ import com.example.gallery.ui.MediaData
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
+@Stable
 data class CategoryData(
     val id: String,
     val title: String,
@@ -65,7 +67,8 @@ data class CategoryData(
     val groupThumbnails: List<String>? = null,
     val indicatorColor: Color? = null,
     val isGroup: Boolean = false,
-    val isPhysical: Boolean = false // 追加
+    val isPhysical: Boolean = false,
+    val subTitle: String? = null // 追加
 )
 
 @Composable
@@ -79,7 +82,12 @@ fun CategoryScreen(
     onHideViewer: () -> Unit,
     onMenuClick: (() -> Unit)? = null, // 追加
     topBarActions: @Composable RowScope.() -> Unit = {},
-    emptyContent: @Composable BoxScope.() -> Unit = { Text("データがありません", color = Color.Gray) },
+    emptyContent: @Composable BoxScope.() -> Unit = {
+        Text(
+            "データがありません",
+            color = Color.Gray
+        )
+    },
     loadingContent: @Composable BoxScope.() -> Unit = { CircularProgressIndicator(color = Color.White) },
     selectedCategoryTitle: String? = null,
     selectedCategoryMedia: List<MediaData> = emptyList(),
@@ -89,6 +97,8 @@ fun CategoryScreen(
     lastViewedUri: String? = null,
     onPageChangedInViewer: (String) -> Unit = {},
     onBulkEdit: ((List<String>) -> Unit)? = null,
+    onScrollConsumed: () -> Unit = {},
+    onNavigateToTag: ((String) -> Unit)? = null, // 追加
     onDrop: (String, String) -> Unit = { _, _ -> },
     onCategoryLongClick: (CategoryData) -> Unit = {},
     onMoveSelectedToGroup: (List<String>) -> Unit = {},
@@ -141,7 +151,11 @@ fun CategoryScreen(
         }
     }
 
-    var screenLayoutCoordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    var screenLayoutCoordinates by remember {
+        mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(
+            null
+        )
+    }
 
     // ドラッグ中のアイテムのデータ
     val draggedCategory = remember(draggedCategoryId, categories) {
@@ -154,7 +168,11 @@ fun CategoryScreen(
 
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
                 if (available.y != 0f) {
                     scope.launch {
                         val current = overscrollTranslationY.value
@@ -169,8 +187,15 @@ fun CategoryScreen(
                 }
                 return Offset.Zero
             }
+
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                overscrollTranslationY.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                overscrollTranslationY.animateTo(
+                    0f,
+                    spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
+                )
                 return super.onPostFling(consumed, available)
             }
         }
@@ -202,22 +227,47 @@ fun CategoryScreen(
 
     var showSelectionMenu by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor).onGloballyPositioned { screenLayoutCoordinates = it }) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppConstants.BackgroundColor)
+            .onGloballyPositioned { screenLayoutCoordinates = it }) {
         if (selectedCategoryTitle == null) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(Color.Black).windowInsetsPadding(WindowInsets.statusBars).height(AppConstants.HeaderHeight).padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .height(AppConstants.HeaderHeight)
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     if (isCategorySelectionMode) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { isCategorySelectionMode = false; selectedCategoryIds.clear() }) { Icon(Icons.Default.Close, contentDescription = "解除", tint = Color.White) }
-                            Text("${selectedCategoryIds.size} 件選択中", color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                            IconButton(onClick = {
+                                isCategorySelectionMode = false; selectedCategoryIds.clear()
+                            }) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "解除",
+                                    tint = Color.White
+                                )
+                            }
+                            Text(
+                                "${selectedCategoryIds.size} 件選択中",
+                                color = Color.White,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
                         }
                         Box {
                             IconButton(onClick = { showSelectionMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "メニュー", tint = Color.White)
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "メニュー",
+                                    tint = Color.White
+                                )
                             }
                             DropdownMenu(
                                 expanded = showSelectionMenu,
@@ -256,7 +306,11 @@ fun CategoryScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (onMenuClick != null) {
                                 IconButton(onClick = onMenuClick) {
-                                    Icon(Icons.Default.Menu, contentDescription = "メニュー", tint = Color.White)
+                                    Icon(
+                                        Icons.Default.Menu,
+                                        contentDescription = "メニュー",
+                                        tint = Color.White
+                                    )
                                 }
                                 Spacer(Modifier.width(8.dp))
                             }
@@ -280,14 +334,31 @@ fun CategoryScreen(
                     }
                 }
 
-                Box(modifier = Modifier.fillMaxSize().nestedScroll(nestedScrollConnection).graphicsLayer { translationY = overscrollTranslationY.value }) {
-                    if (isLoading) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { loadingContent() } }
-                    else if (categories.isEmpty()) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { emptyContent() } }
-                    else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection)
+                        .graphicsLayer { translationY = overscrollTranslationY.value }) {
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) { loadingContent() }
+                    } else if (categories.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) { emptyContent() }
+                    } else {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(columnOptions[currentColumnIndex]),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 100.dp),
+                            contentPadding = PaddingValues(
+                                start = 12.dp,
+                                top = 8.dp,
+                                end = 12.dp,
+                                bottom = 100.dp
+                            ),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             flingBehavior = ScrollableDefaults.flingBehavior()
@@ -299,7 +370,8 @@ fun CategoryScreen(
                                         .animateItem()
                                         .zIndex(if (isDragging) 10f else 1f)
                                         .onGloballyPositioned { layoutCoordinates ->
-                                            categoryBounds[category.id] = layoutCoordinates.boundsInWindow()
+                                            categoryBounds[category.id] =
+                                                layoutCoordinates.boundsInWindow()
                                         }
                                         .pointerInput(category.id) {
                                             detectDragGesturesAfterLongPress(
@@ -308,7 +380,10 @@ fun CategoryScreen(
                                                         initialDragCenter = rect.center
                                                         draggedCategoryId = category.id
                                                         dragOffset = Offset.Zero
-                                                        initialDragLocalOffset = screenLayoutCoordinates?.windowToLocal(rect.topLeft) ?: Offset.Zero
+                                                        initialDragLocalOffset =
+                                                            screenLayoutCoordinates?.windowToLocal(
+                                                                rect.topLeft
+                                                            ) ?: Offset.Zero
 
                                                         // 選択されていないアイテムをドラッグし始めたら選択に追加
                                                         if (!selectedCategoryIds.contains(category.id)) {
@@ -323,44 +398,68 @@ fun CategoryScreen(
                                                     if (draggedCategoryId == category.id) {
                                                         change.consume()
                                                         dragOffset += dragAmount
-                                                        val currentCenter = initialDragCenter + dragOffset
+                                                        val currentCenter =
+                                                            initialDragCenter + dragOffset
 
                                                         // ターゲットの検索
-                                                        val foundTarget = categoryBounds.entries.find { (id, bounds) ->
-                                                            id != category.id && bounds.contains(currentCenter)
-                                                        }
+                                                        val foundTarget =
+                                                            categoryBounds.entries.find { (id, bounds) ->
+                                                                id != category.id && bounds.contains(
+                                                                    currentCenter
+                                                                )
+                                                            }
 
                                                         if (foundTarget != null) {
                                                             val targetId = foundTarget.key
                                                             val targetBounds = foundTarget.value
-                                                            val targetCat = previewCategories.find { it.id == targetId }
+                                                            val targetCat =
+                                                                previewCategories.find { it.id == targetId }
 
                                                             // グループ化判定 (ターゲットがグループ かつ ドラッグ中心がターゲットの中央付近にある場合)
-                                                            val groupZone = targetBounds.deflate(targetBounds.width * 0.2f)
+                                                            val groupZone =
+                                                                targetBounds.deflate(targetBounds.width * 0.2f)
 
-                                                            if (targetCat?.isGroup == true && groupZone.contains(currentCenter) && !selectedCategoryIds.contains(targetId)) {
+                                                            if (targetCat?.isGroup == true && groupZone.contains(
+                                                                    currentCenter
+                                                                ) && !selectedCategoryIds.contains(
+                                                                    targetId
+                                                                )
+                                                            ) {
                                                                 hoveredCategoryId = targetId
                                                             } else {
                                                                 hoveredCategoryId = null
                                                                 // 並び替えアニメーション用プレビューの更新
-                                                                val fromIndex = previewCategories.indexOfFirst { it.id == category.id }
-                                                                val toIndex = previewCategories.indexOfFirst { it.id == targetId }
+                                                                val fromIndex =
+                                                                    previewCategories.indexOfFirst { it.id == category.id }
+                                                                val toIndex =
+                                                                    previewCategories.indexOfFirst { it.id == targetId }
 
                                                                 // ターゲットの端の方にいる時だけ入れ替える（ホバー中の安定性向上のため）
-                                                                val swapThreshold = targetBounds.width * 0.15f
-                                                                val isNearEdges = currentCenter.x < targetBounds.left + swapThreshold ||
-                                                                                 currentCenter.x > targetBounds.right - swapThreshold ||
-                                                                                 currentCenter.y < targetBounds.top + swapThreshold ||
-                                                                                 currentCenter.y > targetBounds.bottom - swapThreshold
+                                                                val swapThreshold =
+                                                                    targetBounds.width * 0.15f
+                                                                val isNearEdges =
+                                                                    currentCenter.x < targetBounds.left + swapThreshold ||
+                                                                            currentCenter.x > targetBounds.right - swapThreshold ||
+                                                                            currentCenter.y < targetBounds.top + swapThreshold ||
+                                                                            currentCenter.y > targetBounds.bottom - swapThreshold
 
                                                                 if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex && isNearEdges) {
-                                                                    val item = previewCategories.removeAt(fromIndex)
-                                                                    previewCategories.add(toIndex, item)
+                                                                    val item =
+                                                                        previewCategories.removeAt(
+                                                                            fromIndex
+                                                                        )
+                                                                    previewCategories.add(
+                                                                        toIndex,
+                                                                        item
+                                                                    )
                                                                 }
                                                             }
                                                         } else {
                                                             // ROOT（連れ出し）エリア判定
-                                                            if (categoryBounds["ROOT"]?.contains(currentCenter) == true) {
+                                                            if (categoryBounds["ROOT"]?.contains(
+                                                                    currentCenter
+                                                                ) == true
+                                                            ) {
                                                                 hoveredCategoryId = "ROOT"
                                                             } else {
                                                                 hoveredCategoryId = null
@@ -374,7 +473,12 @@ fun CategoryScreen(
                                                             val targetId = hoveredCategoryId!!
                                                             if (targetId == "ROOT" || (previewCategories.find { it.id == targetId }?.isGroup == true)) {
                                                                 // グループへの移動または連れ出し
-                                                                selectedCategoryIds.forEach { id -> currentOnDrop(id, targetId) }
+                                                                selectedCategoryIds.forEach { id ->
+                                                                    currentOnDrop(
+                                                                        id,
+                                                                        targetId
+                                                                    )
+                                                                }
                                                                 selectedCategoryIds.clear()
                                                                 isCategorySelectionMode = false
                                                             }
@@ -410,9 +514,14 @@ fun CategoryScreen(
                                             if (isCategorySelectionMode) {
                                                 if (selectedCategoryIds.contains(category.id)) {
                                                     selectedCategoryIds.remove(category.id)
-                                                    if (selectedCategoryIds.isEmpty()) isCategorySelectionMode = false
-                                                } else { selectedCategoryIds.add(category.id) }
-                                            } else { onCategoryClick(category) }
+                                                    if (selectedCategoryIds.isEmpty()) isCategorySelectionMode =
+                                                        false
+                                                } else {
+                                                    selectedCategoryIds.add(category.id)
+                                                }
+                                            } else {
+                                                onCategoryClick(category)
+                                            }
                                         },
                                         onLongClick = null // ドラッグ（detectDragGesturesAfterLongPress）と競合するため常にnull
                                     )
@@ -438,7 +547,8 @@ fun CategoryScreen(
                 modifier = Modifier.fillMaxSize(),
                 scrollToUri = if (selectedImageIndex == null) lastViewedUri else null,
                 onPageChangedInViewer = onPageChangedInViewer,
-                onBulkEdit = onBulkEdit
+                onBulkEdit = onBulkEdit,
+                onScrollConsumed = onScrollConsumed // 親へリレー
             )
         }
 
@@ -477,6 +587,11 @@ fun CategoryScreen(
                     initialPage = index,
                     imageList = currentMediaList,
                     galleryState = galleryState,
+                    onNavigateToTag = { tag ->
+                        selectedImageIndex = null
+                        onHideViewer()
+                        onNavigateToTag?.invoke(tag)
+                    },
                     onPageSelected = {
                         selectedImageIndex = it
                         currentMediaList.getOrNull(it)?.uri?.let { uri -> onPageChangedInViewer(uri) }
@@ -494,7 +609,8 @@ fun CategoryScreen(
                                     currentMediaList = allMedia
                                     selectedImageIndex = newIdx
                                 } else {
-                                    currentMediaList = listOf(MediaData(uri, System.currentTimeMillis()))
+                                    currentMediaList =
+                                        listOf(MediaData(uri, System.currentTimeMillis()))
                                     selectedImageIndex = 0
                                 }
                             }
@@ -510,7 +626,8 @@ fun CategoryScreen(
                 val uris = mutableListOf<String>()
                 val all = galleryState.repository.getAllMedia()
                 selectedCategoryIds.forEach { catId ->
-                    uris.addAll(all.filter { it.folderName == catId || it.uri.contains("Tag:$catId") }.map { it.uri })
+                    uris.addAll(all.filter { it.folderName == catId || it.uri.contains("Tag:$catId") }
+                        .map { it.uri })
                 }
                 allMediaInSelectedCategories.clear()
                 allMediaInSelectedCategories.addAll(uris)
@@ -535,10 +652,22 @@ fun CategoryScreen(
 private fun GroupThumbnailItem(uri: String?) {
     val context = LocalContext.current
     if (uri == null) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.05f)))
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White.copy(alpha = 0.05f)))
     } else if (uri.startsWith("mock://")) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.3f)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Image, null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Gray.copy(alpha = 0.3f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Image,
+                null,
+                tint = Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.size(16.dp)
+            )
         }
     } else {
         Image(
@@ -602,24 +731,42 @@ fun CategoryCard(
             }
             .padding(4.dp)
     ) {
-        Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(if (data.isGroup) Color.DarkGray.copy(alpha = 0.8f) else Color.DarkGray)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (data.isGroup) Color.DarkGray.copy(alpha = 0.8f) else Color.DarkGray)
+        ) {
             if (data.isGroup) {
                 if (!data.groupThumbnails.isNullOrEmpty()) {
                     // 2x2 グリッド表示
                     Column(modifier = Modifier.fillMaxSize()) {
                         Row(modifier = Modifier.weight(1f)) {
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
+                            Box(modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(0.5.dp)) {
                                 GroupThumbnailItem(data.groupThumbnails.getOrNull(0))
                             }
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
+                            Box(modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(0.5.dp)) {
                                 GroupThumbnailItem(data.groupThumbnails.getOrNull(1))
                             }
                         }
                         Row(modifier = Modifier.weight(1f)) {
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
+                            Box(modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(0.5.dp)) {
                                 GroupThumbnailItem(data.groupThumbnails.getOrNull(2))
                             }
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
+                            Box(modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(0.5.dp)) {
                                 GroupThumbnailItem(data.groupThumbnails.getOrNull(3))
                             }
                         }
@@ -627,13 +774,30 @@ fun CategoryCard(
                 } else {
                     // グループ用アイコン表示 (中身が空の場合)
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(imageVector = Icons.Default.FolderCopy, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(48.dp))
+                        Icon(
+                            imageVector = Icons.Default.FolderCopy,
+                            contentDescription = null,
+                            tint = Color.LightGray,
+                            modifier = Modifier.size(48.dp)
+                        )
                     }
                 }
             } else if (data.thumbnail != null) {
                 if (data.thumbnail.startsWith("mock://")) {
-                    Box(modifier = Modifier.fillMaxSize().background(data.indicatorColor?.copy(alpha = 0.5f) ?: Color.Gray.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
-                        Icon(imageVector = Icons.Default.Image, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                data.indicatorColor?.copy(alpha = 0.5f)
+                                    ?: Color.Gray.copy(alpha = 0.5f)
+                            ), contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
                     }
                 } else {
                     Image(
@@ -645,25 +809,75 @@ fun CategoryCard(
                                     .build()
                             }
                         ),
-                        contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
                 }
             } else {
-                Box(modifier = Modifier.fillMaxSize().background(data.indicatorColor?.copy(alpha = 0.5f) ?: Color.Transparent), contentAlignment = Alignment.Center) {
-                    Icon(imageVector = Icons.Default.Image, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(data.indicatorColor?.copy(alpha = 0.5f) ?: Color.Transparent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
             }
             if (isSelected) {
-                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(40.dp)
+                    )
                 }
             }
             if (data.indicatorColor != null) {
-                Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).size(16.dp).clip(CircleShape).background(data.indicatorColor).border(1.5.dp, Color.White.copy(alpha = 0.8f), CircleShape))
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(data.indicatorColor)
+                        .border(1.5.dp, Color.White.copy(alpha = 0.8f), CircleShape)
+                )
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = data.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
-        Text(text = if (data.isGroup) "${data.count} フォルダ" else "${data.count} 枚", color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        Text(
+            text = data.title,
+            color = Color.White,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        Text(
+            text = if (data.isGroup) "${data.count} フォルダ" else "${data.count} 枚",
+            color = Color.Gray,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        if (data.subTitle != null) {
+            Text(
+                text = data.subTitle,
+                color = Color.Yellow.copy(alpha = 0.8f),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
     }
 }

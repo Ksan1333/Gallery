@@ -63,16 +63,15 @@ fun FolderGalleryScreen(
     var selectedFoldersForGroup by remember { mutableStateOf<List<String>?>(null) }
     var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
     var selectedGroupId by rememberSaveable { mutableStateOf<String?>(null) }
-    var lastViewedUri by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataFlow() }
+    val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataSummaryFlow() }
     val allMetadata by metadataFlow.collectAsState(initial = emptyList())
     val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
 
     fun loadAllMedia() {
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { isLoading = true }
-            galleryState.repository.getAllMetadata()
+            galleryState.repository.getAllMetadataSummary()
             val newMap = mutableMapOf<String, MutableList<MediaData>>()
             val allMedia = galleryState.repository.getAllMedia()
 
@@ -154,10 +153,13 @@ fun FolderGalleryScreen(
         CategoryScreen(
             title = if (selectedGroupId != null) selectedGroupId!! else if (isSelectionMode) "移動先フォルダを選択" else "フォルダ",
             categories = categories, isLoading = isLoading, galleryState = galleryState,
+            onNavigateToTag = { tag ->
+                onBackToFolders() // まずフォルダリストへ戻る
+                onFolderSelected("TAG_NAVIGATION:$tag") // 特別なプレフィックスで通知 (MainActivityで処理)
+            },
             onMenuClick = if (selectedGroupId == null && !isSelectionMode) onMenuClick else null,
             topBarActions = {
                 var showTopMenu by remember { mutableStateOf(false) }
-                IconButton(onClick = onStartAnalysis) { Icon(Icons.Default.AutoAwesome, "自動解析", tint = Color.White) }
                 Box {
                     IconButton(onClick = { showTopMenu = true }) { Icon(Icons.Default.MoreVert, "メニュー", tint = Color.White) }
                     DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
@@ -185,7 +187,10 @@ fun FolderGalleryScreen(
             } ?: emptyList(),
             onBackFromCategory = { if (selectedFolderName != null) { selectedFolderName = null; isSubCategorySelected = false } else if (selectedGroupId != null) selectedGroupId = null else onBackToFolders() },
             onTabIconClick = { selectedFolderName = null; isSubCategorySelected = false; selectedGroupId = null; onBackToFolders() },
-            lastViewedUri = lastViewedUri, onPageChangedInViewer = { lastViewedUri = it }, onBulkEdit = onBulkEdit
+            lastViewedUri = galleryState.lastViewedUri, 
+            onPageChangedInViewer = { galleryState.lastViewedUri = it }, 
+            onBulkEdit = onBulkEdit,
+            onScrollConsumed = { galleryState.lastViewedUri = null }
         )
     }
 

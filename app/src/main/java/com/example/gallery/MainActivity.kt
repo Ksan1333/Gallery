@@ -6,6 +6,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -38,7 +40,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.gallery.ui.screen.ColorListScreen
 import com.example.gallery.ui.screen.AnalysisProgressScreen
 import com.example.gallery.ui.screen.FolderGalleryScreen
 import com.example.gallery.ui.screen.HomeGalleryScreen
@@ -48,8 +49,10 @@ import com.example.gallery.ui.screen.FolderPickerScreen
 import com.example.gallery.ui.screen.TrashScreen
 import com.example.gallery.ui.rememberGalleryState
 import com.example.gallery.ui.component.GalleryBottomNavigationBar
+import com.example.gallery.ui.component.GlobalProgressOverlay
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.GalleryViewMode
+import com.example.gallery.service.ThumbnailGenerationService
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -82,32 +85,37 @@ fun AppNavigation() {
         scope.launch { drawerState.close() }
     }
 
-    // DBクリーンアップ
     LaunchedEffect(Unit) {
         galleryState.repository.mediaDao.cleanupAgeRatingTags()
-        // 方法3: サムネイル生成をバックグラウンドで開始
-        com.example.gallery.service.ThumbnailGenerationService.startGenerating(context, galleryState.repository)
+        ThumbnailGenerationService.startGenerating(
+            context,
+            galleryState.repository
+        )
     }
 
     // システムバーの設定
     val window = (context as? android.app.Activity)?.window
-    fun setupSystemBars(isViewerVisible: Boolean, isMassEditVisible: Boolean = false) {
+    fun setupSystemBars(isViewerVisible: Boolean, currentRoute: String?) {
         if (window != null) {
-            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-            insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            val insetsController =
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-            if (isMassEditVisible) {
-                // 一括編集画面ではすべて非表示
+            val isFullScreenRoute = currentRoute == "mass_edit" || 
+                                   currentRoute == "folders_select" || 
+                                   currentRoute?.startsWith("analysis") == true
+
+            if (isFullScreenRoute) {
+                // 一括編集、フォルダ選択、分析画面ではすべて非表示
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
                 return
             }
 
-            // ナビゲーションバーは通常常に表示
-            insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-
             if (!isViewerVisible) {
-                // ビュワー以外の画面では両方表示
+                // ビュワー以外の通常画面では両方表示
                 insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
             } else {
                 // ビュワー表示中はすべて非表示にする
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
@@ -118,9 +126,9 @@ fun AppNavigation() {
 
     val navBackStackEntryForSystemBars by navController.currentBackStackEntryAsState()
     val currentRouteForSystemBars = navBackStackEntryForSystemBars?.destination?.route
-    
+
     LaunchedEffect(isBottomBarVisible, currentRouteForSystemBars) {
-        setupSystemBars(!isBottomBarVisible, currentRouteForSystemBars == "mass_edit")
+        setupSystemBars(!isBottomBarVisible, currentRouteForSystemBars)
     }
 
     ModalNavigationDrawer(
@@ -139,24 +147,35 @@ fun AppNavigation() {
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                 )
                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
-                
+
                 NavigationDrawerItem(
                     label = { Text("ホーム") },
                     selected = navController.currentBackStackEntryAsState().value?.destination?.route == "home",
                     onClick = {
                         scope.launch { drawerState.close() }
                         navController.navigate("home") {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
                             launchSingleTop = true
                             restoreState = true
                         }
                     },
                     icon = { Icon(Icons.Default.Home, null) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = Color.White, unselectedIconColor = Color.White)
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
                 )
 
-                Text("フォルダ", modifier = Modifier.padding(16.dp, 8.dp), fontSize = 12.sp, color = Color.Gray)
-                
+                Text(
+                    "フォルダ",
+                    modifier = Modifier.padding(16.dp, 8.dp),
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+
                 NavigationDrawerItem(
                     label = { Text("　フォルダ別") },
                     selected = galleryState.galleryViewMode == GalleryViewMode.FOLDER && navController.currentBackStackEntryAsState().value?.destination?.route == "folders",
@@ -164,13 +183,19 @@ fun AppNavigation() {
                         scope.launch { drawerState.close() }
                         galleryState.galleryViewMode = GalleryViewMode.FOLDER
                         navController.navigate("folders") {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
                             launchSingleTop = true
                             restoreState = true
                         }
                     },
                     icon = { Icon(Icons.AutoMirrored.Filled.List, null) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = Color.White, unselectedIconColor = Color.White)
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
                 )
                 NavigationDrawerItem(
                     label = { Text("　タグ別") },
@@ -179,31 +204,25 @@ fun AppNavigation() {
                         scope.launch { drawerState.close() }
                         galleryState.galleryViewMode = GalleryViewMode.MYLIST
                         navController.navigate("mylist") {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
                             launchSingleTop = true
                             restoreState = true
                         }
                     },
                     icon = { Icon(Icons.Default.Favorite, null) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = Color.White, unselectedIconColor = Color.White)
-                )
-                NavigationDrawerItem(
-                    label = { Text("　カラー別") },
-                    selected = galleryState.galleryViewMode == GalleryViewMode.COLOR && navController.currentBackStackEntryAsState().value?.destination?.route == "colorlist",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        galleryState.galleryViewMode = GalleryViewMode.COLOR
-                        navController.navigate("colorlist") {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Palette, null) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = Color.White, unselectedIconColor = Color.White)
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
                 )
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = Color.Gray.copy(alpha = 0.3f)
+                )
 
                 NavigationDrawerItem(
                     label = { Text("本") },
@@ -213,7 +232,11 @@ fun AppNavigation() {
                         navController.navigate("books")
                     },
                     icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = Color.White, unselectedIconColor = Color.White)
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
                 )
                 NavigationDrawerItem(
                     label = { Text("ゴミ箱") },
@@ -221,13 +244,19 @@ fun AppNavigation() {
                     onClick = {
                         scope.launch { drawerState.close() }
                         navController.navigate("trash") {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
                             launchSingleTop = true
                             restoreState = true
                         }
                     },
                     icon = { Icon(Icons.Default.Delete, null) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = Color.White, unselectedIconColor = Color.White)
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
                 )
 
                 Spacer(Modifier.weight(1f))
@@ -238,29 +267,40 @@ fun AppNavigation() {
                     onClick = {
                         scope.launch { drawerState.close() }
                         galleryState.toggleMockMode()
-                        val currentRouteInner = navController.currentBackStackEntry?.destination?.route
+                        val currentRouteInner =
+                            navController.currentBackStackEntry?.destination?.route
                         if (currentRouteInner == "folders" || currentRouteInner == "home") {
                             navController.navigate(currentRouteInner) {
                                 popUpTo(currentRouteInner) { inclusive = true }
                             }
                         }
                     },
-                    icon = { Icon(if (galleryState.isMockMode) Icons.Default.SdStorage else Icons.Default.BugReport, null) },
-                    colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = if (galleryState.isMockMode) Color.Yellow else Color.White, unselectedIconColor = if (galleryState.isMockMode) Color.Yellow else Color.White)
+                    icon = {
+                        Icon(
+                            if (galleryState.isMockMode) Icons.Default.SdStorage else Icons.Default.BugReport,
+                            null
+                        )
+                    },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = if (galleryState.isMockMode) Color.Yellow else Color.White,
+                        unselectedIconColor = if (galleryState.isMockMode) Color.Yellow else Color.White
+                    )
                 )
                 Spacer(Modifier.height(12.dp))
             }
         },
-        gesturesEnabled = true // 標準の Drawer ジェスチャーを有効にする
+        gesturesEnabled = !drawerState.isOpen && isBottomBarVisible && !galleryState.isSelectionMode && !galleryState.isZooming
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // エッジスワイプを補助するためのエリア（左端 25dp）
             // ギャラリー内のズーム操作との衝突を避けるため、ボトムバーが表示されている（＝ビュワー等でない）時のみ有効
             val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
             val currentRouteForDrawer = navBackStackEntryForDrawer?.destination?.route
-            val isGalleryGridVisible = currentRouteForDrawer == "home" || currentRouteForDrawer == "folders" || currentRouteForDrawer == "mylist" || currentRouteForDrawer == "colorlist"
+            val isGalleryGridVisible =
+                currentRouteForDrawer == "home" || currentRouteForDrawer == "folders" || currentRouteForDrawer == "mylist"
 
-            if (!drawerState.isOpen && isBottomBarVisible && isGalleryGridVisible) {
+            if (!drawerState.isOpen && isBottomBarVisible && isGalleryGridVisible && !galleryState.isSelectionMode && !galleryState.isZooming) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
@@ -273,21 +313,22 @@ fun AppNavigation() {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     var totalDrag = 0f
                                     var isOpening = false
-                                    
+
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val change = event.changes.first()
-                                        
+
                                         if (change.pressed) {
-                                            val dragAmount = change.position.x - change.previousPosition.x
+                                            val dragAmount =
+                                                change.position.x - change.previousPosition.x
                                             totalDrag += dragAmount
-                                            
+
                                             // 右スワイプを検知
                                             if (totalDrag > 40f && !isOpening) {
                                                 isOpening = true
                                                 scope.launch { drawerState.open() }
                                             }
-                                            
+
                                             if (isOpening) {
                                                 change.consume()
                                             }
@@ -308,11 +349,25 @@ fun AppNavigation() {
             ) {
                 composable("home") {
                     isBottomBarVisible = true
+                    // ホームに戻ったときにハイライトをリセット
+                    LaunchedEffect(Unit) {
+                        galleryState.lastViewedUri = null
+                    }
                     HomeGalleryScreen(
                         onShowViewer = { isBottomBarVisible = false },
                         onHideViewer = { isBottomBarVisible = true },
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
+                        onNavigateToTag = { tag ->
+                            galleryState.galleryViewMode = com.example.gallery.ui.GalleryViewMode.MYLIST
+                            navController.navigate("mylist/$tag") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
                         onBulkEdit = { uris ->
                             galleryState.urisToMove = uris
                             navController.navigate("mass_edit")
@@ -327,7 +382,20 @@ fun AppNavigation() {
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onBackToFolders = { navController.popBackStack() },
-                        onStartAnalysis = { navController.navigate("analysis") },
+                        onStartAnalysis = { navController.navigate("analysis/AI_TAGGING") },
+                        onFolderSelected = { target ->
+                            if (target.startsWith("TAG_NAVIGATION:")) {
+                                val tag = target.removePrefix("TAG_NAVIGATION:")
+                                galleryState.galleryViewMode = com.example.gallery.ui.GalleryViewMode.MYLIST
+                                navController.navigate("mylist/$tag") {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        },
                         onBulkEdit = { uris ->
                             galleryState.urisToMove = uris
                             navController.navigate("mass_edit")
@@ -339,25 +407,52 @@ fun AppNavigation() {
                     MyListScreen(
                         onShowViewer = { isBottomBarVisible = false },
                         onHideViewer = { isBottomBarVisible = true },
-                        onStartAnalysis = { navController.navigate("analysis") },
+                        onStartAnalysis = { type ->
+                            navController.navigate("analysis/$type")
+                        },
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onBackToMyList = { navController.popBackStack() }
                     )
                 }
-                composable("colorlist") {
+                composable("mylist/{tagName}") { backStackEntry ->
+                    val tagName = backStackEntry.arguments?.getString("tagName")
                     isBottomBarVisible = true
-                    ColorListScreen(
+                    MyListScreen(
                         onShowViewer = { isBottomBarVisible = false },
                         onHideViewer = { isBottomBarVisible = true },
-                        onStartAnalysis = { navController.navigate("analysis") },
+                        onStartAnalysis = { type ->
+                            navController.navigate("analysis/$type")
+                        },
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
-                        onBackToColorList = { navController.popBackStack() }
+                        onBackToMyList = { navController.popBackStack() },
+                        initialCategoryType = "Tag",
+                        initialTagName = tagName
+                    )
+                }
+                composable("analysis/{type}") { backStackEntry ->
+                    val analysisType = backStackEntry.arguments?.getString("type") ?: "AI_TAGGING"
+                    isBottomBarVisible = false
+                    AnalysisProgressScreen(
+                        galleryState = galleryState,
+                        analysisType = analysisType,
+                        onComplete = { navController.popBackStack() },
+                        onCancel = {
+                            // 中断時はマイリスト画面へ
+                            navController.navigate("mylist") {
+                                popUpTo("home") { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        }
                     )
                 }
                 composable("mass_edit") {
                     isBottomBarVisible = false
+                    DisposableEffect(Unit) {
+                        isBottomBarVisible = false
+                        onDispose { }
+                    }
                     // Pickerから戻ってきたフォルダ名を取得
                     val selectedFolder = it.savedStateHandle.get<String>("selected_folder")
                     if (selectedFolder != null) {
@@ -375,26 +470,21 @@ fun AppNavigation() {
                 }
                 composable("folders_select") {
                     isBottomBarVisible = false
+                    DisposableEffect(Unit) {
+                        isBottomBarVisible = false
+                        onDispose { }
+                    }
                     FolderPickerScreen(
                         galleryState = galleryState,
                         onFolderSelected = { folder ->
                             // 戻り先に値を渡す
-                            navController.previousBackStackEntry?.savedStateHandle?.set("selected_folder", folder)
+                            navController.previousBackStackEntry?.savedStateHandle?.set(
+                                "selected_folder",
+                                folder
+                            )
                             navController.popBackStack()
                         },
                         onBack = { navController.popBackStack() }
-                    )
-                }
-                composable("analysis") {
-                    isBottomBarVisible = false
-                    AnalysisProgressScreen(
-                        galleryState = galleryState,
-                        onComplete = {
-                            navController.popBackStack()
-                        },
-                        onCancel = {
-                            navController.popBackStack()
-                        }
                     )
                 }
                 composable("books") {
@@ -412,31 +502,35 @@ fun AppNavigation() {
                 }
             }
 
-            if (isBottomBarVisible) {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
-                val shouldHideForRoute = currentRoute == "mass_edit" || currentRoute == "folders_select" || currentRoute == "analysis"
+            // グローバルプログレス表示
+            GlobalProgressOverlay()
 
-                if (!shouldHideForRoute) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                    ) {
-                        GalleryBottomNavigationBar(
-                            navController = navController,
-                            galleryState = galleryState,
-                            onIconClick = { route ->
-                                if (currentRoute == route) {
-                                    // 現在表示中の画面に対して「トップに戻る（リセット）」を指示
-                                    navController.navigate(route) {
-                                        // そのルートまで戻り、かつそのルート自体も再生成することで状態を初期化
-                                        popUpTo(route) { inclusive = true }
-                                    }
+            val navBackStackEntry by navController.currentBackStackEntryAsState()
+            val currentRoute = navBackStackEntry?.destination?.route
+            val isHideRoute = currentRoute == null ||
+                currentRoute == "mass_edit" || 
+                currentRoute == "folders_select" || 
+                currentRoute.startsWith("analysis")
+
+            if (isBottomBarVisible && !isHideRoute) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                ) {
+                    GalleryBottomNavigationBar(
+                        navController = navController,
+                        galleryState = galleryState,
+                        onIconClick = { route ->
+                            if (currentRoute == route) {
+                                // 現在表示中の画面に対して「トップに戻る（リセット）」を指示
+                                navController.navigate(route) {
+                                    // そのルートまで戻り、かつそのルート自体も再生成することで状態を初期化
+                                    popUpTo(route) { inclusive = true }
                                 }
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         }

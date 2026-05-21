@@ -9,10 +9,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.example.gallery.data.local.GalleryDatabase
 import com.example.gallery.data.repository.MediaRepository
-import com.example.gallery.data.repository.ColorTaggingService
 import com.example.gallery.data.repository.AiTaggingService
 
-enum class GalleryViewMode { FOLDER, MYLIST, COLOR }
+enum class GalleryViewMode { FOLDER, MYLIST, TRASH }
 enum class GroupingMode { NONE, DAY, MONTH, YEAR, STORAGE }
 enum class MediaTypeFilter { ALL, IMAGE, VIDEO, GIF }
 enum class AgeRatingFilter { ALL, SFW, R15, R18 }
@@ -33,8 +32,8 @@ class GalleryState(context: Context) {
     fun refreshTriggerFlow(): kotlinx.coroutines.flow.Flow<Int> = androidx.compose.runtime.snapshotFlow { refreshTrigger }
 
     val repository: MediaRepository = MediaRepository(context, database.mediaDao(), this)
-    val colorTaggingService: ColorTaggingService = ColorTaggingService(context, repository)
     val aiTaggingService: AiTaggingService = AiTaggingService(context, repository)
+    val vectorSearchService: com.example.gallery.data.repository.VectorSearchService = com.example.gallery.data.repository.VectorSearchService(context, repository)
 
     var groupingMode by mutableStateOf(GroupingMode.NONE)
     var mediaTypeFilter by mutableStateOf(MediaTypeFilter.ALL)
@@ -53,6 +52,7 @@ class GalleryState(context: Context) {
 
     // 操作状態
     var isZooming by mutableStateOf(false)
+    var isSelectionMode by mutableStateOf(false)
     var lastViewedUri by mutableStateOf<String?>(null)
 
     fun refresh() {

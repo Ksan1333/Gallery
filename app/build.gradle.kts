@@ -73,10 +73,9 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    // ML Kit Local AI
-    implementation(libs.mlkit.image.labeling)
-    implementation(libs.kotlinx.coroutines.play.services)
-
     // MediaPipe (Vector Search)
     implementation(libs.mediapipe.tasks.vision)
+
+    // ONNX Runtime (SmilingWolf)
+    implementation(libs.onnxruntime.android)
 }

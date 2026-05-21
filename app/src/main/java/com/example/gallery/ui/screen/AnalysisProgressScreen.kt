@@ -18,8 +18,8 @@ import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.AgeRatingFilter
-import com.example.gallery.ui.component.FloatingRandomImage
 import com.example.gallery.data.local.entity.MediaMetadataEntity
+import com.example.gallery.service.GlobalOperationService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -27,97 +27,107 @@ import kotlinx.coroutines.launch
 @Composable
 fun AnalysisProgressScreen(
     galleryState: GalleryState,
+    analysisType: String = "AI_TAGGING", // "AI_TAGGING" or "COLOR_VECTOR"
     onComplete: () -> Unit,
     onCancel: () -> Unit
 ) {
-    var progress by remember { mutableFloatStateOf(0f) }
-    var progressText by remember { mutableStateOf("0 / 0") }
-    var currentFileName by remember { mutableStateOf("") }
-    var analyzedMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     val scope = rememberCoroutineScope()
-    var taggingJob by remember { mutableStateOf<Job?>(null) }
-
-    val allMetadata by galleryState.repository.getAllMetadataFlow().collectAsState(initial = emptyList())
-    val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
+    var analysisJob by remember { mutableStateOf<Job?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     LaunchedEffect(Unit) {
-        taggingJob = scope.launch {
+        analysisJob = scope.launch {
             try {
+                val operationTitle = if (analysisType == "AI_TAGGING") "AIタグ解析中..." else "カラーベクトル解析中..."
+                GlobalOperationService.startOperation(operationTitle, tag = analysisType)
+
+                if (analysisType == "AI_TAGGING") {
+                    com.example.gallery.util.ModelDownloader.downloadAllModels(context) {}
+                }
+
                 val allMedia = galleryState.repository.getAllMedia()
                 val imageList = allMedia.filter { !it.isVideo }
-                if (imageList.isEmpty()) { onComplete(); return@launch }
+                if (imageList.isEmpty()) { 
+                    GlobalOperationService.finishOperation()
+                    onComplete()
+                    return@launch 
+                }
 
-                val allMetadataNow = galleryState.repository.getAllMetadata()
+                val allMetadataNow = galleryState.repository.getAllMetadataSummary()
                 val metaMap = allMetadataNow.associateBy { it.uri }
 
                 val targetList = imageList.filter { item ->
                     val rating = metaMap[item.uri]?.ageRating ?: "SFW"
+                    
+                    // 現在の年齢制限フィルタに合わせて対象を絞り込む
                     val matchesFilter = when (galleryState.ageRatingFilter) {
-                        AgeRatingFilter.ALL -> true; AgeRatingFilter.SFW -> rating == "SFW"; AgeRatingFilter.R15 -> rating == "R15"; AgeRatingFilter.R18 -> rating == "R18"
+                        AgeRatingFilter.ALL -> true
+                        AgeRatingFilter.SFW -> rating == "SFW"
+                        AgeRatingFilter.R15 -> rating == "R15"
+                        AgeRatingFilter.R18 -> rating == "R18"
                     }
+                    if (!matchesFilter) return@filter false
+
                     val meta = metaMap[item.uri]
-                    matchesFilter && (meta?.isAiAnalyzed != true || meta.colorComposition == null)
+                    if (analysisType == "AI_TAGGING") {
+                        (meta == null || !meta.isAiAnalyzed)
+                    } else {
+                        (meta == null || !meta.hasFeatureVector)
+                    }
                 }
 
-                if (targetList.isEmpty()) { onComplete(); return@launch }
+                if (targetList.isEmpty()) { 
+                    GlobalOperationService.finishOperation()
+                    onComplete()
+                    return@launch 
+                }
 
                 targetList.forEachIndexed { index, media ->
-                    if (taggingJob?.isCancelled == true) return@launch
-                    currentFileName = media.uri.substringAfterLast("/")
+                    if (analysisJob?.isCancelled == true) return@launch
+                    val fileName = media.uri.substringAfterLast("/")
+                    val currentProgress = (index + 1).toFloat() / targetList.size.toFloat()
+                    GlobalOperationService.updateProgress(currentProgress, "$fileName (${index + 1} / ${targetList.size})")
 
-                    val meta = galleryState.repository.getMetadata(media.uri)
-                    if (meta?.isAiAnalyzed != true) {
+                    if (analysisType == "AI_TAGGING") {
                         if (galleryState.isMockMode) {
-                            delay(200) // Mock解析の演出
-                            val updatedMeta = MediaMetadataEntity(
-                                uri = media.uri,
-                                ageRating = if (galleryState.ageRatingFilter == AgeRatingFilter.ALL) "SFW" else galleryState.ageRatingFilter.name,
-                                isAiAnalyzed = true,
-                                colorComposition = "{ \"ホワイト系\": 0.8 }"
-                            )
-                            galleryState.repository.saveMetadata(updatedMeta)
-                            galleryState.repository.saveTag(com.example.gallery.data.local.entity.TagEntity(media.uri, "ホワイト系"))
+                            delay(100)
+                            val rating = if (galleryState.ageRatingFilter == AgeRatingFilter.ALL) "SFW" else galleryState.ageRatingFilter.name
+                            galleryState.repository.updateAiAnalysisResult(media.uri, rating, true)
                         } else {
                             galleryState.aiTaggingService.analyzeSingle(media)
                         }
-                    }
-                    if (meta?.colorComposition == null && !galleryState.isMockMode) {
-                        galleryState.colorTaggingService.processSingleMedia(media)
-                    }
-
-                    if (index % 5 == 0 || index == targetList.size - 1) {
-                        progress = (index + 1).toFloat() / targetList.size.toFloat()
-                        progressText = "${index + 1} / ${targetList.size}"
-                    }
-                    if (index % 10 == 0 || index == targetList.size - 1) {
-                        analyzedMediaList = targetList.take(index + 1)
+                    } else {
+                        if (galleryState.isMockMode) {
+                            delay(50)
+                            galleryState.repository.updateFeatureVector(media.uri, floatArrayOf(0.1f, 0.2f, 0.3f))
+                        } else {
+                            galleryState.vectorSearchService.analyzeSingle(media)
+                        }
                     }
                 }
+                GlobalOperationService.finishOperation()
                 onComplete()
-            } catch (e: Exception) { Log.e("AnalysisScreen", "Error", e); onComplete() }
+            } catch (e: Exception) { 
+                Log.e("AnalysisScreen", "Error", e)
+                GlobalOperationService.finishOperation()
+                onComplete() 
+            }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
-        if (analyzedMediaList.isNotEmpty()) {
-            FloatingRandomImage(mediaList = analyzedMediaList, ageRatingFilter = galleryState.ageRatingFilter, metadataMap = metadataMap)
-        }
-
-        IconButton(onClick = { taggingJob?.cancel(); onCancel() }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).windowInsetsPadding(WindowInsets.statusBars)) {
+        IconButton(onClick = { 
+            analysisJob?.cancel()
+            GlobalOperationService.finishOperation()
+            onCancel() // 呼び出し元で popBackStack() される
+        }, modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 16.dp).windowInsetsPadding(WindowInsets.statusBars)) {
             Icon(Icons.Default.Close, "キャンセル", tint = Color.White)
         }
 
         Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
-                CircularProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxSize(), color = Color.White, strokeWidth = 6.dp, trackColor = Color.White.copy(alpha = 0.2f))
-                Text("${(progress * 100).toInt()}%", color = Color.White, fontSize = 20.sp)
-            }
-            Spacer(Modifier.height(24.dp))
-            Text("ライブラリを最適化中...", color = Color.White, fontSize = 18.sp)
-            Text(currentFileName, color = Color.LightGray, fontSize = 12.sp, maxLines = 1)
-            Text(progressText, color = Color.Gray, fontSize = 14.sp)
-            Spacer(Modifier.height(32.dp))
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(0.8f).height(10.dp).clip(RoundedCornerShape(5.dp)), color = Color.Cyan, trackColor = Color.Gray.copy(alpha = 0.3f))
+            CircularProgressIndicator(color = Color.White)
+            Spacer(Modifier.height(16.dp))
+            Text("解析準備中...", color = Color.White)
         }
     }
 }

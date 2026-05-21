@@ -21,6 +21,9 @@ palette = "1.0.0"
 mlkit-image-labeling = "17.0.9"
 kotlinx-coroutines-play-services = "1.7.3"
 mediapipe-tasks-vision = "0.10.14"
+tensorflow-lite = "2.17.0"
+tensorflow-lite-support = "0.5.0"
+onnxruntime = "1.20.0"
 
 [libraries]
 androidx-palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
@@ -55,7 +58,10 @@ androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = 
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 mlkit-image-labeling = { group = "com.google.mlkit", name = "image-labeling", version.ref = "mlkit-image-labeling" }
 mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediapipe-tasks-vision" }
+tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflow-lite" }
+tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tensorflow-lite-support" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "kotlinx-coroutines-play-services" }
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
