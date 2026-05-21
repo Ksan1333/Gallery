@@ -290,7 +290,7 @@ fun AppNavigation() {
                 Spacer(Modifier.height(12.dp))
             }
         },
-        gesturesEnabled = !drawerState.isOpen && isBottomBarVisible && !galleryState.isSelectionMode && !galleryState.isZooming
+        gesturesEnabled = isBottomBarVisible && !galleryState.isSelectionMode && !galleryState.isZooming
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // エッジスワイプを補助するためのエリア（左端 25dp）

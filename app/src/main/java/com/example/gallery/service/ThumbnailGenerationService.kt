@@ -23,6 +23,9 @@ object ThumbnailGenerationService {
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing = _isProcessing.asStateFlow()
 
+    private val _isStartupTasksCompleted = MutableStateFlow(false)
+    val isStartupTasksCompleted = _isStartupTasksCompleted.asStateFlow()
+
     private var hasInitialCheckDone = false
 
     fun startGenerating(context: Context, repository: MediaRepository) {
@@ -30,38 +33,54 @@ object ThumbnailGenerationService {
 
         job = serviceScope.launch(Dispatchers.Default) {
             _isProcessing.value = true
-            GlobalOperationService.startOperation("サムネイルを確認中...", tag = "THUMBNAIL_GEN")
+            _isStartupTasksCompleted.value = false
             try {
                 // 初回だけ全スキャン
                 val allMedia = repository.getAllMedia(forceRefresh = false)
+                val allMetadata = repository.getAllMetadataSummary().associateBy { it.uri }
                 
-                // すでにサムネイルが存在するものを除外して対象を絞り込む
+                // サムネイルがない、またはベクトル分析がないものを対象にする
                 val targetList = allMedia.filter { 
-                    !ThumbnailUtils.getThumbnailFile(context, it.uri).exists()
+                    !ThumbnailUtils.getThumbnailFile(context, it.uri).exists() ||
+                    allMetadata[it.uri]?.hasFeatureVector != true
                 }
                 
                 val total = targetList.size
                 if (total == 0) {
-                    Log.d(TAG, "All thumbnails already exist")
+                    Log.d(TAG, "All thumbnails and vectors already exist")
                     hasInitialCheckDone = true
+                    _isStartupTasksCompleted.value = true
                     return@launch
                 }
 
-                Log.d(TAG, "Starting thumbnail generation for $total missing items")
+                Log.d(TAG, "Starting background tasks for $total items")
+                GlobalOperationService.startOperation("バックグラウンド準備中...", tag = "STARTUP_TASKS")
 
                 targetList.forEachIndexed { index, media ->
                     if (!isActive) return@launch
                     
                     val currentProgress = (index + 1).toFloat() / total
                     if (index % 50 == 0 || index == total - 1) {
-                        GlobalOperationService.updateProgress(currentProgress, "サムネイル作成中: ${index + 1} / $total")
+                        GlobalOperationService.updateProgress(currentProgress, "準備中: ${index + 1} / $total")
                     }
                     
+                    // サムネイル作成
                     ThumbnailUtils.generateThumbnailIfMissing(context, media.uri)
+
+                    // ベクトル分析がまだの場合はバックグラウンドで行う
+                    val meta = repository.getMetadata(media.uri)
+                    if (meta == null || meta.featureVector == null) {
+                        repository.galleryState?.vectorSearchService?.analyzeSingle(media)
+                    }
+
                     _progress.value = currentProgress
+                    
+                    // 負荷軽減のための冷却
+                    if (index % 5 == 0) delay(10)
                 }
                 Log.d(TAG, "Thumbnail generation check completed")
                 hasInitialCheckDone = true
+                _isStartupTasksCompleted.value = true
                 GlobalOperationService.updateProgress(1.0f, "サムネイルの準備が完了しました")
             } catch (e: Exception) {
                 Log.e(TAG, "Error in thumbnail generation", e)

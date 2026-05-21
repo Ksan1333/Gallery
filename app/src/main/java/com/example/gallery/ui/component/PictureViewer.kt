@@ -17,8 +17,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.ui.platform.LocalConfiguration
-import kotlinx.coroutines.withContext
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -59,6 +57,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -74,12 +73,14 @@ import coil.request.videoFrameMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.util.Log
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Movie
 import android.provider.MediaStore
 import android.content.ContentValues
+import android.app.WallpaperManager
 import android.media.MediaMetadataRetriever
 import android.widget.Toast
 import com.example.gallery.ui.AppConstants
@@ -167,6 +168,9 @@ fun PictureViewer(
     var isMuted by rememberSaveable { mutableStateOf(true) }
     var isSeeking by remember(pagerState.currentPage) { mutableStateOf(false) }
     var seekTargetPosition by remember(pagerState.currentPage) { mutableLongStateOf(-1L) }
+
+    // 垂直スワイプ中かどうかを追跡
+    var isVerticalSwiping by remember { mutableStateOf(false) }
 
     // ページ切り替え時に親に通知し、状態をリセット
     LaunchedEffect(pagerState.currentPage) {
@@ -274,7 +278,7 @@ fun PictureViewer(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = !isCurrentPageZoomed && !isRecommendationVisible,
+            userScrollEnabled = !isCurrentPageZoomed && !isRecommendationVisible && !isVerticalSwiping && currentMedia?.isVideo != true,
             beyondViewportPageCount = 1
         ) { page ->
             val mediaItem = imageList[page]
@@ -323,9 +327,25 @@ fun PictureViewer(
                             }
                         },
                         onVerticalDrag = { drag ->
+                            isVerticalSwiping = true
                             scope.launch { offsetY.snapTo(offsetY.value + drag) }
                         },
+                        onHorizontalDrag = { drag ->
+                            // 左右スワイプで微細シーク（1pxあたり10ms程度）
+                            val seekDiff = (drag * 10).toLong()
+                            val newPos = (videoPosition + seekDiff).coerceIn(0, videoDuration)
+                            if (newPos != videoPosition) {
+                                videoPosition = newPos
+                                seekTargetPosition = newPos
+                                isSeeking = true
+                                isVideoPlaying = false // スワイプ中は停止させて連動しやすくする
+                            }
+                        },
                         onDragEnd = {
+                            isVerticalSwiping = false
+                            if (isSeeking) {
+                                scope.launch { delay(50); isSeeking = false; seekTargetPosition = -1L }
+                            }
                             if (scale.value < 0.95f) {
                                 scope.launch {
                                     launch { scale.animateTo(1f) }
@@ -370,9 +390,11 @@ fun PictureViewer(
                             }
                         },
                         onVerticalDrag = { drag ->
+                            isVerticalSwiping = true
                             scope.launch { offsetY.snapTo(offsetY.value + drag) }
                         },
                         onDragEnd = {
+                            isVerticalSwiping = false
                             if (scale.value < 0.95f) {
                                 scope.launch {
                                     launch { scale.animateTo(1f) }
@@ -452,12 +474,16 @@ fun PictureViewer(
                                         } else {
                                             // 非ズーム時かつ1本指: 垂直移動が強く支配的な場合のみ消費（Pagerに渡さない）
                                             if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 3.0f) {
+                                                isVerticalSwiping = true
                                                 scope.launch { offsetY.snapTo(offsetY.value + panChange.y) }
                                                 event.changes.forEach { if (it.pressed) it.consume() }
                                             }
                                             // 横方向（スワイプ）は消費せず、Pagerへ流す
                                         }
-                                        if (event.changes.all { !it.pressed }) break
+                                        if (event.changes.all { !it.pressed }) {
+                                            isVerticalSwiping = false
+                                            break
+                                        }
                                     }
                                 }
                             }
@@ -529,9 +555,12 @@ fun PictureViewer(
                                 Text(text = "${formatTime(videoPosition)} / ${formatTime(videoDuration)}", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp))
                                 Slider(
                                     value = videoPosition.toFloat(),
-                                    onValueChange = { isSeeking = true; videoPosition = it.toLong() },
+                                    onValueChange = { 
+                                        isSeeking = true
+                                        videoPosition = it.toLong()
+                                        seekTargetPosition = it.toLong()
+                                    },
                                     onValueChangeFinished = {
-                                        seekTargetPosition = videoPosition
                                         scope.launch { delay(50); isSeeking = false; seekTargetPosition = -1L }
                                     },
                                     valueRange = 0f..videoDuration.toFloat().coerceAtLeast(1f),
@@ -586,6 +615,27 @@ fun PictureViewer(
                         val isStaticImage = !currentMedia.isGif && !currentMedia.isVideo
                         CommonFloatingActionButton(icon = Icons.Default.Screenshot, tooltipDescription = "動画/GIFフレームを画像として保存", size = 32.dp, iconSize = 18.dp, enabled = !isStaticImage, contentColor = if (isStaticImage) Color.Gray.copy(alpha = 0.5f) else Color.White, onClick = { if (currentMedia.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) saveBitmapToScreenshots(context, gifFrames[currentFrameIndex]) else if (currentMedia.isVideo) captureVideoFrame(context, currentMedia.uri, videoPosition) { bitmap -> if (bitmap != null) saveBitmapToScreenshots(context, bitmap) else Toast.makeText(context, "動画フレームの取得に失敗しました", Toast.LENGTH_SHORT).show() } else if (currentMedia.isGif) Toast.makeText(context, "GIFはコマ送りモードで保存してください", Toast.LENGTH_SHORT).show() })
                         CommonFloatingActionButton(icon = if (isVideoPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, tooltipDescription = if (isVideoPlaying) "一時停止" else "再生", size = 32.dp, iconSize = 18.dp, enabled = true, contentColor = if (currentMedia.isVideo) Color.White else Color.Gray, onClick = { if (!currentMedia.isVideo) { Toast.makeText(context, "現在のメディア形式ではその操作はできません", Toast.LENGTH_SHORT).show(); return@CommonFloatingActionButton }; isVideoPlaying = !isVideoPlaying })
+                        
+                        // 壁紙設定ボタンの動的制御
+                        val isWallpaperEnabled = !currentMedia.isVideo && (!currentMedia.isGif || isFrameSteppingVisible)
+                        CommonFloatingActionButton(
+                            icon = Icons.Default.Wallpaper, 
+                            tooltipDescription = "壁紙に設定", 
+                            size = 32.dp, 
+                            iconSize = 18.dp,
+                            enabled = isWallpaperEnabled,
+                            contentColor = if (isWallpaperEnabled) Color.White else Color.Gray.copy(alpha = 0.5f),
+                            onClick = {
+                                if (currentMedia.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) {
+                                    // GIFの特定フレームを壁紙に
+                                    setBitmapAsWallpaper(context, gifFrames[currentFrameIndex])
+                                } else {
+                                    // 通常の画像を壁紙に
+                                    setAsWallpaper(context, currentMedia.uri)
+                                }
+                            }
+                        )
+
                         galleryState?.let { state -> CommonFloatingActionButton(icon = Icons.Default.LocalOffer, tooltipDescription = "タグ・年齢制限を編集", size = 32.dp, iconSize = 18.dp, onClick = { showTagDialog = true }) }
                         galleryState?.let { state -> val favorites by state.repository.getFavoriteMedia().collectAsState(initial = emptyList()); val isFavorite = favorites.any { it.uri == currentMedia.uri }; CommonFloatingActionButton(icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tooltipDescription = "お気に入り (Favorite) 切替", size = 32.dp, iconSize = 18.dp, onClick = { scope.launch { state.repository.toggleFavorite(currentMedia.uri) } }, contentColor = if (isFavorite) Color.Red else Color.White) }
                         galleryState?.let { state -> if (showDeleteButton) { CommonFloatingActionButton(icon = Icons.Default.Delete, tooltipDescription = "ゴミ箱へ移動", size = 32.dp, iconSize = 18.dp, onClick = { scope.launch { state.repository.moveToTrash(listOf(currentMedia.uri)); Toast.makeText(context, "ゴミ箱へ移動しました", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.White) } else { CommonFloatingActionButton(icon = Icons.Default.Restore, tooltipDescription = "復元", size = 32.dp, iconSize = 18.dp, onClick = { scope.launch { state.repository.restoreFromTrash(listOf(currentMedia.uri)); Toast.makeText(context, "復元しました", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.White) } }
@@ -756,6 +806,7 @@ fun VideoPlayer(
     onToggleUi: () -> Unit, onProgressChanged: (Long, Long) -> Unit, scale: Float, offsetX: Float, offsetY: Float,
     onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit,
     onDoubleTap: () -> Unit,
+    onHorizontalDrag: (Float) -> Unit = {},
     isScrollInProgress: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -772,13 +823,16 @@ fun VideoPlayer(
             .apply { 
                 setMediaItem(MediaItem.fromUri(Uri.parse(uri)))
                 repeatMode = Player.REPEAT_MODE_ONE
+                // シーク時の精度を最大（フレーム単位）にし、スワイプ中の画面更新を確実にする
+                setSeekParameters(SeekParameters.EXACT)
                 prepare() 
             } 
     }
-    LaunchedEffect(seekToPosition) { if (seekToPosition >= 0) exoPlayer.seekTo(seekToPosition) }
     LaunchedEffect(isPlaying) { exoPlayer.playWhenReady = isPlaying }
     LaunchedEffect(isMuted) { exoPlayer.volume = if (isMuted) 0f else 1f }
-    LaunchedEffect(exoPlayer, isUiVisible, isPlaying, isScrollInProgress) {
+    
+    // 再生中の進捗更新ループ
+    LaunchedEffect(exoPlayer, isPlaying, isScrollInProgress) {
         while (isPlaying && !isScrollInProgress) {
             if (exoPlayer.playbackState == Player.STATE_READY) {
                 onProgressChanged(exoPlayer.currentPosition, exoPlayer.duration.coerceAtLeast(0))
@@ -805,8 +859,11 @@ fun VideoPlayer(
                         if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 2.5f) {
                             onVerticalDrag(panChange.y)
                             event.changes.forEach { it.consume() }
+                        } else if (panChange != Offset.Zero && Math.abs(panChange.x) > Math.abs(panChange.y) * 2.5f) {
+                            // 水平スワイプが支配的な場合、コマ送りとして扱う
+                            onHorizontalDrag(panChange.x)
+                            event.changes.forEach { it.consume() }
                         }
-                        // 水平方向へのスワイプはPagerに任せるため消費しない
                     }
                     
                     if (event.changes.all { !it.pressed }) break
@@ -814,7 +871,31 @@ fun VideoPlayer(
             }
         }
         .pointerInput(Unit) { awaitPointerEventScope { while (true) { val event = awaitPointerEvent(); if (event.changes.all { !it.pressed }) onDragEnd() } } }
-    ) { AndroidView(factory = { PlayerView(it).apply { player = exoPlayer; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); setShutterBackgroundColor(android.graphics.Color.BLACK); controllerAutoShow = false; hideController(); resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT; layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) } }, modifier = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onToggleUi() }) }
+    ) { 
+        AndroidView(
+            factory = { 
+                PlayerView(it).apply { 
+                    player = exoPlayer
+                    useController = false
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                    setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    controllerAutoShow = false
+                    hideController()
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) 
+                } 
+            },
+            update = { 
+                // updateブロック内でシークとプロパティ更新を行うことで、即時性を確保
+                if (seekToPosition >= 0) {
+                    exoPlayer.seekTo(seekToPosition)
+                }
+                exoPlayer.playWhenReady = isPlaying
+                exoPlayer.volume = if (isMuted) 0f else 1f
+            },
+            modifier = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onToggleUi() }
+        ) 
+    }
 }
 
 @Composable
@@ -846,7 +927,6 @@ fun GifPlayer(
                             onVerticalDrag(panChange.y)
                             event.changes.forEach { it.consume() }
                         }
-                        // 水平方向へのスワイプはPagerに任せるため消費しない
                     }
 
                     if (event.changes.all { !it.pressed }) break
@@ -907,4 +987,34 @@ private fun extractGifFrames(context: android.content.Context, uriString: String
 private fun saveBitmapToScreenshots(context: android.content.Context, bitmap: Bitmap) {
     val filename = "Screenshot_${System.currentTimeMillis()}.png"; val contentValues = ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, filename); put(MediaStore.MediaColumns.MIME_TYPE, "image/png"); if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Screenshots"); put(MediaStore.MediaColumns.IS_PENDING, 1) } }; val resolver = context.contentResolver
     try { val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues); if (uri != null) { resolver.openOutputStream(uri)?.use { outputStream -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream) }; if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { contentValues.clear(); contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0); resolver.update(uri, contentValues, null, null) }; (context as Activity).runOnUiThread { Toast.makeText(context, "スクリーンショットを保存しました", Toast.LENGTH_SHORT).show() } } } catch (e: Exception) { Log.e("PictureViewer", "Error saving screenshot", e); (context as Activity).runOnUiThread { Toast.makeText(context, "保存に失敗しました", Toast.LENGTH_SHORT).show() } }
+}
+
+private fun setAsWallpaper(context: android.content.Context, uriString: String) {
+    val wallpaperManager = WallpaperManager.getInstance(context)
+    val uri = Uri.parse(uriString)
+    try {
+        val intent = wallpaperManager.getCropAndSetWallpaperIntent(uri)
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        // フォールバック: 直接セットを試みるか、エラー表示
+        try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            wallpaperManager.setStream(inputStream)
+            Toast.makeText(context, "壁紙に設定しました", Toast.LENGTH_SHORT).show()
+        } catch (e2: Exception) {
+            Log.e("PictureViewer", "Failed to set wallpaper", e2)
+            Toast.makeText(context, "壁紙の設定に失敗しました", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+private fun setBitmapAsWallpaper(context: android.content.Context, bitmap: Bitmap) {
+    val wallpaperManager = WallpaperManager.getInstance(context)
+    try {
+        wallpaperManager.setBitmap(bitmap)
+        Toast.makeText(context, "今表示しているコマを壁紙に設定しました", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Log.e("PictureViewer", "Failed to set bitmap as wallpaper", e)
+        Toast.makeText(context, "壁紙の設定に失敗しました", Toast.LENGTH_SHORT).show()
+    }
 }

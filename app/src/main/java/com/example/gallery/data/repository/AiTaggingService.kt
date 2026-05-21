@@ -46,25 +46,25 @@ class AiTaggingService(
             val tagsFile = ModelDownloader.getDanbooruTagsFile(context)
             
             if (modelFile.exists() && tagsFile.exists()) {
+                Log.d("AiTaggingService", "Initializing ONNX session with model: ${modelFile.absolutePath} (size: ${modelFile.length()})")
                 if (ortEnv == null) {
                     ortEnv = OrtEnvironment.getEnvironment()
                 }
                 
-                // NNAPI (ハードウェアアクセラレーション) を有効化
                 val options = OrtSession.SessionOptions().apply {
                     addConfigEntry("session.load_model_format", "ONNX")
                     try {
-                        addNnapi() // Androidのハードウェア加速
+                        // ONNX Runtime Android では NNAPI が不安定な場合があるため、一旦無効化してCPUで確実性を優先
+                        // addNnapi() 
                     } catch (e: Exception) {
-                        Log.w("AiTaggingService", "NNAPI not available, falling back to CPU", e)
+                        Log.w("AiTaggingService", "NNAPI init failed", e)
                     }
                 }
                 ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
-                Log.d("AiTaggingService", "ONNX session initialized successfully")
+                Log.d("AiTaggingService", "ONNX session created. Input names: ${ortSession?.inputNames}")
                 
-                // selected_tags.csv の読み込み
                 tags = tagsFile.readLines()
-                    .drop(1) // ヘッダーをスキップ
+                    .drop(1)
                     .map { line ->
                         val parts = line.split(",")
                         if (parts.size >= 2) parts[1] else ""
@@ -72,10 +72,10 @@ class AiTaggingService(
                     .filter { it.isNotEmpty() }
                 Log.d("AiTaggingService", "Loaded ${tags.size} tags")
             } else {
-                Log.w("AiTaggingService", "Model or tags file missing: model=${modelFile.exists()}, tags=${tagsFile.exists()}")
+                Log.w("AiTaggingService", "Model or tags file missing")
             }
         } catch (e: Exception) {
-            Log.e("AiTaggingService", "Failed to initialize SmilingWolf Tagger", e)
+            Log.e("AiTaggingService", "CRITICAL: Failed to initialize Tagger session", e)
         }
     }
 
@@ -160,28 +160,45 @@ class AiTaggingService(
         val pixels = IntArray(448 * 448)
         bitmap.getPixels(pixels, 0, 448, 0, 0, 448, 448)
 
-        // SmilingWolf WD Tagger v3 ONNX (HuggingFace) 通常は NHWC (1, 448, 448, 3) かつ RGB を期待する
-        for (i in 0 until 448 * 448) {
-            val pixel = pixels[i]
-            imgDataBuffer.put((pixel shr 16 and 0xFF).toFloat()) // R
-            imgDataBuffer.put((pixel shr 8 and 0xFF).toFloat())  // G
-            imgDataBuffer.put((pixel and 0xFF).toFloat())       // B
-        }
-        imgDataBuffer.rewind()
-
+        // SmilingWolf WD Tagger v3 ONNX (HuggingFace)
         val inputName = ortSession?.inputNames?.firstOrNull() ?: "input"
-        val inputTensor = OnnxTensor.createTensor(ortEnv, imgDataBuffer, longArrayOf(1, 448, 448, 3))
+        val inputInfo = ortSession?.inputInfo?.get(inputName)
+        val shape = inputInfo?.info?.let { (it as? ai.onnxruntime.TensorInfo)?.shape }
+        
+        Log.d("AiTaggingService", "Inference: input=$inputName, targetShape=${shape?.contentToString()}")
+
+        // WD Tagger v3 ViT usually expects [1, 448, 448, 3] (NHWC)
+        // RGB values 0.0 - 255.0
+        val isNHWC = shape != null && shape.size == 4 && shape[3] == 3L
+
+        if (isNHWC) {
+            // NHWC
+            for (i in 0 until 448 * 448) {
+                val pixel = pixels[i]
+                imgDataBuffer.put((pixel shr 16 and 0xFF).toFloat()) // R
+                imgDataBuffer.put((pixel shr 8 and 0xFF).toFloat())  // G
+                imgDataBuffer.put((pixel and 0xFF).toFloat())       // B
+            }
+        } else {
+            // NCHW [1, 3, 448, 448]
+            for (i in 0 until 448 * 448) imgDataBuffer.put((pixels[i] shr 16 and 0xFF).toFloat()) // R
+            for (i in 0 until 448 * 448) imgDataBuffer.put((pixels[i] shr 8 and 0xFF).toFloat())  // G
+            for (i in 0 until 448 * 448) imgDataBuffer.put((pixels[i] and 0xFF).toFloat())       // B
+        }
+        
+        imgDataBuffer.rewind()
+        val tensorShape = shape ?: longArrayOf(1, 448, 448, 3)
         
         return try {
+            val inputTensor = OnnxTensor.createTensor(ortEnv, imgDataBuffer, tensorShape)
             val output = ortSession?.run(Collections.singletonMap(inputName, inputTensor))
             val result = output?.get(0)?.value as? Array<FloatArray>
+            inputTensor.close()
             output?.close()
             result?.get(0) ?: FloatArray(0)
         } catch (e: Exception) {
-            Log.e("AiTaggingService", "Inference failed", e)
+            Log.e("AiTaggingService", "Inference run failed", e)
             FloatArray(0)
-        } finally {
-            inputTensor.close()
         }
     }
 

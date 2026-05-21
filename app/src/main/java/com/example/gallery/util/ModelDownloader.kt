@@ -27,18 +27,22 @@ object ModelDownloader {
 
     suspend fun downloadAllModels(context: Context, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         val tasks = listOf(
-            DownloadTask(VECTOR_MODEL_URL, getVectorModelFile(context), 0.2f),
-            DownloadTask(DANBOORU_MODEL_URL, getDanbooruModelFile(context), 0.7f),
-            DownloadTask(DANBOORU_TAGS_URL, getDanbooruTagsFile(context), 0.1f)
+            DownloadTask(VECTOR_MODEL_URL, getVectorModelFile(context), 0.2f, 1_000_000L), // 小さいモデル
+            DownloadTask(DANBOORU_MODEL_URL, getDanbooruModelFile(context), 0.7f, 100_000_000L), // 大きなモデル (ViT v3)
+            DownloadTask(DANBOORU_TAGS_URL, getDanbooruTagsFile(context), 0.1f, 10_000L) // CSV
         )
 
         var totalProgress = 0f
         for (task in tasks) {
-            if (task.file.exists() && task.file.length() > 1024) { // サイズチェックも追加
-                Log.d(TAG, "Model already exists: ${task.file.name}")
+            // ファイルが存在し、かつサイズが妥当かチェック
+            if (task.file.exists() && task.file.length() >= task.minExpectedSize) {
+                Log.d(TAG, "Model already exists and size is valid: ${task.file.name}")
                 totalProgress += task.weight
                 onProgress(totalProgress)
                 continue
+            } else if (task.file.exists()) {
+                Log.w(TAG, "Model file exists but seems too small (${task.file.length()}), re-downloading...")
+                task.file.delete()
             }
 
             Log.d(TAG, "Starting download: ${task.url}")
@@ -57,12 +61,14 @@ object ModelDownloader {
         true
     }
 
-    private data class DownloadTask(val url: String, val file: File, val weight: Float)
+    private data class DownloadTask(val url: String, val file: File, val weight: Float, val minExpectedSize: Long)
 
     private suspend fun downloadFile(urlStr: String, file: File, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Downloading: $urlStr")
             val connection = URL(urlStr).openConnection()
+            // HuggingFace など、特定のサイトは User-Agent がないと拒否される場合がある
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             connection.connect()
             val totalSize = connection.contentLength
             

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +38,8 @@ import com.example.gallery.ui.GalleryState
 import kotlinx.coroutines.delay
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.List
 import com.example.gallery.ui.AgeRatingFilter
@@ -55,59 +58,108 @@ fun GlobalProgressOverlay() {
     val statusTitle by GlobalOperationService.statusTitle.collectAsState()
     val statusText by GlobalOperationService.statusText.collectAsState()
 
+    var isMinimized by rememberSaveable { mutableStateOf(false) }
+
     if (isProcessing && progress < 1f) {
-        Surface(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .zIndex(2000f),
-            color = Color.Black.copy(alpha = 0.85f),
-            shape = RoundedCornerShape(12.dp),
-            shadowElevation = 8.dp,
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                .zIndex(2000f)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = statusTitle,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                    )
-                    Text(
-                        text = "${(progress * 100).toInt()}%",
-                        color = Color.Cyan,
-                        fontSize = 13.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                LinearProgressIndicator(
-                    progress = { progress },
+            if (isMinimized) {
+                // 最小化表示: 上部に細いバーのみ
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = Color.Cyan,
-                    trackColor = Color.White.copy(alpha = 0.15f)
-                )
-                if (statusText.isNotEmpty()) {
-                    Text(
-                        text = statusText,
-                        color = Color.Gray,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 6.dp),
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { isMinimized = false },
+                    color = Color.Black.copy(alpha = 0.7f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progress)
+                                .background(Color.Cyan)
+                        )
+                    }
+                }
+            } else {
+                // 通常表示
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    if (dragAmount.y < -10f) isMinimized = true
+                                }
+                            )
+                        },
+                    color = Color.Black.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(12.dp),
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = statusTitle,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                )
+                                IconButton(
+                                    onClick = { isMinimized = true },
+                                    modifier = Modifier.size(24.dp).padding(start = 4.dp)
+                                ) {
+                                    Icon(Icons.Default.ArrowDropUp, null, tint = Color.Gray)
+                                }
+                            }
+                            Text(
+                                text = "${(progress * 100).toInt()}%",
+                                color = Color.Cyan,
+                                fontSize = 13.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = Color.Cyan,
+                            trackColor = Color.White.copy(alpha = 0.15f)
+                        )
+                        if (statusText.isNotEmpty()) {
+                            Text(
+                                text = statusText,
+                                color = Color.Gray,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(top = 6.dp),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
         }
+    } else {
+        // 完了したらリセット
+        SideEffect { isMinimized = false }
     }
 }
 

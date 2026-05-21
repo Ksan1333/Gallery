@@ -114,16 +114,14 @@ fun GalleryGridView(
     }
 
     var isSelectionMode by remember { mutableStateOf(false) }
-    var isZooming by remember { mutableStateOf(false) }
-    
+
     // GalleryStateと同期
     LaunchedEffect(isSelectionMode) { galleryState.isSelectionMode = isSelectionMode }
-    LaunchedEffect(isZooming) { galleryState.isZooming = isZooming }
 
     // ズーム中または指を離していない状態を親に伝える（サイドバー抑制用）
     val currentOnSelectionModeChanged by rememberUpdatedState(onSelectionModeChanged)
-    LaunchedEffect(isZooming) {
-        currentOnSelectionModeChanged(isSelectionMode || isZooming)
+    LaunchedEffect(galleryState.isZooming, isSelectionMode) {
+        currentOnSelectionModeChanged(isSelectionMode || galleryState.isZooming)
     }
     val selectedUris = remember { mutableStateListOf<String>() }
     var lastSelectedIndex by remember { mutableIntStateOf(-1) }
@@ -362,7 +360,7 @@ fun GalleryGridView(
             ) { targetIndex ->
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columnOptions[targetIndex]),
-                    userScrollEnabled = !isZooming && !isChangingColumns,
+                    userScrollEnabled = !galleryState.isZooming && !isChangingColumns,
                     state = gridState,
                     contentPadding = PaddingValues(
                         top = totalTopBarHeight + 8.dp,
@@ -379,8 +377,13 @@ fun GalleryGridView(
                                     val event =
                                         awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                                     val changes = event.changes
-                                    if (changes.size >= 2) isZooming = true
-                                    if (isZooming) {
+                                    
+                                    // 2本以上の指が触れている、または既にズーム中なら isZooming を true に維持
+                                    if (changes.size >= 2 || (galleryState.isZooming && changes.any { it.pressed })) {
+                                        galleryState.isZooming = true
+                                    }
+
+                                    if (galleryState.isZooming) {
                                         changes.forEach { it.consume() }
                                         if (!zoomAppliedInThisGesture && !isSelectionMode) {
                                             val zoom =
@@ -394,9 +397,12 @@ fun GalleryGridView(
                                             }
                                         }
                                     }
+                                    
+                                    // 全ての指が離れたら解除
                                     if (changes.all { !it.pressed }) {
-                                        isZooming = false; zoomAccumulator =
-                                            1f; zoomAppliedInThisGesture = false
+                                        galleryState.isZooming = false
+                                        zoomAccumulator = 1f
+                                        zoomAppliedInThisGesture = false
                                     }
                                 }
                             }
@@ -423,10 +429,10 @@ fun GalleryGridView(
                                             if (!isLongPress) isCancelledByMovement = true
                                         }
 
-                                        // ズーム中(isZooming)または2本以上の指が触れている場合は、選択モードへの移行や範囲選択を抑制する
+                                        // ズーム中(galleryState.isZooming)または2本以上の指が触れている場合は、選択モードへの移行や範囲選択を抑制する
                                         val isMultiTouch = event.changes.size >= 2
 
-                                        if (currentTime - startTime > timeout && !isLongPress && !isZooming && !isMultiTouch && !isCancelledByMovement) {
+                                        if (currentTime - startTime > timeout && !isLongPress && !galleryState.isZooming && !isMultiTouch && !isCancelledByMovement) {
                                             isLongPress = true;
                                             val offset = down.position;
                                             val beforePadding =
@@ -695,7 +701,7 @@ fun GalleryGridView(
             }
         }
 
-        if (!isZooming) {
+        if (!galleryState.isZooming) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -792,7 +798,7 @@ fun GalleryGridView(
             }
         }
 
-        if (filteredList.isNotEmpty() && !isSelectionMode && !isZooming) {
+        if (filteredList.isNotEmpty() && !isSelectionMode && !galleryState.isZooming) {
             var isPressed by remember { mutableStateOf(false) }
             val thumbWidth by animateDpAsState(if (isPressed) 12.dp else 4.dp)
             val scrollbarState by remember(gridState, filteredList, galleryState.groupingMode) {

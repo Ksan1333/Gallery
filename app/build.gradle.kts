@@ -65,6 +65,7 @@ dependencies {
     implementation("io.coil-kt:coil-gif:2.7.0") // 強制的に最新のGIFサポートを追加
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    implementation("androidx.media3:media3-common:1.5.1")
     implementation("androidx.compose.foundation:foundation")
     implementation(libs.androidx.palette.ktx)
 

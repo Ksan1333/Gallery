@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +37,10 @@ fun AnalysisProgressScreen(
     var analysisJob by remember { mutableStateOf<Job?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    var isFinished by remember { mutableStateOf(false) }
+    var processedCount by remember { mutableIntStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
+
     LaunchedEffect(Unit) {
         analysisJob = scope.launch {
             try {
@@ -49,10 +54,15 @@ fun AnalysisProgressScreen(
 
                 // 解析に必要なモデルを確認・ダウンロード
                 if (analysisType == "AI_TAGGING" || analysisType == "COLOR_VECTOR") {
-                    val downloadSuccess = com.example.gallery.util.ModelDownloader.downloadAllModels(context) {}
+                    val downloadSuccess = com.example.gallery.util.ModelDownloader.downloadAllModels(context) { progress ->
+                        GlobalOperationService.updateProgress(progress * 0.1f, "AIモデルを準備中...") // 最初の10%をダウンロードに割り当て
+                    }
+                    
                     if (!downloadSuccess) {
                         Log.e("AnalysisScreen", "Failed to download models")
                         GlobalOperationService.finishOperation()
+                        // 失敗メッセージを表示するために少し待つ
+                        delay(500)
                         onComplete()
                         return@launch
                     }
@@ -67,10 +77,7 @@ fun AnalysisProgressScreen(
 
                 val allMedia = galleryState.repository.getAllMedia()
                 val imageList = allMedia.filter { !it.isVideo }
-                Log.d("AnalysisScreen", "Total images to consider: ${imageList.size}")
-
                 if (imageList.isEmpty()) { 
-                    Log.d("AnalysisScreen", "No images found for analysis")
                     GlobalOperationService.finishOperation()
                     onComplete()
                     return@launch 
@@ -99,10 +106,9 @@ fun AnalysisProgressScreen(
                         else -> true
                     }
                 }
-                Log.d("AnalysisScreen", "Target items for $analysisType: ${targetList.size}")
+                totalCount = targetList.size
 
                 if (targetList.isEmpty()) { 
-                    Log.d("AnalysisScreen", "No targets found for $analysisType")
                     GlobalOperationService.finishOperation()
                     onComplete()
                     return@launch 
@@ -154,12 +160,13 @@ fun AnalysisProgressScreen(
                             delay(10)
                         }
                     }
+                    processedCount = index + 1
                     // 負荷軽減のための冷却期間
                     if (index % 10 == 0) delay(100)
                 }
                 galleryState.refresh() // 完了後にUIを更新
                 GlobalOperationService.finishOperation()
-                onComplete()
+                isFinished = true
             } catch (e: Exception) { 
                 Log.e("AnalysisScreen", "Error", e)
                 galleryState.refresh()
@@ -170,18 +177,41 @@ fun AnalysisProgressScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
-        IconButton(onClick = { 
-            analysisJob?.cancel()
-            GlobalOperationService.finishOperation()
-            onCancel() // 呼び出し元で popBackStack() される
-        }, modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 16.dp).windowInsetsPadding(WindowInsets.statusBars)) {
-            Icon(Icons.Default.Close, "キャンセル", tint = Color.White)
-        }
+        if (!isFinished) {
+            IconButton(onClick = { 
+                analysisJob?.cancel()
+                GlobalOperationService.finishOperation()
+                onCancel() // 呼び出し元で popBackStack() される
+            }, modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 16.dp).windowInsetsPadding(WindowInsets.statusBars)) {
+                Icon(Icons.Default.Close, "キャンセル", tint = Color.White)
+            }
 
-        Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            CircularProgressIndicator(color = Color.White)
-            Spacer(Modifier.height(16.dp))
-            Text("解析準備中...", color = Color.White)
+            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                CircularProgressIndicator(color = Color.White)
+                Spacer(Modifier.height(16.dp))
+                Text("解析中...", color = Color.White)
+                Text("${processedCount} / ${totalCount}", color = Color.Gray, fontSize = 12.sp)
+            }
+        } else {
+            Card(
+                modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2A2A2A))
+            ) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.CheckCircle, null, tint = Color.Green, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("解析完了", color = Color.White, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text("${processedCount} 件のアイテムを処理しました", color = Color.LightGray)
+                    Spacer(Modifier.height(24.dp))
+                    Button(
+                        onClick = onComplete,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("OK")
+                    }
+                }
+            }
         }
     }
 }

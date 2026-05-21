@@ -119,8 +119,8 @@ fun MyListScreen(
             
             if (untaggedMedia.isNotEmpty() || unanalyzedAi.isNotEmpty() || unanalyzedVector.isNotEmpty()) {
                 val subText = buildString {
-                    if (untaggedMedia.isNotEmpty()) append("未タグ:${untaggedMedia.size} ")
-                    if (unanalyzedAi.isNotEmpty()) append("未AI:${unanalyzedAi.size} ")
+                    if (untaggedMedia.isNotEmpty()) append("未タグ:${untaggedMedia.size}\n")
+                    if (unanalyzedAi.isNotEmpty()) append("未AI:${unanalyzedAi.size}\n")
                     if (unanalyzedVector.isNotEmpty()) append("未ベクトル:${unanalyzedVector.size}")
                 }.trim()
                 add(CategoryData("Untagged", "未整理・未分析", (untaggedMedia + unanalyzedAi + unanalyzedVector).distinctBy { it.uri }.size, untaggedMedia.firstOrNull()?.uri ?: unanalyzedAi.firstOrNull()?.uri ?: unanalyzedVector.firstOrNull()?.uri, subTitle = subText))
@@ -151,6 +151,8 @@ fun MyListScreen(
     }
 
     var showAnalysisMenu by remember { mutableStateOf(false) }
+    val isStartupCompleted by com.example.gallery.service.ThumbnailGenerationService.isStartupTasksCompleted.collectAsState()
+    val context = LocalContext.current
 
     CategoryScreen(
         title = "マイリスト",
@@ -174,7 +176,14 @@ fun MyListScreen(
         topBarActions = {
             topBarActions()
             Box {
-                IconButton(onClick = { showAnalysisMenu = true }) { Icon(Icons.Default.AutoAwesome, "AI解析", tint = Color.White) }
+                IconButton(onClick = { 
+                    if (isStartupCompleted) {
+                        showAnalysisMenu = true 
+                    } else {
+                        android.widget.Toast.makeText(context, "バックグラウンド準備が完了するまでお待ちください", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }) { Icon(Icons.Default.AutoAwesome, "AI解析", tint = if (isStartupCompleted) Color.White else Color.Gray) }
+                
                 DropdownMenu(
                     expanded = showAnalysisMenu,
                     onDismissRequest = { showAnalysisMenu = false },
@@ -183,14 +192,6 @@ fun MyListScreen(
                     DropdownMenuItem(
                         text = { Text("AIタグ解析を開始", color = Color.White) },
                         onClick = { showAnalysisMenu = false; onStartAnalysis("AI_TAGGING") }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("カラーベクトル解析を開始", color = Color.White) },
-                        onClick = { showAnalysisMenu = false; onStartAnalysis("COLOR_VECTOR") }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("タグから年齢制限を自動振分", color = Color.White) },
-                        onClick = { showAnalysisMenu = false; onStartAnalysis("AUTO_RATING") }
                     )
                 }
             }
@@ -202,7 +203,9 @@ fun MyListScreen(
         onTabIconClick = { onBackToMyList() },
         lastViewedUri = galleryState.lastViewedUri,
         onPageChangedInViewer = { galleryState.lastViewedUri = it },
-        onScrollConsumed = { galleryState.lastViewedUri = null }
+        onScrollConsumed = { galleryState.lastViewedUri = null },
+        showThumbnails = false,
+        initialColumnIndex = 3 // 3列表示に設定
     )
 
     if (showTagCreateDialog) {

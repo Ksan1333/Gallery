@@ -73,8 +73,9 @@ class VectorSearchService(
             val result = imageEmbedder?.embed(mpImage)
             
             // ImageEmbedderResult -> EmbeddingResult (via embeddingResult()) -> List<Embedding> -> float[]
-            val embedding = result?.embeddingResult()?.embeddings()?.firstOrNull()
-            val vector = embedding?.floatEmbedding()
+            val embedResult = result?.embeddingResult()
+            val embedding = embedResult?.embeddings()?.firstOrNull()
+            val vector: FloatArray? = embedding?.floatEmbedding()
 
             if (vector != null) {
                 Log.d("VectorSearchService", "Vector extracted for ${media.uri}, size=${vector.size}")

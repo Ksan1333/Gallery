@@ -27,7 +27,7 @@ import kotlinx.coroutines.sync.withLock
 class MediaRepository(
     private val context: Context,
     val mediaDao: MediaDao,
-    private val galleryState: com.example.gallery.ui.GalleryState? = null
+    val galleryState: com.example.gallery.ui.GalleryState? = null
 ) {
     private val tagNames = listOf("人物", "美少女", "風景", "動物", "食べ物", "建物", "空", "海", "花")
     private val folderNames = listOf("Camera", "Downloads", "Twitter", "Screenshots", "Pixiv", "Instagram")
