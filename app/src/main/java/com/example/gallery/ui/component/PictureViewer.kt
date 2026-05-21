@@ -605,18 +605,20 @@ fun PictureViewer(
                     androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                         val currentMedia = imageList.getOrNull(pagerState.currentPage)
                         if (currentMedia != null) {
-                            // 元画像を表示
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    Image(
-                                        painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(currentMedia.uri).build(), imageLoader = imageLoader),
-                                        contentDescription = "元画像",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(200.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Fit
-                                    )
+                            // 元画像を表示 (画像の場合のみ)
+                            if (!currentMedia.isVideo) {
+                                item {
+                                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                        Image(
+                                            painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(currentMedia.uri).build(), imageLoader = imageLoader),
+                                            contentDescription = "元画像",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
                                 }
                             }
 
@@ -652,7 +654,7 @@ fun PictureViewer(
                                     }
                                     var showTagAddDialog by remember { mutableStateOf(false) }
                                     
-                                    if (currentMetadata?.isAiAnalyzed != true) {
+                                    if (!currentMedia.isVideo && currentMetadata?.isAiAnalyzed != true) {
                                         Text("AIタグ未分析です。分析すると関連アイテムが表示されるようになります。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                                     }
 
@@ -754,12 +756,25 @@ fun VideoPlayer(
     onToggleUi: () -> Unit, onProgressChanged: (Long, Long) -> Unit, scale: Float, offsetX: Float, offsetY: Float,
     onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit,
     onDoubleTap: () -> Unit,
-    isScrollInProgress: Boolean = false, // 追加
+    isScrollInProgress: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val exoPlayer = remember { ExoPlayer.Builder(context).setRenderersFactory(androidx.media3.exoplayer.DefaultRenderersFactory(context).setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)).build().apply { setMediaItem(MediaItem.fromUri(Uri.parse(uri))); repeatMode = Player.REPEAT_MODE_ONE; prepare() } }
+    // remember(uri) を使用して、URIが変わったらプレイヤーを再生成するように明示
+    val exoPlayer = remember(uri) { 
+        ExoPlayer.Builder(context)
+            .setRenderersFactory(
+                androidx.media3.exoplayer.DefaultRenderersFactory(context)
+                    .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            )
+            .build()
+            .apply { 
+                setMediaItem(MediaItem.fromUri(Uri.parse(uri)))
+                repeatMode = Player.REPEAT_MODE_ONE
+                prepare() 
+            } 
+    }
     LaunchedEffect(seekToPosition) { if (seekToPosition >= 0) exoPlayer.seekTo(seekToPosition) }
     LaunchedEffect(isPlaying) { exoPlayer.playWhenReady = isPlaying }
     LaunchedEffect(isMuted) { exoPlayer.volume = if (isMuted) 0f else 1f }

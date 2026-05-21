@@ -188,6 +188,10 @@ fun MyListScreen(
                         text = { Text("カラーベクトル解析を開始", color = Color.White) },
                         onClick = { showAnalysisMenu = false; onStartAnalysis("COLOR_VECTOR") }
                     )
+                    DropdownMenuItem(
+                        text = { Text("タグから年齢制限を自動振分", color = Color.White) },
+                        onClick = { showAnalysisMenu = false; onStartAnalysis("AUTO_RATING") }
+                    )
                 }
             }
             IconButton(onClick = { showTagCreateDialog = true }) { Icon(Icons.Default.Add, "タグ作成", tint = Color.White) }

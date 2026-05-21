@@ -34,15 +34,27 @@ object ThumbnailGenerationService {
             try {
                 // 初回だけ全スキャン
                 val allMedia = repository.getAllMedia(forceRefresh = false)
-                val total = allMedia.size
-                Log.d(TAG, "Starting thumbnail generation check for $total items")
+                
+                // すでにサムネイルが存在するものを除外して対象を絞り込む
+                val targetList = allMedia.filter { 
+                    !ThumbnailUtils.getThumbnailFile(context, it.uri).exists()
+                }
+                
+                val total = targetList.size
+                if (total == 0) {
+                    Log.d(TAG, "All thumbnails already exist")
+                    hasInitialCheckDone = true
+                    return@launch
+                }
 
-                allMedia.forEachIndexed { index, media ->
+                Log.d(TAG, "Starting thumbnail generation for $total missing items")
+
+                targetList.forEachIndexed { index, media ->
                     if (!isActive) return@launch
                     
                     val currentProgress = (index + 1).toFloat() / total
-                    if (index % 200 == 0) { // さらに頻度を下げる
-                        GlobalOperationService.updateProgress(currentProgress, "サムネイル確認中: ${index + 1} / $total")
+                    if (index % 50 == 0 || index == total - 1) {
+                        GlobalOperationService.updateProgress(currentProgress, "サムネイル作成中: ${index + 1} / $total")
                     }
                     
                     ThumbnailUtils.generateThumbnailIfMissing(context, media.uri)

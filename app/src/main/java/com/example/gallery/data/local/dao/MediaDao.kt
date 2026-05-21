@@ -153,4 +153,11 @@ interface MediaDao {
 
     @Query("SELECT folderName FROM managed_folders")
     fun getAllManagedFolderNames(): kotlinx.coroutines.flow.Flow<List<String>>
+
+    // タグ翻訳用
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTagTranslation(translation: com.example.gallery.data.local.entity.TagTranslationEntity)
+
+    @Query("SELECT translated FROM tag_translations WHERE original = :original")
+    suspend fun getTagTranslation(original: String): String?
 }

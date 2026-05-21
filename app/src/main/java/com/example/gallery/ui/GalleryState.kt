@@ -21,6 +21,10 @@ enum class SortMode { DATE_ADDED, SIZE, NAME }
 class GalleryState(context: Context) {
     private val database = GalleryDatabase.getDatabase(context)
     
+    init {
+        com.example.gallery.service.TagTranslationService.init(context)
+    }
+
     var isMockMode by mutableStateOf(false)
         private set
 

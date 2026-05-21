@@ -97,6 +97,12 @@ object AppConstants {
     )
 
     // センシティブなワード (これらが含まれていたら自動的に R15/R18)
-    val R15Keywords = setOf("underwear", "lingerie", "cleavage", "panties", "bra", "swimsuit", "bikini")
-    val R18Keywords = setOf("nude", "naked", "sex", "hentai", "vagina", "penis", "pussy", "fellatio", "masturbation")
+    val R15Keywords = setOf(
+        "underwear", "lingerie", "cleavage", "panties", "bra", "swimsuit", "bikini", 
+        "undressing", "skirt_tug", "topless", "bottomless"
+    )
+    val R18Keywords = setOf(
+        "nude", "naked", "sex", "hentai", "vagina", "penis", "pussy", "fellatio", 
+        "masturbation", "intercourse", "cum", "ejaculation", "anal", "oral_sex"
+    )
 }

@@ -437,7 +437,13 @@ fun AppNavigation() {
                     AnalysisProgressScreen(
                         galleryState = galleryState,
                         analysisType = analysisType,
-                        onComplete = { navController.popBackStack() },
+                        onComplete = {
+                            // 完了時もマイリスト画面へ
+                            navController.navigate("mylist") {
+                                popUpTo("home") { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        },
                         onCancel = {
                             // 中断時はマイリスト画面へ
                             navController.navigate("mylist") {

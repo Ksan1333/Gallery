@@ -23,11 +23,12 @@ import com.example.gallery.service.GlobalOperationService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun AnalysisProgressScreen(
     galleryState: GalleryState,
-    analysisType: String = "AI_TAGGING", // "AI_TAGGING" or "COLOR_VECTOR"
+    analysisType: String = "AI_TAGGING", // "AI_TAGGING", "COLOR_VECTOR", "AUTO_RATING"
     onComplete: () -> Unit,
     onCancel: () -> Unit
 ) {
@@ -38,16 +39,38 @@ fun AnalysisProgressScreen(
     LaunchedEffect(Unit) {
         analysisJob = scope.launch {
             try {
-                val operationTitle = if (analysisType == "AI_TAGGING") "AIタグ解析中..." else "カラーベクトル解析中..."
+                val operationTitle = when(analysisType) {
+                    "AI_TAGGING" -> "AIタグ解析中..."
+                    "COLOR_VECTOR" -> "カラーベクトル解析中..."
+                    "AUTO_RATING" -> "年齢制限自動振分中..."
+                    else -> "処理中..."
+                }
                 GlobalOperationService.startOperation(operationTitle, tag = analysisType)
 
-                if (analysisType == "AI_TAGGING") {
-                    com.example.gallery.util.ModelDownloader.downloadAllModels(context) {}
+                // 解析に必要なモデルを確認・ダウンロード
+                if (analysisType == "AI_TAGGING" || analysisType == "COLOR_VECTOR") {
+                    val downloadSuccess = com.example.gallery.util.ModelDownloader.downloadAllModels(context) {}
+                    if (!downloadSuccess) {
+                        Log.e("AnalysisScreen", "Failed to download models")
+                        GlobalOperationService.finishOperation()
+                        onComplete()
+                        return@launch
+                    }
+                    
+                    // ダウンロード後にサービスを確実に初期化
+                    if (analysisType == "AI_TAGGING") {
+                        galleryState.aiTaggingService.ensureInitialized()
+                    } else {
+                        galleryState.vectorSearchService.ensureInitialized()
+                    }
                 }
 
                 val allMedia = galleryState.repository.getAllMedia()
                 val imageList = allMedia.filter { !it.isVideo }
+                Log.d("AnalysisScreen", "Total images to consider: ${imageList.size}")
+
                 if (imageList.isEmpty()) { 
+                    Log.d("AnalysisScreen", "No images found for analysis")
                     GlobalOperationService.finishOperation()
                     onComplete()
                     return@launch 
@@ -69,14 +92,17 @@ fun AnalysisProgressScreen(
                     if (!matchesFilter) return@filter false
 
                     val meta = metaMap[item.uri]
-                    if (analysisType == "AI_TAGGING") {
-                        (meta == null || !meta.isAiAnalyzed)
-                    } else {
-                        (meta == null || !meta.hasFeatureVector)
+                    when (analysisType) {
+                        "AI_TAGGING" -> (meta == null || !meta.isAiAnalyzed)
+                        "COLOR_VECTOR" -> (meta == null || !meta.hasFeatureVector)
+                        "AUTO_RATING" -> true // 全て(またはタグがあるもの)を対象
+                        else -> true
                     }
                 }
+                Log.d("AnalysisScreen", "Target items for $analysisType: ${targetList.size}")
 
                 if (targetList.isEmpty()) { 
+                    Log.d("AnalysisScreen", "No targets found for $analysisType")
                     GlobalOperationService.finishOperation()
                     onComplete()
                     return@launch 
@@ -88,27 +114,55 @@ fun AnalysisProgressScreen(
                     val currentProgress = (index + 1).toFloat() / targetList.size.toFloat()
                     GlobalOperationService.updateProgress(currentProgress, "$fileName (${index + 1} / ${targetList.size})")
 
-                    if (analysisType == "AI_TAGGING") {
-                        if (galleryState.isMockMode) {
-                            delay(100)
-                            val rating = if (galleryState.ageRatingFilter == AgeRatingFilter.ALL) "SFW" else galleryState.ageRatingFilter.name
-                            galleryState.repository.updateAiAnalysisResult(media.uri, rating, true)
-                        } else {
-                            galleryState.aiTaggingService.analyzeSingle(media)
+                    when (analysisType) {
+                        "AI_TAGGING" -> {
+                            if (galleryState.isMockMode) {
+                                delay(100)
+                                val rating = if (galleryState.ageRatingFilter == AgeRatingFilter.ALL) "SFW" else galleryState.ageRatingFilter.name
+                                galleryState.repository.updateAiAnalysisResult(media.uri, rating, true)
+                            } else {
+                                galleryState.aiTaggingService.analyzeSingle(media)
+                            }
                         }
-                    } else {
-                        if (galleryState.isMockMode) {
-                            delay(50)
-                            galleryState.repository.updateFeatureVector(media.uri, floatArrayOf(0.1f, 0.2f, 0.3f))
-                        } else {
-                            galleryState.vectorSearchService.analyzeSingle(media)
+                        "COLOR_VECTOR" -> {
+                            if (galleryState.isMockMode) {
+                                delay(50)
+                                galleryState.repository.updateFeatureVector(media.uri, floatArrayOf(0.1f, 0.2f, 0.3f))
+                            } else {
+                                galleryState.vectorSearchService.analyzeSingle(media)
+                            }
+                        }
+                        "AUTO_RATING" -> {
+                            // 既存のタグを取得して自動判定
+                            val tags = galleryState.repository.getTagsForMedia(media.uri).first().map { it.tag }
+                            var newAgeRating = "SFW"
+                            
+                            // センシティブワードによる自動判定
+                            tags.forEach { tag ->
+                                val cleanTag = tag.replace("_", " ")
+                                if (AppConstants.R18Keywords.any { cleanTag.contains(it, ignoreCase = true) }) {
+                                    newAgeRating = "R18"
+                                } else if (newAgeRating != "R18" && AppConstants.R15Keywords.any { cleanTag.contains(it, ignoreCase = true) }) {
+                                    newAgeRating = "R15"
+                                }
+                            }
+                            
+                            val meta = metaMap[media.uri]
+                            if (meta == null || meta.ageRating != newAgeRating) {
+                                galleryState.repository.bulkUpdateAgeRating(listOf(media.uri), newAgeRating)
+                            }
+                            delay(10)
                         }
                     }
+                    // 負荷軽減のための冷却期間
+                    if (index % 10 == 0) delay(100)
                 }
+                galleryState.refresh() // 完了後にUIを更新
                 GlobalOperationService.finishOperation()
                 onComplete()
             } catch (e: Exception) { 
                 Log.e("AnalysisScreen", "Error", e)
+                galleryState.refresh()
                 GlobalOperationService.finishOperation()
                 onComplete() 
             }

@@ -34,17 +34,23 @@ object ModelDownloader {
 
         var totalProgress = 0f
         for (task in tasks) {
-            if (task.file.exists()) {
+            if (task.file.exists() && task.file.length() > 1024) { // サイズチェックも追加
+                Log.d(TAG, "Model already exists: ${task.file.name}")
                 totalProgress += task.weight
                 onProgress(totalProgress)
                 continue
             }
 
+            Log.d(TAG, "Starting download: ${task.url}")
             val success = downloadFile(task.url, task.file) { taskProgress ->
                 onProgress(totalProgress + (taskProgress * task.weight))
             }
             
-            if (!success) return@withContext false
+            if (!success) {
+                Log.e(TAG, "Failed to download model: ${task.file.name}")
+                return@withContext false
+            }
+            Log.d(TAG, "Download finished: ${task.file.name}")
             totalProgress += task.weight
             onProgress(totalProgress)
         }
