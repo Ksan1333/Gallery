@@ -38,7 +38,8 @@ class GalleryApplication : Application(), ImageLoaderFactory {
                 }
                 add(VideoFrameDecoder.Factory())
             }
-            .crossfade(true)
+            .allowHardware(false) // GIFやアニメーションの品質向上のため、ハードウェアビットマップを無効化
+            .crossfade(false) // アニメーションGIFでの残像（つぶつぶ）を防ぐため無効化
             .build()
     }
 

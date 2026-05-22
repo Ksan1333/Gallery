@@ -62,8 +62,14 @@ class VectorSearchService(
     }
 
     suspend fun analyzeSingle(media: MediaData) = withContext(Dispatchers.IO) {
-        if (media.isVideo || imageEmbedder == null) {
-            Log.d("VectorSearchService", "Skipping analysis for ${media.uri}: isVideo=${media.isVideo}, embedderNull=${imageEmbedder == null}")
+        if (media.isVideo) return@withContext
+        
+        if (imageEmbedder == null) {
+            ensureInitialized()
+        }
+        
+        if (imageEmbedder == null) {
+            Log.w("VectorSearchService", "Skipping analysis for ${media.uri}: ImageEmbedder is null (model might be missing)")
             return@withContext
         }
 

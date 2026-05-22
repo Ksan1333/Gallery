@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,12 +39,14 @@ fun AnalysisProgressScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
 
     var isFinished by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     var processedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         analysisJob = scope.launch {
             try {
+                // ... (previous logic for operationTitle and startOperation)
                 val operationTitle = when(analysisType) {
                     "AI_TAGGING" -> "AIタグ解析中..."
                     "COLOR_VECTOR" -> "カラーベクトル解析中..."
@@ -55,19 +58,15 @@ fun AnalysisProgressScreen(
                 // 解析に必要なモデルを確認・ダウンロード
                 if (analysisType == "AI_TAGGING" || analysisType == "COLOR_VECTOR") {
                     val downloadSuccess = com.example.gallery.util.ModelDownloader.downloadAllModels(context) { progress ->
-                        GlobalOperationService.updateProgress(progress * 0.1f, "AIモデルを準備中...") // 最初の10%をダウンロードに割り当て
+                        GlobalOperationService.updateProgress(progress * 0.1f, "AIモデルを準備中...")
                     }
                     
                     if (!downloadSuccess) {
-                        Log.e("AnalysisScreen", "Failed to download models")
+                        errorMessage = "AIモデルの取得に失敗しました。ネットワーク接続を確認してください。"
                         GlobalOperationService.finishOperation()
-                        // 失敗メッセージを表示するために少し待つ
-                        delay(500)
-                        onComplete()
                         return@launch
                     }
                     
-                    // ダウンロード後にサービスを確実に初期化
                     if (analysisType == "AI_TAGGING") {
                         galleryState.aiTaggingService.ensureInitialized()
                     } else {
@@ -75,7 +74,7 @@ fun AnalysisProgressScreen(
                     }
                 }
 
-                val allMedia = galleryState.repository.getAllMedia()
+                val allMedia = galleryState.repository.getAllMedia(forceRefresh = true) // ここでも最新情報を取得
                 val imageList = allMedia.filter { !it.isVideo }
                 if (imageList.isEmpty()) { 
                     GlobalOperationService.finishOperation()
@@ -88,8 +87,6 @@ fun AnalysisProgressScreen(
 
                 val targetList = imageList.filter { item ->
                     val rating = metaMap[item.uri]?.ageRating ?: "SFW"
-                    
-                    // 現在の年齢制限フィルタに合わせて対象を絞り込む
                     val matchesFilter = when (galleryState.ageRatingFilter) {
                         AgeRatingFilter.ALL -> true
                         AgeRatingFilter.SFW -> rating == "SFW"
@@ -102,15 +99,15 @@ fun AnalysisProgressScreen(
                     when (analysisType) {
                         "AI_TAGGING" -> (meta == null || !meta.isAiAnalyzed)
                         "COLOR_VECTOR" -> (meta == null || !meta.hasFeatureVector)
-                        "AUTO_RATING" -> true // 全て(またはタグがあるもの)を対象
+                        "AUTO_RATING" -> true
                         else -> true
                     }
                 }
                 totalCount = targetList.size
 
                 if (targetList.isEmpty()) { 
+                    errorMessage = "解析が必要な新しいアイテムが見つかりませんでした。"
                     GlobalOperationService.finishOperation()
-                    onComplete()
                     return@launch 
                 }
 
@@ -120,6 +117,7 @@ fun AnalysisProgressScreen(
                     val currentProgress = (index + 1).toFloat() / targetList.size.toFloat()
                     GlobalOperationService.updateProgress(currentProgress, "$fileName (${index + 1} / ${targetList.size})")
 
+                    // ... (rest of the processing logic)
                     when (analysisType) {
                         "AI_TAGGING" -> {
                             if (galleryState.isMockMode) {
@@ -127,6 +125,7 @@ fun AnalysisProgressScreen(
                                 val rating = if (galleryState.ageRatingFilter == AgeRatingFilter.ALL) "SFW" else galleryState.ageRatingFilter.name
                                 galleryState.repository.updateAiAnalysisResult(media.uri, rating, true)
                             } else {
+                                // AiTaggingService 内でタグ保存と年齢制限判定の両方が完結するように統一
                                 galleryState.aiTaggingService.analyzeSingle(media)
                             }
                         }
@@ -139,11 +138,8 @@ fun AnalysisProgressScreen(
                             }
                         }
                         "AUTO_RATING" -> {
-                            // 既存のタグを取得して自動判定
                             val tags = galleryState.repository.getTagsForMedia(media.uri).first().map { it.tag }
                             var newAgeRating = "SFW"
-                            
-                            // センシティブワードによる自動判定
                             tags.forEach { tag ->
                                 val cleanTag = tag.replace("_", " ")
                                 if (AppConstants.R18Keywords.any { cleanTag.contains(it, ignoreCase = true) }) {
@@ -152,7 +148,6 @@ fun AnalysisProgressScreen(
                                     newAgeRating = "R15"
                                 }
                             }
-                            
                             val meta = metaMap[media.uri]
                             if (meta == null || meta.ageRating != newAgeRating) {
                                 galleryState.repository.bulkUpdateAgeRating(listOf(media.uri), newAgeRating)
@@ -161,27 +156,26 @@ fun AnalysisProgressScreen(
                         }
                     }
                     processedCount = index + 1
-                    // 負荷軽減のための冷却期間
                     if (index % 10 == 0) delay(100)
                 }
-                galleryState.refresh() // 完了後にUIを更新
+                galleryState.refresh()
                 GlobalOperationService.finishOperation()
                 isFinished = true
             } catch (e: Exception) { 
                 Log.e("AnalysisScreen", "Error", e)
+                errorMessage = "エラーが発生しました: ${e.localizedMessage}"
                 galleryState.refresh()
                 GlobalOperationService.finishOperation()
-                onComplete() 
             }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
-        if (!isFinished) {
+        if (!isFinished && errorMessage == null) {
             IconButton(onClick = { 
                 analysisJob?.cancel()
                 GlobalOperationService.finishOperation()
-                onCancel() // 呼び出し元で popBackStack() される
+                onCancel() 
             }, modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 16.dp).windowInsetsPadding(WindowInsets.statusBars)) {
                 Icon(Icons.Default.Close, "キャンセル", tint = Color.White)
             }
@@ -191,6 +185,21 @@ fun AnalysisProgressScreen(
                 Spacer(Modifier.height(16.dp))
                 Text("解析中...", color = Color.White)
                 Text("${processedCount} / ${totalCount}", color = Color.Gray, fontSize = 12.sp)
+            }
+        } else if (errorMessage != null) {
+            Card(
+                modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF3A2A2A))
+            ) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Error, null, tint = Color.Red, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("エラー", color = Color.White, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(errorMessage!!, color = Color.LightGray, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Spacer(Modifier.height(24.dp))
+                    Button(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("戻る") }
+                }
             }
         } else {
             Card(
@@ -204,12 +213,7 @@ fun AnalysisProgressScreen(
                     Spacer(Modifier.height(8.dp))
                     Text("${processedCount} 件のアイテムを処理しました", color = Color.LightGray)
                     Spacer(Modifier.height(24.dp))
-                    Button(
-                        onClick = onComplete,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("OK")
-                    }
+                    Button(onClick = onComplete, modifier = Modifier.fillMaxWidth()) { Text("OK") }
                 }
             }
         }

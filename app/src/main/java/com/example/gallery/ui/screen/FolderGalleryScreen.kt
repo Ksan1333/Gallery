@@ -69,11 +69,11 @@ fun FolderGalleryScreen(
     val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
 
     fun loadAllMedia() {
+        if (isLoading) return
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { isLoading = true }
-            galleryState.repository.getAllMetadataSummary()
             val newMap = mutableMapOf<String, MutableList<MediaData>>()
-            val allMedia = galleryState.repository.getAllMedia()
+            val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
 
             if (galleryState.isMockMode) {
                 allMedia.forEach { item ->
@@ -86,21 +86,23 @@ fun FolderGalleryScreen(
             }
             newMap.values.forEach { it.sortByDescending { m -> m.dateAdded } }
             withContext(Dispatchers.Main) {
+                // 内容が大幅に変わっていない場合は部分更新したいが、Mapなので一旦clear/putAll
                 folderData.clear(); folderData.putAll(newMap)
-                delay(100); isLoading = false
+                isLoading = false
             }
         }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p -> if (p.values.all { it }) loadAllMedia() }
 
-    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) { loadAllMedia() }
-
-    LaunchedEffect(Unit) {
+    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
         val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
         else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-        if (perms.all { androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) loadAllMedia()
-        else permissionLauncher.launch(perms)
+        if (perms.all { androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED } || galleryState.isMockMode) {
+            loadAllMedia()
+        } else {
+            permissionLauncher.launch(perms)
+        }
     }
 
     LaunchedEffect(galleryState.galleryViewMode) {

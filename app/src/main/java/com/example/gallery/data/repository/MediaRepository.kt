@@ -98,6 +98,15 @@ class MediaRepository(
         return getAllMediaFiltered(forceRefresh = forceRefresh, includeDeleted = false)
     }
 
+    /**
+     * DB内のメタデータのうち、実際のファイルが存在しないものを削除する。
+     * getAllMediaFiltered の中から効率的に呼び出すように変更。
+     */
+    suspend fun cleanupDeletedFiles() {
+        // 重い個別ファイルチェックを伴う cleanupDeletedFiles は廃止し、
+        // getAllMediaFiltered 内での一括チェックに統合されました。
+    }
+
     private suspend fun getAllMediaFiltered(forceRefresh: Boolean = false, includeDeleted: Boolean = false): List<MediaData> {
         if (galleryState?.isMockMode == true) {
             return mockMediaList
@@ -105,19 +114,35 @@ class MediaRepository(
 
         cacheMutex.withLock {
             val now = System.currentTimeMillis()
-            if (!forceRefresh && !includeDeleted && cachedMediaList != null && now - lastCacheTime < 5000) {
+            // 同時に複数の画面からリクエストが来た場合、
+            // 既に直近（2秒以内）で更新されていれば、強制更新であってもキャッシュを返す
+            val isVeryRecent = now - lastCacheTime < 2000
+            if (!includeDeleted && cachedMediaList != null && (isVeryRecent || (!forceRefresh && now - lastCacheTime < 10000))) {
                 return cachedMediaList!!
             }
 
+            // メモリ節約：リフレッシュ時は古いキャッシュを一旦解放してGCを助ける
+            if (forceRefresh) {
+                cachedMediaList = null
+            }
+
             val allGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED
             } else {
                 context.checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
             }
 
             if (!allGranted) return emptyList()
 
-            val mediaList = mutableListOf<MediaData>()
+            // 削除済みURIと既存メタデータを先に取得してフィルタリングとクリーンアップに使用
+            val allMetadata = mediaDao.getAllMetadataSummary()
+            val deletedUris = allMetadata.filter { it.isDeleted }.map { it.uri }.toSet()
+            
+            // 初期容量を大きめに確保してリサイズを減らす
+            val mediaList = ArrayList<MediaData>(10000)
+            val foundUris = HashSet<String>(10000)
+
             val projection = arrayOf(
                 MediaStore.MediaColumns._ID,
                 MediaStore.MediaColumns.DATA,
@@ -147,6 +172,9 @@ class MediaRepository(
                 collections.forEach { collection ->
                     try {
                         context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
+                            // 実際の件数に合わせて容量を調整
+                            mediaList.ensureCapacity(mediaList.size + cursor.count)
+                            
                             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                             val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
@@ -159,6 +187,15 @@ class MediaRepository(
 
                             while (cursor.moveToNext()) {
                                 val id = cursor.getLong(idColumn)
+                                val contentUri = ContentUris.withAppendedId(collection, id).toString()
+                                
+                                // 重複チェック
+                                if (!foundUris.add(contentUri)) continue
+
+                                // 削除済みかどうかに基づいて早期フィルタリング（メモリ節約）
+                                val isDeleted = contentUri in deletedUris
+                                if (isDeleted != includeDeleted) continue
+
                                 val date = cursor.getLong(dateColumn) * 1000
                                 val mime = cursor.getString(mimeColumn)
                                 val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
@@ -169,7 +206,6 @@ class MediaRepository(
                                 val path = if (dataColumn != -1) cursor.getString(dataColumn) else null
                                 val folderName = if (path != null) File(path).parentFile?.name ?: "Unknown" else "Unknown"
 
-                                val contentUri = ContentUris.withAppendedId(collection, id).toString()
                                 mediaList.add(MediaData(contentUri, date, mime, duration, width, height, size, name, folderName))
                             }
                         }
@@ -179,20 +215,27 @@ class MediaRepository(
                 }
             }
 
-            val sorted = mediaList.distinctBy { it.uri }.sortedByDescending { it.dateAdded }
-            val deletedUris = mediaDao.getDeletedMetadataSummaryFlow().first().map { it.uri }.toSet()
+            // 日付順にソート
+            mediaList.sortByDescending { it.dateAdded }
 
-            val filtered = if (includeDeleted) {
-                sorted.filter { it.uri in deletedUris }
-            } else {
-                sorted.filter { it.uri !in deletedUris }
+            // DB内の実在しないデータのクリーンアップ
+            if (forceRefresh || cachedMediaList == null) {
+                allMetadata.forEach { meta ->
+                    if (meta.uri.startsWith("content://") && !foundUris.contains(meta.uri)) {
+                        mediaDao.deleteMetadata(meta.uri)
+                        mediaDao.deleteTagsForMedia(meta.uri)
+                    }
+                }
             }
+            
+            // メモリ解放のヒント
+            foundUris.clear()
 
             if (!includeDeleted) {
-                cachedMediaList = filtered
+                cachedMediaList = mediaList
                 lastCacheTime = now
             }
-            return filtered
+            return mediaList
         }
     }
 

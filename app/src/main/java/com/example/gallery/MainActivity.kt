@@ -53,6 +53,7 @@ import com.example.gallery.ui.component.GlobalProgressOverlay
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.GalleryViewMode
 import com.example.gallery.service.ThumbnailGenerationService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -80,6 +81,20 @@ fun AppNavigation() {
 
     val galleryState = rememberGalleryState(context)
 
+    // アプリが前面に戻ったときにファイルの状態を同期
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                // cleanupDeletedFiles は repository.getAllMedia 内で一括処理されるため、
+                // ここでは refreshTrigger を引くだけにする
+                galleryState.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // サイドバーが開いているときに戻るボタンで閉じる
     BackHandler(drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -87,6 +102,8 @@ fun AppNavigation() {
 
     LaunchedEffect(Unit) {
         galleryState.repository.mediaDao.cleanupAgeRatingTags()
+        // 起動時の初期化待ちをしてからバックグラウンド処理を開始
+        delay(1000)
         ThumbnailGenerationService.startGenerating(
             context,
             galleryState.repository
@@ -494,8 +511,13 @@ fun AppNavigation() {
                     )
                 }
                 composable("books") {
-                    isBottomBarVisible = true
-                    BookScreen()
+                    var isViewerOpen by remember { mutableStateOf(false) }
+                    
+                    LaunchedEffect(isViewerOpen) {
+                        isBottomBarVisible = !isViewerOpen
+                    }
+
+                    BookScreen(onViewerStateChanged = { isViewerOpen = it })
                 }
                 composable("trash") {
                     isBottomBarVisible = true

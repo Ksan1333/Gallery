@@ -39,8 +39,14 @@ fun HomeGalleryScreen(
     val imageList = remember { mutableStateListOf<MediaData>() }
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    val flatListForViewerState = remember { mutableStateOf(emptyList<MediaData>()) }
+    
+    // インスタンス状態への保存を停止（TransactionTooLargeException対策）
+    // configChanges を設定しているため、回転時にはこれで保持される
+    val flatListForViewerState = remember {
+        mutableStateOf(emptyList<MediaData>()) 
+    }
     var flatListForViewer by flatListForViewerState
+
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(imageList.size) {
@@ -75,14 +81,18 @@ fun HomeGalleryScreen(
     }
 
     fun localLoadImages() {
+        // すでにロード中なら重複して走らせない
+        if (isLoading) return
+        
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { isLoading = true }
-            galleryState.repository.getAllMetadataSummary()
-            val allMedia = galleryState.repository.getAllMedia()
+            val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
             withContext(Dispatchers.Main) {
-                imageList.clear()
-                imageList.addAll(allMedia)
-                delay(100)
+                // 内容が同じなら更新しない（再描画抑制）
+                if (imageList.size != allMedia.size || imageList.getOrNull(0)?.uri != allMedia.getOrNull(0)?.uri) {
+                    imageList.clear()
+                    imageList.addAll(allMedia)
+                }
                 isLoading = false
             }
         }
@@ -92,14 +102,21 @@ fun HomeGalleryScreen(
         if (permissions.values.any { it }) localLoadImages()
     }
 
-    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) { localLoadImages() }
-
-    LaunchedEffect(Unit) {
+    // 権限チェックと初期ロードの統合
+    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
         } else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-        val allGranted = permissions.all { androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
-        if (allGranted) localLoadImages() else permissionLauncher.launch(permissions)
+        
+        val allGranted = permissions.all { 
+            androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED 
+        }
+        
+        if (allGranted || galleryState.isMockMode) {
+            localLoadImages()
+        } else {
+            permissionLauncher.launch(permissions)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {

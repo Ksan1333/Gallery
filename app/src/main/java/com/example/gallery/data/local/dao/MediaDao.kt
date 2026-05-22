@@ -22,11 +22,17 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMetadata(metadata: MediaMetadataEntity)
 
+    @Query("DELETE FROM media_metadata WHERE uri = :uri")
+    suspend fun deleteMetadata(uri: String)
+
     @Query("SELECT * FROM media_tags WHERE uri = :uri")
     fun getTagsForMedia(uri: String): Flow<List<TagEntity>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTag(tag: TagEntity)
+
+    @Query("DELETE FROM media_tags WHERE uri = :uri")
+    suspend fun deleteTagsForMedia(uri: String)
 
     @Query("DELETE FROM media_tags WHERE tag IN ('R15', 'R18', 'SFW')")
     suspend fun cleanupAgeRatingTags()

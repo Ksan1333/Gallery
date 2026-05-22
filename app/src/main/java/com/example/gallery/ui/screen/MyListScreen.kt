@@ -78,13 +78,14 @@ fun MyListScreen(
     val taggedUriSet = remember(allTagsData) { allTagsData.filter { !it.tag.endsWith("系") }.map { it.uri }.toSet() }
 
     LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
+        if (isLoadingMedia && allMedia.isNotEmpty()) return@LaunchedEffect
         isLoadingMedia = true
         withContext(Dispatchers.IO) {
-            galleryState.repository.getAllMetadataSummary()
-            val media = galleryState.repository.getAllMedia()
+            val media = galleryState.repository.getAllMedia(forceRefresh = false)
             withContext(Dispatchers.Main) {
-                allMedia = media
-                delay(100)
+                if (allMedia.size != media.size || allMedia.getOrNull(0)?.uri != media.getOrNull(0)?.uri) {
+                    allMedia = media
+                }
                 isLoadingMedia = false
             }
         }
@@ -119,8 +120,7 @@ fun MyListScreen(
             
             if (untaggedMedia.isNotEmpty() || unanalyzedAi.isNotEmpty() || unanalyzedVector.isNotEmpty()) {
                 val subText = buildString {
-                    if (untaggedMedia.isNotEmpty()) append("未タグ:${untaggedMedia.size}\n")
-                    if (unanalyzedAi.isNotEmpty()) append("未AI:${unanalyzedAi.size}\n")
+                    if (untaggedMedia.isNotEmpty()) append("未タグ:${unanalyzedAi.size}\n")
                     if (unanalyzedVector.isNotEmpty()) append("未ベクトル:${unanalyzedVector.size}")
                 }.trim()
                 add(CategoryData("Untagged", "未整理・未分析", (untaggedMedia + unanalyzedAi + unanalyzedVector).distinctBy { it.uri }.size, untaggedMedia.firstOrNull()?.uri ?: unanalyzedAi.firstOrNull()?.uri ?: unanalyzedVector.firstOrNull()?.uri, subTitle = subText))
@@ -150,9 +150,20 @@ fun MyListScreen(
         }
     }
 
-    var showAnalysisMenu by remember { mutableStateOf(false) }
     val isStartupCompleted by com.example.gallery.service.ThumbnailGenerationService.isStartupTasksCompleted.collectAsState()
-    val context = LocalContext.current
+    val isStartupProcessing by com.example.gallery.service.ThumbnailGenerationService.isProcessing.collectAsState()
+    
+    // サムネイルやベクトル分析が残っているかチェック
+    val hasPendingTasks = remember(allMedia, metadataMap, isStartupProcessing, isStartupCompleted, isLoadingMedia) {
+        // 1. 読み込み中、または起動時タスク実行中なら確実にブロック
+        if (isLoadingMedia || isStartupProcessing || !isStartupCompleted) return@remember true
+        
+        // 2. メディアが空の場合は、全て完了した（または元々無い）とみなす
+        if (allMedia.isEmpty()) return@remember false
+
+        // 3. 具体的な未処理アイテム（ベクトル未抽出）の有無をチェック
+        allMedia.any { !it.isVideo && metadataMap[it.uri]?.hasFeatureVector != true }
+    }
 
     CategoryScreen(
         title = "マイリスト",
@@ -175,25 +186,15 @@ fun MyListScreen(
         onHideViewer = onHideViewer,
         topBarActions = {
             topBarActions()
-            Box {
-                IconButton(onClick = { 
-                    if (isStartupCompleted) {
-                        showAnalysisMenu = true 
-                    } else {
-                        android.widget.Toast.makeText(context, "バックグラウンド準備が完了するまでお待ちください", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }) { Icon(Icons.Default.AutoAwesome, "AI解析", tint = if (isStartupCompleted) Color.White else Color.Gray) }
-                
-                DropdownMenu(
-                    expanded = showAnalysisMenu,
-                    onDismissRequest = { showAnalysisMenu = false },
-                    modifier = Modifier.background(Color(0xFF2A2A2A))
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("AIタグ解析を開始", color = Color.White) },
-                        onClick = { showAnalysisMenu = false; onStartAnalysis("AI_TAGGING") }
-                    )
-                }
+            IconButton(
+                onClick = { onStartAnalysis("AI_TAGGING") },
+                enabled = !hasPendingTasks
+            ) { 
+                Icon(
+                    Icons.Default.AutoAwesome, 
+                    "AI解析", 
+                    tint = if (!hasPendingTasks) Color.White else Color.Gray
+                )
             }
             IconButton(onClick = { showTagCreateDialog = true }) { Icon(Icons.Default.Add, "タグ作成", tint = Color.White) }
         },

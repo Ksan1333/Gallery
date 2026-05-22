@@ -48,6 +48,17 @@ data class MediaData(
         )
 
         // Listを保存・復元するためのSaver
+        val ListOnlySaver: Saver<List<MediaData>, *> = Saver<List<MediaData>, ArrayList<Bundle>>(
+            save = { list ->
+                val arrayList = ArrayList<Bundle>(list.size)
+                list.forEach { arrayList.add(it.toBundle()) }
+                arrayList
+            },
+            restore = { arrayList ->
+                arrayList.map { fromBundle(it) }
+            }
+        )
+
         val ListSaver: Saver<MutableState<List<MediaData>>, *> = Saver<MutableState<List<MediaData>>, ArrayList<Bundle>>(
             save = { state ->
                 val list = state.value

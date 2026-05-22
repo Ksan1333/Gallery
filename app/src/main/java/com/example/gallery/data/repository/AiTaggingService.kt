@@ -133,8 +133,12 @@ class AiTaggingService(
             val maxRatingTag = ratingScores.maxByOrNull { it.value }?.key
             if (maxRatingTag != null && ratingScores[maxRatingTag]!! > 0.3f) {
                 val modelRating = ratingMap[maxRatingTag]!!
-                if (ageRating == "SFW") ageRating = modelRating
-                else if (ageRating == "R15" && modelRating == "R18") ageRating = "R18"
+                // レベルの格上げロジック: R18 > R15 > SFW
+                when (modelRating) {
+                    "R18" -> ageRating = "R18"
+                    "R15" -> if (ageRating != "R18") ageRating = "R15"
+                    "SFW" -> { /* キーワード判定でR15/R18になっていればそれを優先 */ }
+                }
             }
 
             Log.d("AiTaggingService", "Detected ${detectedTags.size} tags for ${media.uri}, ageRating=$ageRating")
@@ -187,7 +191,10 @@ class AiTaggingService(
         }
         
         imgDataBuffer.rewind()
-        val tensorShape = shape ?: longArrayOf(1, 448, 448, 3)
+        // 実際の入力テンソルの形状を決定（動的軸 -1 を 1 に置き換える）
+        val tensorShape = shape?.let { s ->
+            LongArray(s.size) { i -> if (s[i] == -1L) 1L else s[i] }
+        } ?: longArrayOf(1, 448, 448, 3)
         
         return try {
             val inputTensor = OnnxTensor.createTensor(ortEnv, imgDataBuffer, tensorShape)
