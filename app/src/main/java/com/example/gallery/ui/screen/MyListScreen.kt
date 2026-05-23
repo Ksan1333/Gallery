@@ -20,6 +20,7 @@ import com.example.gallery.ui.MediaData
 import com.example.gallery.ui.AgeRatingFilter
 import com.example.gallery.ui.component.CategoryData
 import com.example.gallery.ui.component.CategoryScreen
+import com.example.gallery.service.GlobalOperationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -139,7 +140,14 @@ fun MyListScreen(
 
             tagToUrisMap.filter { !it.key.endsWith("系") }.forEach { (tag, uris) ->
                 val filtered = uris.mapNotNull { allMediaMap[it] }.filter { filterItem(it) }
-                if (filtered.isNotEmpty()) add(CategoryData("Tag:$tag", tag, filtered.size, filtered.firstOrNull()?.uri))
+                if (filtered.isNotEmpty()) {
+                    add(CategoryData(
+                        id = "Tag:$tag",
+                        title = com.example.gallery.service.TagTranslationService.translate(tag),
+                        count = filtered.size,
+                        thumbnail = filtered.firstOrNull()?.uri
+                    ))
+                }
             }
         }.sortedByDescending { it.count }
     }
@@ -163,17 +171,11 @@ fun MyListScreen(
 
     val isStartupCompleted by com.example.gallery.service.ThumbnailGenerationService.isStartupTasksCompleted.collectAsState()
     val isStartupProcessing by com.example.gallery.service.ThumbnailGenerationService.isProcessing.collectAsState()
+    val isGlobalProcessing by GlobalOperationService.isProcessing.collectAsState()
     
-    // サムネイルやベクトル分析が残っているかチェック
-    val hasPendingTasks = remember(allMedia, metadataMap, isStartupProcessing, isStartupCompleted, isLoadingMedia) {
-        // 1. 読み込み中、または起動時タスク実行中なら確実にブロック
-        if (isLoadingMedia || isStartupProcessing || !isStartupCompleted) return@remember true
-        
-        // 2. メディアが空の場合は、全て完了した（または元々無い）とみなす
-        if (allMedia.isEmpty()) return@remember false
-
-        // 3. 具体的な未処理アイテム（ベクトル未抽出）の有無をチェック
-        allMedia.any { !it.isVideo && metadataMap[it.uri]?.hasFeatureVector != true }
+    // サムネイルやベクトル分析の「起動時タスク」が動いているか、または何らかのグローバル処理中かチェック
+    val isBusy = remember(isStartupProcessing, !isStartupCompleted, isLoadingMedia, isGlobalProcessing) {
+        isLoadingMedia || isStartupProcessing || !isStartupCompleted || isGlobalProcessing
     }
 
     CategoryScreen(
@@ -202,12 +204,12 @@ fun MyListScreen(
                     analysisTypePending = "AI_TAGGING"
                     showAnalysisDialog = true 
                 },
-                enabled = !hasPendingTasks
+                enabled = !isBusy
             ) { 
                 Icon(
                     Icons.Default.AutoAwesome, 
                     "AI解析", 
-                    tint = if (!hasPendingTasks) Color.White else Color.Gray
+                    tint = if (!isBusy) Color.White else Color.Gray
                 )
             }
             IconButton(onClick = { showTagCreateDialog = true }) { Icon(Icons.Default.Add, "タグ作成", tint = Color.White) }

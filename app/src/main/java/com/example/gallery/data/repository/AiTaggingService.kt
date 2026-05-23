@@ -79,14 +79,18 @@ class AiTaggingService(
         }
     }
 
-    suspend fun analyzeSingle(media: MediaData) = withContext(Dispatchers.IO) {
+    suspend fun analyzeSingle(media: MediaData): List<String> = withContext(Dispatchers.IO) {
+        if (ortSession == null) {
+            ensureInitialized()
+        }
+        
         if (media.isVideo || ortSession == null || tags.isEmpty()) {
             Log.d("AiTaggingService", "Skipping analysis for ${media.uri}: isVideo=${media.isVideo}, sessionNull=${ortSession == null}, tagsEmpty=${tags.isEmpty()}")
-            return@withContext
+            return@withContext emptyList()
         }
 
         try {
-            val bitmap = decodeBitmap(media.uri) ?: return@withContext
+            val bitmap = decodeBitmap(media.uri) ?: return@withContext emptyList()
             val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 448, 448, true)
             
             Log.d("AiTaggingService", "Running inference for ${media.uri}")
@@ -94,7 +98,7 @@ class AiTaggingService(
             
             if (scores.isEmpty()) {
                 Log.w("AiTaggingService", "No scores returned for ${media.uri}")
-                return@withContext
+                return@withContext emptyList()
             }
 
             val detectedTags = mutableMapOf<String, Float>()
@@ -117,7 +121,7 @@ class AiTaggingService(
                     }
 
                     if (score >= threshold && !ratingMap.containsKey(tagName)) {
-                        val cleanTagName = tagName.replace("_", " ")
+                        val cleanTagName = tagName // アンダースコアを含んだまま比較する (AppConstantsと合わせる)
                         if (AppConstants.R18Keywords.any { cleanTagName.contains(it, ignoreCase = true) }) {
                             ageRating = "R18"
                         } else if (ageRating != "R18" && AppConstants.R15Keywords.any { cleanTagName.contains(it, ignoreCase = true) }) {
@@ -152,8 +156,12 @@ class AiTaggingService(
             )
             resizedBitmap.recycle()
             if (bitmap != resizedBitmap) bitmap.recycle()
+            
+            // 検出されたタグ（翻訳済み）をリストにして返す
+            return@withContext detectedTags.keys.map { TagTranslationService.translate(it) }
         } catch (e: Exception) {
             Log.e("AiTaggingService", "Error in SmilingWolf analysis: ${media.uri}", e)
+            return@withContext emptyList()
         }
     }
 
@@ -172,7 +180,8 @@ class AiTaggingService(
 
         // WD Tagger v3 ViT usually expects [1, 448, 448, 3] (NHWC)
         // RGB values 0.0 - 255.0
-        val isNHWC = shape != null && shape.size == 4 && shape[3] == 3L
+        // 動的軸 (-1) を考慮して判定
+        val isNHWC = shape != null && shape.size == 4 && (shape[3] == 3L || shape[3] == -1L)
 
         if (isNHWC) {
             // NHWC

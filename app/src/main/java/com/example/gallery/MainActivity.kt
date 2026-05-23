@@ -154,14 +154,19 @@ fun AppNavigation() {
         scope.launch { drawerState.close() }
     }
 
-    LaunchedEffect(Unit) {
-        galleryState.repository.mediaDao.cleanupAgeRatingTags()
-        // 起動時の初期化待ちをしてからバックグラウンド処理を開始
-        delay(1000)
+    val refreshTrigger = galleryState.refreshTrigger
+    LaunchedEffect(refreshTrigger) {
+        // 起動時(0)は1秒待機し、権限許可によるリフレッシュ(>0)時は即座に開始
+        if (refreshTrigger == 0) delay(1000)
         ThumbnailGenerationService.startGenerating(
             context,
-            galleryState.repository
+            galleryState.repository,
+            force = refreshTrigger > 0
         )
+    }
+
+    LaunchedEffect(Unit) {
+        galleryState.repository.mediaDao.cleanupAgeRatingTags()
     }
 
     // システムバーの設定

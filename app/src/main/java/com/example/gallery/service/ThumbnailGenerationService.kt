@@ -28,27 +28,28 @@ object ThumbnailGenerationService {
 
     private var hasInitialCheckDone = false
 
-    fun startGenerating(context: Context, repository: MediaRepository) {
-        if (_isProcessing.value) return
-        if (hasInitialCheckDone) {
+    fun startGenerating(context: Context, repository: MediaRepository, force: Boolean = false) {
+        if (_isProcessing.value && !force) return
+        if (hasInitialCheckDone && !force) {
             _isStartupTasksCompleted.value = true
             return
         }
 
+        job?.cancel() // 既存のジョブがあればキャンセル
+        
         job = serviceScope.launch(Dispatchers.IO) { // UIをブロックしないように IO スレッドを明示
             _isProcessing.value = true
             _isStartupTasksCompleted.value = false
             try {
-                Log.d(TAG, "Starting cleanup and media scan...")
+                Log.d(TAG, "Starting cleanup and media scan... (force=$force)")
                 // まず軽いクリーンアップ
                 repository.mediaDao.cleanupAgeRatingTags()
-                
-                // ファイルの実在チェック
-                repository.cleanupDeletedFiles()
                 
                 // 全スキャン
                 val allMedia = repository.getAllMedia(forceRefresh = true)
                 val allMetadata = repository.getAllMetadataSummary().associateBy { it.uri }
+                
+                if (!isActive) return@launch
                 
                 // サムネイルがない、またはベクトル分析がないものを対象にする
                 val targetList = allMedia.filter { 
@@ -58,8 +59,11 @@ object ThumbnailGenerationService {
                 
                 val total = targetList.size
                 if (total == 0) {
-                    Log.d(TAG, "All thumbnails and vectors already exist")
-                    hasInitialCheckDone = true
+                    Log.d(TAG, "All thumbnails and vectors already exist or no media found")
+                    // メディアが1つでも見つかっていれば、チェック完了とする
+                    if (allMedia.isNotEmpty()) {
+                        hasInitialCheckDone = true
+                    }
                     _isStartupTasksCompleted.value = true
                     return@launch
                 }
@@ -70,16 +74,21 @@ object ThumbnailGenerationService {
                     GlobalOperationService.startOperation("バックグラウンド準備中...", tag = "STARTUP_TASKS")
                 }
 
-                // ベクトル検索用の軽量モデル (1MB) がない場合はダウンロードを試みる
-                if (!ModelDownloader.getVectorModelFile(context).exists()) {
-                    Log.d(TAG, "Vector model missing, attempting background download...")
+                // 必要なAIモデルが欠けている場合はダウンロードを試みる
+                val allModelsExist = ModelDownloader.getVectorModelFile(context).exists() &&
+                                     ModelDownloader.getDanbooruModelFile(context).exists() &&
+                                     ModelDownloader.getDanbooruTagsFile(context).exists()
+
+                if (!allModelsExist) {
+                    Log.d(TAG, "AI models missing, attempting background download...")
                     ModelDownloader.downloadAllModels(context) { progress ->
                         GlobalOperationService.updateProgress(progress * 0.1f, "AIモデル準備中...")
                     }
                 }
 
-                // 実行前にベクトル検索サービスの初期化を試みる
+                // 実行前にサービスの初期化を試みる
                 repository.galleryState?.vectorSearchService?.ensureInitialized()
+                repository.galleryState?.aiTaggingService?.ensureInitialized()
 
                 targetList.forEachIndexed { index, media ->
                     if (!isActive) return@launch

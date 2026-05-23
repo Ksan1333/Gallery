@@ -31,6 +31,8 @@ object ThumbnailUtils {
     }
 
     fun generateThumbnailIfMissing(context: Context, uriString: String): Boolean {
+        if (uriString.startsWith("http")) return false
+
         val file = getThumbnailFile(context, uriString)
         if (file.exists()) return true
 

@@ -26,30 +26,49 @@ object TagTranslationService {
 
     private fun loadManualOverrides(context: Context) {
         try {
-            // 1. Assetsフォルダ（プロジェクトファイル）から読み込み
-            val assetFileName = "tag_overrides.json"
-            val assets = context.assets.list("") ?: emptyArray()
-            
             manualOverrides.clear()
             
-            if (assets.contains(assetFileName)) {
-                context.assets.open(assetFileName).bufferedReader().use {
-                    val json = JSONObject(it.readText())
-                    json.keys().forEach { key ->
-                        manualOverrides[key] = json.getString(key)
+            // 1. Assetsフォルダから読み込み (tag.json -> tag_overrides.json の順で上書き)
+            val assetFiles = listOf("tag.json", "tag_overrides.json", "tag_override.json")
+            val assets = context.assets.list("") ?: emptyArray()
+            
+            assetFiles.forEach { assetFileName ->
+                if (assets.contains(assetFileName)) {
+                    try {
+                        context.assets.open(assetFileName).bufferedReader().use {
+                            val json = JSONObject(it.readText())
+                            json.keys().forEach { key ->
+                                manualOverrides[key] = json.getString(key)
+                            }
+                        }
+                        Log.d(TAG, "Loaded overrides from assets: $assetFileName")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to load $assetFileName from assets", e)
                     }
                 }
-                Log.d(TAG, "Loaded ${manualOverrides.size} overrides from assets")
             }
 
-            // 2. 内部ストレージ（実行時の上書き用）からも読み込み（あれば）
-            val file = File(context.filesDir, assetFileName)
-            if (file.exists()) {
-                val json = JSONObject(file.readText())
-                json.keys().forEach { key ->
-                    manualOverrides[key] = json.getString(key)
+            // 2. 外部ストレージ/内部ストレージからも読み込み (さらに上書き)
+            val externalFiles = listOf(
+                File(context.filesDir, "tag.json"),
+                File(context.filesDir, "tag_overrides.json"),
+                File(context.filesDir, "tag_override.json"),
+                File("/sdcard/Android/data/${context.packageName}/files/tag.json"),
+                File("/sdcard/Android/data/${context.packageName}/files/tag_overrides.json")
+            )
+
+            externalFiles.forEach { file ->
+                if (file.exists()) {
+                    try {
+                        val json = JSONObject(file.readText())
+                        json.keys().forEach { key ->
+                            manualOverrides[key] = json.getString(key)
+                        }
+                        Log.d(TAG, "Merged overrides from file: ${file.absolutePath}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to parse $file", e)
+                    }
                 }
-                Log.d(TAG, "Merged overrides from internal storage")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load manual overrides", e)

@@ -79,16 +79,10 @@ class AnalysisService : Service() {
                     // 期間フィルタ
                     if (periodDays != -1 && item.dateAdded < startTime) return@filter false
 
-                    val rating = metaMap[item.uri]?.ageRating ?: "SFW"
-                    val matchesFilter = when (galleryState.ageRatingFilter) {
-                        AgeRatingFilter.ALL -> true
-                        AgeRatingFilter.SFW -> rating == "SFW"
-                        AgeRatingFilter.R15 -> rating == "R15"
-                        AgeRatingFilter.R18 -> rating == "R18"
-                    }
-                    if (!matchesFilter) return@filter false
-
                     val meta = metaMap[item.uri]
+                    
+                    // 解析タイプごとの未処理判定を優先し、ビューのフィルタ(ageRatingFilter)は無視する
+                    // (未解析のものを「見つける」ための処理であるため)
                     when (type) {
                         "AI_TAGGING" -> (meta == null || !meta.isAiAnalyzed)
                         "COLOR_VECTOR" -> (meta == null || !meta.hasFeatureVector)
@@ -104,16 +98,21 @@ class AnalysisService : Service() {
                     val currentProgress = (index + 1).toFloat() / targetList.size.toFloat()
                     val fileName = media.uri.substringAfterLast("/")
                     
-                    GlobalOperationService.updateProgress(currentProgress, "$fileName (${index + 1} / ${targetList.size})")
-                    updateNotification("$fileName (${index + 1} / ${targetList.size})", currentProgress)
-
-                    when (type) {
+                    val resultTags = when (type) {
                         "AI_TAGGING" -> galleryState.aiTaggingService.analyzeSingle(media)
-                        "COLOR_VECTOR" -> galleryState.vectorSearchService.analyzeSingle(media)
-                        "AUTO_RATING" -> {
-                            // 既存のタグから判定するロジック (省略)
+                        "COLOR_VECTOR" -> {
+                            galleryState.vectorSearchService.analyzeSingle(media)
+                            emptyList<String>()
                         }
+                        else -> emptyList<String>()
                     }
+
+                    val tagSummary = if (resultTags.isNotEmpty()) {
+                        ": " + resultTags.take(3).joinToString(", ") + (if (resultTags.size > 3) "..." else "")
+                    } else ""
+
+                    GlobalOperationService.updateProgress(currentProgress, "$fileName (${index + 1} / ${targetList.size})$tagSummary")
+                    updateNotification("$fileName (${index + 1} / ${targetList.size})$tagSummary", currentProgress)
                 }
                 galleryState.refresh()
             } catch (e: Exception) {
