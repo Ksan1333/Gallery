@@ -345,47 +345,6 @@ fun AppNavigation() {
                     )
                 )
 
-                NavigationDrawerItem(
-                    label = { Text("全AIタグをエクスポート") },
-                    selected = false,
-                    onClick = {
-                        scope.launch {
-                            drawerState.close()
-                            Toast.makeText(context, "全タグ(約9000件)を翻訳・生成中...少々お待ちください", Toast.LENGTH_LONG).show()
-                            val json = TagTranslationService.exportAllAiTagsToJson(context)
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("All AI Tags", json))
-                            Toast.makeText(context, "全タグをコピーしました。tag_overrides.jsonに貼り付けて編集してください。", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Download, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
-                    )
-                )
-
-                NavigationDrawerItem(
-                    label = { Text("発見済みタグをエクスポート") },
-                    selected = false,
-                    onClick = {
-                        scope.launch {
-                            drawerState.close()
-                            val yaml = TagTranslationService.exportTagsToYaml(context)
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Tag Translations", yaml))
-                            Toast.makeText(context, "発見済みタグをコピーしました", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Output, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
-                    )
-                )
-
                 Spacer(Modifier.weight(1f))
 
                 NavigationDrawerItem(

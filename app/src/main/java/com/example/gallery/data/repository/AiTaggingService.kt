@@ -124,8 +124,7 @@ class AiTaggingService(
                             ageRating = "R15"
                         }
 
-                        val translatedTag = TagTranslationService.translate(tagName)
-                        detectedTags[translatedTag] = score
+                        detectedTags[tagName] = score
                     }
                 }
             }

@@ -32,6 +32,7 @@ import coil.request.videoFrameMillis
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.service.GlobalOperationService
+import com.example.gallery.service.TagTranslationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -268,7 +269,7 @@ fun UnifiedMediaEditDialog(
                                 InputChip(
                                     selected = true,
                                     onClick = { if (!isProcessing) selectedTags.remove(tag) },
-                                    label = { Text(tag) },
+                                    label = { Text(TagTranslationService.translate(tag)) },
                                     trailingIcon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                     enabled = !isProcessing
                                 )
@@ -293,7 +294,7 @@ fun UnifiedMediaEditDialog(
                                                 else selectedTags.add(tag)
                                             }
                                         },
-                                        label = { Text(tag) },
+                                        label = { Text(TagTranslationService.translate(tag)) },
                                         enabled = !isProcessing,
                                         colors = FilterChipDefaults.filterChipColors(
                                             labelColor = if (!isProcessing) Color.White else Color.Gray,

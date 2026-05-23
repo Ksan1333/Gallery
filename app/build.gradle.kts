@@ -80,10 +80,6 @@ dependencies {
     // ONNX Runtime (SmilingWolf)
     implementation(libs.onnxruntime.android)
 
-    // ML Kit Translation (Dynamic tag translation)
-    implementation("com.google.mlkit:translate:17.0.3")
-    implementation(libs.kotlinx.coroutines.play.services)
-
     // Networking
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
