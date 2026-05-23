@@ -33,6 +33,8 @@ class GalleryState(context: Context) {
         repository.clearMockData()
     }
 
+    var navController: androidx.navigation.NavHostController? = null
+
     fun refreshTriggerFlow(): kotlinx.coroutines.flow.Flow<Int> = androidx.compose.runtime.snapshotFlow { refreshTrigger }
 
     val repository: MediaRepository = MediaRepository(context, database.mediaDao(), this)
@@ -41,7 +43,7 @@ class GalleryState(context: Context) {
 
     var groupingMode by mutableStateOf(GroupingMode.NONE)
     var mediaTypeFilter by mutableStateOf(MediaTypeFilter.ALL)
-    var ageRatingFilter by mutableStateOf(AgeRatingFilter.SFW)
+    var ageRatingFilter by mutableStateOf(AgeRatingFilter.ALL)
     var deviceFilter by mutableStateOf(DeviceFilter.ALL)
     var galleryViewMode by mutableStateOf(GalleryViewMode.FOLDER)
     var sortMode by mutableStateOf(SortMode.DATE_ADDED)

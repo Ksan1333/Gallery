@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ThumbnailUtils
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -35,26 +36,36 @@ object ThumbnailUtils {
 
         return try {
             val uri = Uri.parse(uriString)
+            val mimeType = context.contentResolver.getType(uri) ?: ""
+            val isVideo = mimeType.startsWith("video/")
+
             val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
                     context.contentResolver.loadThumbnail(uri, Size(THUMB_SIZE, THUMB_SIZE), null)
                 } catch (e: Exception) {
                     // loadThumbnailが失敗した場合のフォールバック
+                    if (isVideo) {
+                        getVideoFrame(context, uri)
+                    } else {
+                        val inputStream = context.contentResolver.openInputStream(uri)
+                        val original = BitmapFactory.decodeStream(inputStream)
+                        inputStream?.close()
+                        original?.let {
+                            ThumbnailUtils.extractThumbnail(it, THUMB_SIZE, THUMB_SIZE)
+                        }
+                    }
+                }
+            } else {
+                // 旧バージョン用
+                if (isVideo) {
+                    getVideoFrame(context, uri)
+                } else {
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val original = BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
                     original?.let {
                         ThumbnailUtils.extractThumbnail(it, THUMB_SIZE, THUMB_SIZE)
                     }
-                }
-            } else {
-                // 旧バージョン用（MediaStoreから取得）
-                // 簡易的に直接リサイズ
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val original = BitmapFactory.decodeStream(inputStream)
-                inputStream?.close()
-                original?.let {
-                    ThumbnailUtils.extractThumbnail(it, THUMB_SIZE, THUMB_SIZE)
                 }
             }
 
@@ -68,6 +79,25 @@ object ThumbnailUtils {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to generate thumbnail for $uriString", e)
             false
+        }
+    }
+
+    private fun getVideoFrame(context: Context, uri: Uri): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            } ?: retriever.setDataSource(context, uri)
+            
+            // XのGIF(短い動画)対策: 1秒地点(1000000us)だと動画が終わっている可能性があるため、
+            // まずは0秒(先頭)を、失敗した場合は closest で取得を試みる
+            retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get video frame for $uri", e)
+            null
+        } finally {
+            try { retriever.release() } catch (e: Exception) {}
         }
     }
 }

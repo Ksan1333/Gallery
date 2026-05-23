@@ -1,5 +1,8 @@
 package com.example.gallery
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -10,6 +13,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Palette
@@ -17,6 +21,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Output
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
@@ -40,6 +45,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.gallery.ui.screen.VideoDownloadScreen
 import com.example.gallery.ui.screen.AnalysisProgressScreen
 import com.example.gallery.ui.screen.FolderGalleryScreen
 import com.example.gallery.ui.screen.HomeGalleryScreen
@@ -53,6 +59,11 @@ import com.example.gallery.ui.component.GlobalProgressOverlay
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.GalleryViewMode
 import com.example.gallery.service.ThumbnailGenerationService
+import com.example.gallery.service.TagTranslationService
+import android.content.Context
+import android.content.ClipboardManager
+import android.content.ClipData
+import android.widget.Toast
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -72,14 +83,57 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation() {
     val context = LocalContext.current
+    val galleryState = (context.applicationContext as GalleryApplication).galleryState
     val scope = rememberCoroutineScope()
     val startDestination = "home"
 
     val navController = rememberNavController()
+    galleryState.navController = navController
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var isBottomBarVisible by rememberSaveable { mutableStateOf(true) }
 
-    val galleryState = rememberGalleryState(context)
+    // 通知権限の要求 (Android 13+)
+    val notificationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted: Boolean ->
+        // 権限結果の処理
+    }
+
+    // ストレージ権限の要求
+    val storagePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.all { it }) {
+            galleryState.refresh()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        // ストレージ権限のチェックと要求
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+        }
+
+        val allGranted = permissions.all {
+            context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        if (!allGranted) {
+            storagePermissionLauncher.launch(permissions)
+        }
+    }
 
     // アプリが前面に戻ったときにファイルの状態を同期
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -276,6 +330,62 @@ fun AppNavigation() {
                     )
                 )
 
+                NavigationDrawerItem(
+                    label = { Text("動画DL (X/Twitter)") },
+                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("video_downloader")
+                    },
+                    icon = { Icon(Icons.Default.Download, null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("全AIタグをエクスポート") },
+                    selected = false,
+                    onClick = {
+                        scope.launch {
+                            drawerState.close()
+                            Toast.makeText(context, "全タグ(約9000件)を翻訳・生成中...少々お待ちください", Toast.LENGTH_LONG).show()
+                            val json = TagTranslationService.exportAllAiTagsToJson(context)
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("All AI Tags", json))
+                            Toast.makeText(context, "全タグをコピーしました。tag_overrides.jsonに貼り付けて編集してください。", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    icon = { Icon(Icons.Default.Download, null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("発見済みタグをエクスポート") },
+                    selected = false,
+                    onClick = {
+                        scope.launch {
+                            drawerState.close()
+                            val yaml = TagTranslationService.exportTagsToYaml(context)
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Tag Translations", yaml))
+                            Toast.makeText(context, "発見済みタグをコピーしました", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    icon = { Icon(Icons.Default.Output, null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
+                )
+
                 Spacer(Modifier.weight(1f))
 
                 NavigationDrawerItem(
@@ -450,10 +560,12 @@ fun AppNavigation() {
                 }
                 composable("analysis/{type}") { backStackEntry ->
                     val analysisType = backStackEntry.arguments?.getString("type") ?: "AI_TAGGING"
+                    val periodDays = backStackEntry.savedStateHandle.get<Int>("periodDays") ?: -1
                     isBottomBarVisible = false
                     AnalysisProgressScreen(
                         galleryState = galleryState,
                         analysisType = analysisType,
+                        periodDays = periodDays,
                         onComplete = {
                             // 完了時もマイリスト画面へ
                             navController.navigate("mylist") {
@@ -524,6 +636,13 @@ fun AppNavigation() {
                     TrashScreen(
                         onShowViewer = { isBottomBarVisible = false },
                         onHideViewer = { isBottomBarVisible = true },
+                        galleryState = galleryState,
+                        onMenuClick = { scope.launch { drawerState.open() } }
+                    )
+                }
+                composable("video_downloader") {
+                    isBottomBarVisible = true
+                    VideoDownloadScreen(
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } }
                     )

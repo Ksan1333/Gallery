@@ -166,4 +166,17 @@ interface MediaDao {
 
     @Query("SELECT translated FROM tag_translations WHERE original = :original")
     suspend fun getTagTranslation(original: String): String?
+
+    // 動画ダウンロード履歴用
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertVideoDownload(download: com.example.gallery.data.local.entity.VideoDownloadEntity)
+
+    @Query("SELECT * FROM video_downloads ORDER BY downloadDate DESC")
+    fun getAllVideoDownloads(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.VideoDownloadEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM video_downloads WHERE url = :url)")
+    suspend fun isVideoDownloaded(url: String): Boolean
+
+    @Query("DELETE FROM video_downloads")
+    suspend fun clearVideoDownloadHistory()
 }

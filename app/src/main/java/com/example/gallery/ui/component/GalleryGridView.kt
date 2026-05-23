@@ -908,6 +908,7 @@ fun GalleryGridView(
 }
 
 private fun formatDuration(durationMs: Long): String {
+    if (durationMs <= 0) return "0:00"
     val s = durationMs / 1000;
     val m = (s / 60) % 60;
     val h = s / 3600;

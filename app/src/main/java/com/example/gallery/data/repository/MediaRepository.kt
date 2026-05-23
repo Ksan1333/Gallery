@@ -221,7 +221,17 @@ class MediaRepository(
             // DB内の実在しないデータのクリーンアップ
             if (forceRefresh || cachedMediaList == null) {
                 allMetadata.forEach { meta ->
-                    if (meta.uri.startsWith("content://") && !foundUris.contains(meta.uri)) {
+                    val exists = if (meta.uri.startsWith("content://")) {
+                        try {
+                            context.contentResolver.openInputStream(Uri.parse(meta.uri))?.use { true } ?: false
+                        } catch (e: Exception) {
+                            false
+                        }
+                    } else {
+                        foundUris.contains(meta.uri)
+                    }
+
+                    if (!exists) {
                         mediaDao.deleteMetadata(meta.uri)
                         mediaDao.deleteTagsForMedia(meta.uri)
                     }
@@ -269,6 +279,28 @@ class MediaRepository(
         } else {
             mediaDao.bulkSetDeleted(uris, false, null)
             GlobalOperationService.updateProgress(1.0f)
+        }
+        cachedMediaList = null
+        galleryState?.refresh()
+        GlobalOperationService.finishOperation()
+    }
+
+    suspend fun permanentlyDelete(uris: List<String>) {
+        GlobalOperationService.startOperation("ファイルを完全に削除中...")
+        if (galleryState?.isMockMode == true) {
+            uris.forEach { uri -> mockMetadata.remove(uri) }
+        } else {
+            uris.forEachIndexed { index, uriString ->
+                try {
+                    val uri = Uri.parse(uriString)
+                    context.contentResolver.delete(uri, null, null)
+                    mediaDao.deleteMetadata(uriString)
+                    mediaDao.deleteTagsForMedia(uriString)
+                } catch (e: Exception) {
+                    Log.e("MediaRepository", "Failed to delete $uriString", e)
+                }
+                GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size)
+            }
         }
         cachedMediaList = null
         galleryState?.refresh()

@@ -88,8 +88,11 @@ fun HomeGalleryScreen(
             withContext(Dispatchers.Main) { isLoading = true }
             val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
             withContext(Dispatchers.Main) {
-                // 内容が同じなら更新しない（再描画抑制）
-                if (imageList.size != allMedia.size || imageList.getOrNull(0)?.uri != allMedia.getOrNull(0)?.uri) {
+                // 内容を比較して、変更がある場合のみ更新する
+                val currentUris = imageList.map { it.uri }
+                val newUris = allMedia.map { it.uri }
+                
+                if (currentUris != newUris) {
                     imageList.clear()
                     imageList.addAll(allMedia)
                 }
@@ -98,25 +101,9 @@ fun HomeGalleryScreen(
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-        if (permissions.values.any { it }) localLoadImages()
-    }
-
-    // 権限チェックと初期ロードの統合
+    // 起動時の初期ロード
     LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
-        } else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-        
-        val allGranted = permissions.all { 
-            androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED 
-        }
-        
-        if (allGranted || galleryState.isMockMode) {
-            localLoadImages()
-        } else {
-            permissionLauncher.launch(permissions)
-        }
+        localLoadImages()
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {

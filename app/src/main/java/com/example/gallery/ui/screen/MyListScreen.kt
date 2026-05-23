@@ -23,7 +23,12 @@ import com.example.gallery.ui.component.CategoryScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.clickable
+import java.util.Calendar
+import java.util.Date
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Composable
 fun MyListScreen(
@@ -41,6 +46,12 @@ fun MyListScreen(
     var selectedCategoryType by rememberSaveable { mutableStateOf<String?>(initialCategoryType) }
     var selectedTagName by rememberSaveable { mutableStateOf<String?>(initialTagName) }
     var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
+
+    var showAnalysisDialog by remember { mutableStateOf(false) }
+    var analysisPeriodDays by remember { mutableStateOf(30) } // デフォルト30日
+    var analysisTypePending by remember { mutableStateOf("AI_TAGGING") }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var customStartTime by remember { mutableStateOf<Long?>(null) }
 
     // 初期遷移のための LaunchedEffect
     LaunchedEffect(initialCategoryType, initialTagName) {
@@ -80,9 +91,9 @@ fun MyListScreen(
     LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
         if (isLoadingMedia && allMedia.isNotEmpty()) return@LaunchedEffect
         isLoadingMedia = true
-        withContext(Dispatchers.IO) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
             val media = galleryState.repository.getAllMedia(forceRefresh = false)
-            withContext(Dispatchers.Main) {
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
                 if (allMedia.size != media.size || allMedia.getOrNull(0)?.uri != media.getOrNull(0)?.uri) {
                     allMedia = media
                 }
@@ -187,7 +198,10 @@ fun MyListScreen(
         topBarActions = {
             topBarActions()
             IconButton(
-                onClick = { onStartAnalysis("AI_TAGGING") },
+                onClick = { 
+                    analysisTypePending = "AI_TAGGING"
+                    showAnalysisDialog = true 
+                },
                 enabled = !hasPendingTasks
             ) { 
                 Icon(
@@ -213,7 +227,7 @@ fun MyListScreen(
         AlertDialog(
             onDismissRequest = { showTagCreateDialog = false },
             containerColor = Color(0xFF1A1A1A), titleContentColor = Color.White, textContentColor = Color.LightGray,
-            title = { Text("新規タグ作成", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            title = { Text("新規タグ作成", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
             text = {
                 TextField(value = newTagName, onValueChange = { newTagName = it }, placeholder = { Text("タグ名を入力", color = Color.Gray) }, singleLine = true,
                     colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedContainerColor = Color.Black.copy(alpha = 0.3f), unfocusedContainerColor = Color.Black.copy(alpha = 0.3f)),
@@ -223,5 +237,147 @@ fun MyListScreen(
             dismissButton = { TextButton(onClick = { showTagCreateDialog = false }) { Text("キャンセル") } },
             shape = RoundedCornerShape(16.dp)
         )
+    }
+
+    if (showAnalysisDialog) {
+        val filteredList = remember(allMedia, analysisPeriodDays, customStartTime, metadataMap, analysisTypePending) {
+            val startTime = if (analysisPeriodDays == -2) {
+                customStartTime ?: 0L
+            } else if (analysisPeriodDays == -1) {
+                0L
+            } else {
+                System.currentTimeMillis() - (analysisPeriodDays.toLong() * 24 * 3600 * 1000)
+            }
+            
+            allMedia.filter { item ->
+                !item.isVideo && 
+                (item.dateAdded >= startTime) &&
+                (if (analysisTypePending == "AI_TAGGING") metadataMap[item.uri]?.isAiAnalyzed != true 
+                 else metadataMap[item.uri]?.hasFeatureVector != true)
+            }
+        }
+        
+        val estimatedMinutes = remember(filteredList.size) {
+            // 1枚あたり約0.5秒と仮定 (機種により変動)
+            val totalSeconds = filteredList.size * 0.5
+            (totalSeconds / 60).toInt().coerceAtLeast(1)
+        }
+
+        AlertDialog(
+            onDismissRequest = { showAnalysisDialog = false },
+            containerColor = Color(0xFF1A1A1A),
+            title = { Text("AI解析の実行", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("解析対象の期間を選択してください:", color = Color.LightGray, fontSize = 14.sp)
+                    Spacer(Modifier.height(8.dp))
+                    
+                    val periods = listOf(
+                        7 to "直近7日間",
+                        30 to "直近30日間",
+                        -1 to "すべての期間",
+                        -2 to if (customStartTime != null) {
+                            "カスタム: ${SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date(customStartTime!!))} 以降"
+                        } else {
+                            "カレンダーから選ぶ..."
+                        }
+                    )
+                    
+                    periods.forEach { (days, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { 
+                                    if (days == -2) {
+                                        showDatePicker = true
+                                    } else {
+                                        analysisPeriodDays = days
+                                        customStartTime = null
+                                    }
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = if (days == -2) analysisPeriodDays == -2 else analysisPeriodDays == days, 
+                                onClick = { 
+                                    if (days == -2) {
+                                        showDatePicker = true
+                                    } else {
+                                        analysisPeriodDays = days
+                                        customStartTime = null
+                                    }
+                                }
+                            )
+                            Text(label, color = if (days == -2 && customStartTime != null) Color.Cyan else Color.White, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
+                    Spacer(Modifier.height(16.dp))
+                    
+                    Text("対象画像: ${filteredList.size} 枚", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("予想時間: 約 $estimatedMinutes 分", color = Color.Cyan)
+                    
+                    if (filteredList.isEmpty()) {
+                        Text("\n※対象となる未解析の画像がありません。", color = Color.Red, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { 
+                        showAnalysisDialog = false
+                        // periodDays が -2 の場合は customStartTime を渡す必要があるが、
+                        // AnalysisProgressScreen と AnalysisService が Long の startTime を受け取れるように修正が必要。
+                        // 現状は Int の periodDays なので、暫定的に 0L からの差分日数に変換して渡すか、インターフェースを拡張する。
+                        val daysToPass = if (analysisPeriodDays == -2 && customStartTime != null) {
+                            val diff = System.currentTimeMillis() - customStartTime!!
+                            (diff / (24 * 3600 * 1000)).toInt().coerceAtLeast(0)
+                        } else {
+                            analysisPeriodDays
+                        }
+                        
+                        galleryState.navController?.currentBackStackEntry?.savedStateHandle?.set("periodDays", daysToPass)
+                        onStartAnalysis(analysisTypePending) 
+                    },
+                    enabled = filteredList.isNotEmpty()
+                ) {
+                    Text("解析開始")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAnalysisDialog = false }) {
+                    Text("キャンセル", color = Color.Gray)
+                }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = customStartTime ?: System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    customStartTime = datePickerState.selectedDateMillis
+                    analysisPeriodDays = -2
+                    showDatePicker = false
+                }) {
+                    Text("決定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("キャンセル")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
 }

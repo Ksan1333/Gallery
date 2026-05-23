@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.GalleryState
 import com.example.gallery.ui.component.GalleryGridView
@@ -48,19 +49,33 @@ fun TrashScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black),
                 actions = {
                     if (isSelectionModeActive && selectedUris.isNotEmpty()) {
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    galleryState.repository.restoreFromTrash(selectedUris.toList())
-                                    clearSelectionSignal++
-                                    selectedUris.clear()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        galleryState.repository.permanentlyDelete(selectedUris.toList())
+                                        clearSelectionSignal++
+                                        selectedUris.clear()
+                                    }
                                 }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Icon(Icons.Default.Restore, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("選択項目を復元")
+                            ) {
+                                Text("完全に削除", color = Color.Red, fontSize = 12.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        galleryState.repository.restoreFromTrash(selectedUris.toList())
+                                        clearSelectionSignal++
+                                        selectedUris.clear()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Icon(Icons.Default.Restore, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("復元")
+                            }
                         }
                     }
                 }

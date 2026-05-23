@@ -48,6 +48,8 @@ import com.example.gallery.ui.GroupingMode
 import com.example.gallery.ui.MediaTypeFilter
 import com.example.gallery.ui.SortMode
 
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.ui.zIndex
 import com.example.gallery.service.GlobalOperationService
 
@@ -60,7 +62,7 @@ fun GlobalProgressOverlay() {
 
     var isMinimized by rememberSaveable { mutableStateOf(false) }
 
-    if (isProcessing && progress < 1f) {
+    if (isProcessing) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -83,7 +85,7 @@ fun GlobalProgressOverlay() {
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .fillMaxWidth(progress)
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
                                 .background(Color.Cyan)
                         )
                     }
@@ -112,12 +114,14 @@ fun GlobalProgressOverlay() {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = statusTitle,
                                     color = Color.White,
                                     fontSize = 13.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                                 IconButton(
                                     onClick = { isMinimized = true },
@@ -126,16 +130,26 @@ fun GlobalProgressOverlay() {
                                     Icon(Icons.Default.ArrowDropUp, null, tint = Color.Gray)
                                 }
                             }
-                            Text(
-                                text = "${(progress * 100).toInt()}%",
-                                color = Color.Cyan,
-                                fontSize = 13.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                            )
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${(progress * 100).toInt()}%",
+                                    color = Color.Cyan,
+                                    fontSize = 13.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { GlobalOperationService.requestCancel() },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, "中断", tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.height(10.dp))
                         LinearProgressIndicator(
-                            progress = { progress },
+                            progress = { progress.coerceIn(0f, 1f) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(6.dp)

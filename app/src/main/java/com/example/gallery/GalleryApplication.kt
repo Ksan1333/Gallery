@@ -14,9 +14,16 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.security.Security
+import org.conscrypt.Conscrypt
 import kotlin.system.exitProcess
 
+import com.example.gallery.ui.GalleryState
+
 class GalleryApplication : Application(), ImageLoaderFactory {
+    lateinit var galleryState: GalleryState
+        private set
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {
@@ -45,6 +52,11 @@ class GalleryApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        
+        // SSL Handshakeエラー（TLS/SNI）対策としてConscryptをセキュリティプロバイダーの先頭に追加
+        Security.insertProviderAt(Conscrypt.newProvider(), 1)
+
+        galleryState = GalleryState(this)
         
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         

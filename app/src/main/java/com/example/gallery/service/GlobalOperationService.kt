@@ -19,12 +19,24 @@ object GlobalOperationService {
     private val _operationTag = MutableStateFlow<String?>(null)
     val operationTag = _operationTag.asStateFlow()
 
-    fun startOperation(title: String, tag: String? = null) {
+    private val _isCancelRequested = MutableStateFlow(false)
+    val isCancelRequested = _isCancelRequested.asStateFlow()
+
+    private val _targetPeriodDays = MutableStateFlow(-1)
+    val targetPeriodDays = _targetPeriodDays.asStateFlow()
+
+    fun startOperation(title: String, tag: String? = null, periodDays: Int = -1) {
         _statusTitle.value = title
         _statusText.value = ""
         _progress.value = 0f
         _operationTag.value = tag
+        _isCancelRequested.value = false
+        _targetPeriodDays.value = periodDays
         _isProcessing.value = true
+    }
+
+    fun requestCancel() {
+        _isCancelRequested.value = true
     }
 
     fun updateProgress(current: Float, text: String = "") {

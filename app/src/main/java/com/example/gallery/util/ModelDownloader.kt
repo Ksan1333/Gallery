@@ -4,11 +4,23 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionSpec
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
-import java.net.URL
+import java.util.concurrent.TimeUnit
 
 object ModelDownloader {
     private const val TAG = "ModelDownloader"
+    
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .connectionSpecs(listOf(
+            ConnectionSpec.MODERN_TLS,
+            ConnectionSpec.COMPATIBLE_TLS
+        ))
+        .build()
     
     // 1. Vector Search Model (MobileNetV3)
     private const val VECTOR_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/latest/mobilenet_v3_small.tflite"
@@ -65,24 +77,33 @@ object ModelDownloader {
 
     private suspend fun downloadFile(urlStr: String, file: File, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Downloading: $urlStr")
-            val connection = URL(urlStr).openConnection()
-            // HuggingFace など、特定のサイトは User-Agent がないと拒否される場合がある
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-            connection.connect()
-            val totalSize = connection.contentLength
-            
-            connection.getInputStream().use { input ->
-                file.outputStream().use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalRead = 0L
-                    
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalRead += bytesRead
-                        if (totalSize > 0) {
-                            onProgress(totalRead.toFloat() / totalSize)
+            Log.d(TAG, "Downloading with OkHttp: $urlStr")
+            val request = Request.Builder()
+                .url(urlStr)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Server returned error: ${response.code}")
+                    return@withContext false
+                }
+
+                val body = response.body ?: return@withContext false
+                val totalSize = body.contentLength()
+                
+                body.byteStream().use { input ->
+                    file.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var totalRead = 0L
+                        
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            totalRead += bytesRead
+                            if (totalSize > 0) {
+                                onProgress(totalRead.toFloat() / totalSize)
+                            }
                         }
                     }
                 }
@@ -90,7 +111,6 @@ object ModelDownloader {
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to download $urlStr", e)
-            // 詳細なエラー情報をログに残す
             Log.e(TAG, "Exception type: ${e.javaClass.simpleName}, message: ${e.message}")
             if (file.exists()) file.delete()
             false

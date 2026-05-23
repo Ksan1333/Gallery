@@ -173,6 +173,10 @@ fun PictureViewer(
 
     LaunchedEffect(pagerState.currentPage) {
         onPageSelected?.invoke(pagerState.currentPage)
+        // ページ切り替え時に詳細パネルの状態を完全にリセット
+        isRecommendationVisible = false
+        recommendationDragOffset.snapTo(0f)
+
         videoPosition = 0L
         videoDuration = 0L
         isSeeking = false
@@ -245,6 +249,9 @@ fun PictureViewer(
     }
 
     val onToggle = { if (!isRecommendationVisible) isUiVisible = !isUiVisible }
+    
+    val density = LocalDensity.current
+    val maxRecDrag = with(density) { 360.dp.toPx() } // 600dp -> 360dp (約40%程度)
 
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
@@ -285,7 +292,28 @@ fun PictureViewer(
                                 offsetY.snapTo(offsetY.value + p.y * newScale)
                             }
                         },
-                        onVerticalDrag = { drag -> isVerticalSwiping = true; scope.launch { offsetY.snapTo(offsetY.value + drag) } },
+                        onVerticalDrag = { drag -> 
+                            isVerticalSwiping = true
+                            scope.launch { 
+                                val newOffset = offsetY.value + drag
+                                
+                                // 上方向へのスワイプ（レコメンド表示）
+                                if (newOffset < -10f && !isRecommendationVisible) {
+                                    isRecommendationVisible = true
+                                    recommendationDragOffset.snapTo(maxRecDrag)
+                                }
+                                
+                                if (isRecommendationVisible) {
+                                    // レコメンドが表示されているときは、画像（offsetY）は動かさず
+                                    // パネル（recommendationDragOffset）だけを動かす
+                                    val currentRecOffset = recommendationDragOffset.value
+                                    recommendationDragOffset.snapTo((currentRecOffset + drag).coerceIn(0f, maxRecDrag))
+                                } else {
+                                    // それ以外（下スワイプで閉じる動作など）は画像を動かす
+                                    offsetY.snapTo(newOffset)
+                                }
+                            }
+                        },
                         onSeek = { targetPos ->
                             if (targetPos != videoPosition) {
                                 videoPosition = targetPos
@@ -297,11 +325,23 @@ fun PictureViewer(
                         onDragEnd = {
                             isVerticalSwiping = false
                             if (isSeeking) scope.launch { delay(50); isSeeking = false; seekTargetPosition = -1L }
+                            
+                            if (isRecommendationVisible) {
+                                if (recommendationDragOffset.value > maxRecDrag * 0.75f) {
+                                    scope.launch { 
+                                        recommendationDragOffset.animateTo(maxRecDrag, tween(250))
+                                        isRecommendationVisible = false
+                                        recommendationDragOffset.snapTo(0f)
+                                    }
+                                } else {
+                                    scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) }
+                                }
+                            }
+                            
                             if (scale.value < 0.95f) {
                                 scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } }
                             } else if (scale.value <= 1.05f) {
-                                if (offsetY.value < -250f) onShowSimilarity(mediaItem)
-                                else if (offsetY.value > 250f) onClickedClose()
+                                if (!isRecommendationVisible && offsetY.value > 250f) onClickedClose()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
@@ -327,14 +367,43 @@ fun PictureViewer(
                                 offsetY.snapTo(offsetY.value + p.y * newScale)
                             }
                         },
-                        onVerticalDrag = { drag -> isVerticalSwiping = true; scope.launch { offsetY.snapTo(offsetY.value + drag) } },
+                        onVerticalDrag = { drag: Float -> 
+                            isVerticalSwiping = true
+                            scope.launch { 
+                                val newOffset = offsetY.value + drag
+                                
+                                if (newOffset < -10f && !isRecommendationVisible) {
+                                    isRecommendationVisible = true
+                                    recommendationDragOffset.snapTo(maxRecDrag)
+                                }
+                                
+                                if (isRecommendationVisible) {
+                                    val currentRecOffset = recommendationDragOffset.value
+                                    recommendationDragOffset.snapTo((currentRecOffset + drag).coerceIn(0f, maxRecDrag))
+                                } else {
+                                    offsetY.snapTo(newOffset)
+                                }
+                            }
+                        },
                         onDragEnd = {
                             isVerticalSwiping = false
+                            if (isRecommendationVisible) {
+                                if (recommendationDragOffset.value > maxRecDrag * 0.75f) {
+                                    scope.launch { 
+                                        recommendationDragOffset.animateTo(maxRecDrag, tween(250))
+                                        isRecommendationVisible = false
+                                        delay(250)
+                                        recommendationDragOffset.snapTo(0f)
+                                    }
+                                } else {
+                                    scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) }
+                                }
+                            }
+                            
                             if (scale.value < 0.95f) {
                                 scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } }
-                            } else if (scale.value <= 1.05f) {
-                                if (offsetY.value < -250f) onShowSimilarity(mediaItem)
-                                else if (offsetY.value > 250f) onClickedClose()
+                            } else {
+                                if (!isRecommendationVisible && offsetY.value > 300f) onClickedClose()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
@@ -382,7 +451,21 @@ fun PictureViewer(
                                         } else {
                                             if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 3.0f) {
                                                 isVerticalSwiping = true
-                                                scope.launch { offsetY.snapTo(offsetY.value + panChange.y) }
+                                                scope.launch { 
+                                                    val newOffset = offsetY.value + panChange.y
+                                                    
+                                                    if (newOffset < -10f && !isRecommendationVisible) {
+                                                        isRecommendationVisible = true
+                                                        recommendationDragOffset.snapTo(maxRecDrag)
+                                                    }
+                                                    
+                                                    if (isRecommendationVisible) {
+                                                        val currentRecOffset = recommendationDragOffset.value
+                                                        recommendationDragOffset.snapTo((currentRecOffset + panChange.y).coerceIn(0f, maxRecDrag))
+                                                    } else {
+                                                        offsetY.snapTo(newOffset)
+                                                    }
+                                                }
                                                 event.changes.forEach { if (it.pressed) it.consume() }
                                             }
                                         }
@@ -401,10 +484,21 @@ fun PictureViewer(
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         if (event.changes.all { !it.pressed }) {
+                                            if (isRecommendationVisible) {
+                                                if (recommendationDragOffset.value > maxRecDrag * 0.75f) {
+                                                    scope.launch { 
+                                                        recommendationDragOffset.animateTo(maxRecDrag, tween(250))
+                                                        isRecommendationVisible = false
+                                                        recommendationDragOffset.snapTo(0f)
+                                                    }
+                                                } else {
+                                                    scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) }
+                                                }
+                                            }
+
                                             if (scale.value < 0.95f) { scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } } }
                                             else if (scale.value <= 1.05f) {
-                                                if (offsetY.value < -250f) onShowSimilarity(mediaItem)
-                                                else if (offsetY.value > 250f) onClickedClose()
+                                                if (!isRecommendationVisible && offsetY.value > 250f) onClickedClose()
                                                 else scope.launch { offsetY.animateTo(0f) }
                                             }
                                         }
@@ -530,7 +624,11 @@ fun PictureViewer(
                             if (showDeleteButton) { 
                                 CommonFloatingActionButton(icon = Icons.Default.Delete, tooltipDescription = "ゴミ箱へ移動", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { galleryState.repository.moveToTrash(listOf(currentMediaItem.uri)); Toast.makeText(context, "ゴミ箱へ移動しました", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.White) 
                             } else { 
-                                CommonFloatingActionButton(icon = Icons.Default.Restore, tooltipDescription = "復元", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { galleryState.repository.restoreFromTrash(listOf(currentMediaItem.uri)); Toast.makeText(context, "復元しました", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.White) 
+                                Row {
+                                    CommonFloatingActionButton(icon = Icons.Default.DeleteForever, tooltipDescription = "完全に削除", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { galleryState.repository.permanentlyDelete(listOf(currentMediaItem.uri)); Toast.makeText(context, "削除しました", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.Red)
+                                    Spacer(Modifier.width(8.dp))
+                                    CommonFloatingActionButton(icon = Icons.Default.Restore, tooltipDescription = "復元", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { galleryState.repository.restoreFromTrash(listOf(currentMediaItem.uri)); Toast.makeText(context, "復元しました", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.White) 
+                                }
                             } 
                         }
 
@@ -627,17 +725,14 @@ fun PictureViewer(
 
         AnimatedVisibility(visible = isRecommendationVisible, enter = slideInVertically(initialOffsetY = { it }) + fadeIn(), exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             val density = LocalDensity.current
-            val maxDrag = with(density) { 600.dp.toPx() }
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.8f).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = 0.95f)).pointerInput(Unit) { detectVerticalDragGestures(onDragEnd = { if (recommendationDragOffset.value > 150f) { scope.launch { recommendationDragOffset.animateTo(maxDrag, tween(250)); isRecommendationVisible = false; delay(250); recommendationDragOffset.snapTo(0f) } } else { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } } }, onVerticalDrag = { change, dragAmount -> change.consume(); scope.launch { recommendationDragOffset.snapTo((recommendationDragOffset.value + dragAmount).coerceAtLeast(0f)) } }) }) {
+            val maxDrag = with(density) { 360.dp.toPx() } // 約40%に調整
+            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.42f).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = 0.95f)).pointerInput(Unit) { detectVerticalDragGestures(onDragEnd = { if (recommendationDragOffset.value > 100f) { scope.launch { recommendationDragOffset.animateTo(maxDrag, tween(250)); isRecommendationVisible = false; delay(250); recommendationDragOffset.snapTo(0f) } } else { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } } }, onVerticalDrag = { change, dragAmount -> change.consume(); scope.launch { recommendationDragOffset.snapTo((recommendationDragOffset.value + dragAmount).coerceAtLeast(0f)) } }) }) {
                 Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
                     Box(modifier = Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) { Surface(modifier = Modifier.width(40.dp).height(4.dp), color = Color.Gray.copy(alpha = 0.5f), shape = CircleShape) {} }
                     Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("詳細・レコメンド", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Text("閉じる", color = Color.Gray, fontSize = 14.sp, modifier = Modifier.clickable { isRecommendationVisible = false }.padding(8.dp)) }
                     androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                         val currentMediaItem = imageList.getOrNull(pagerState.currentPage)
                         if (currentMediaItem != null) {
-                            if (!currentMediaItem.isVideo) {
-                                item { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(currentMediaItem.uri).build(), imageLoader = imageLoader), contentDescription = "元画像", modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Fit) } }
-                            }
                             if (!currentMediaItem.isVideo && !isTrashMode) {
                                 item { Text("似た雰囲気の画像 (AIベクトル)", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                                 item { if (currentMetadata?.hasFeatureVector != true) { Text("この画像は未分析です。分析すると似た画像を見つけられるようになります。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else if (recommendedMediaByVisual.isEmpty()) { Text("似た画像が見つかりませんでした。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaByVisual) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) { scope.launch { pagerState.scrollToPage(index); onPageSelected?.invoke(index) } } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
@@ -647,14 +742,58 @@ fun PictureViewer(
                             }
                             item {
                                 val normalTags = remember(currentMediaTagsFlow) { currentMediaTagsFlow.filter { !it.tag.endsWith("系") && it.confidence >= 0.6f }.sortedByDescending { it.confidence } }
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                        Icon(Icons.Default.LocalOffer, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)); Spacer(modifier = Modifier.width(8.dp)); Text("タグ", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); val currentAgeRating = currentMetadata?.ageRating ?: "SFW"; Spacer(modifier = Modifier.width(12.dp)); Surface(color = when(currentAgeRating) { "R18" -> Color.Red.copy(alpha = 0.8f); "R15" -> Color.Yellow.copy(alpha = 0.8f); else -> Color.Green.copy(alpha = 0.8f) }, shape = RoundedCornerShape(4.dp)) { Text(text = if (isTrashMode) "$currentAgeRating ゴミ" else currentAgeRating, color = if (currentAgeRating == "R15") Color.Black else Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) }
+                                val currentAgeRating = currentMetadata?.ageRating ?: "SFW"
+                                
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.LocalOffer, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("タグ", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Surface(color = when(currentAgeRating) { "R18" -> Color.Red.copy(alpha = 0.8f); "R15" -> Color.Yellow.copy(alpha = 0.8f); else -> Color.Green.copy(alpha = 0.8f) }, shape = RoundedCornerShape(4.dp)) { 
+                                            Text(text = if (isTrashMode) "$currentAgeRating ゴミ" else currentAgeRating, color = if (currentAgeRating == "R15") Color.Black else Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) 
+                                        }
                                     }
-                                    if (!currentMediaItem.isVideo && currentMetadata?.isAiAnalyzed != true) { Text("AIタグ未分析です。分析すると関連アイテムが表示されるようになります。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
-                                    FlowRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        normalTags.forEach { tagEntity -> Surface(color = Color.DarkGray, shape = RoundedCornerShape(16.dp), modifier = Modifier.clickable { onNavigateToTag?.invoke(tagEntity.tag) }) { Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) { Text(text = tagEntity.tag, color = Color.White, fontSize = 12.sp); if (tagEntity.confidence > 0f && tagEntity.confidence < 1f) { Spacer(Modifier.width(4.dp)); Text(text = "${(tagEntity.confidence * 100).toInt()}%", color = Color.Gray, fontSize = 10.sp) } } } }
-                                        if (!isTrashMode) IconButton(onClick = { /* showTagAddDialog handled via showTagDialog logic */ }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp)) }
+                                    
+                                    if (!currentMediaItem.isVideo && currentMetadata?.isAiAnalyzed != true) { 
+                                        Text("AIタグ未分析です。分析すると関連アイテムが表示されるようになります。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp)) 
+                                    }
+                                    
+                                    Spacer(Modifier.height(8.dp))
+                                    
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        normalTags.forEach { tag ->
+                                            InputChip(
+                                                selected = false,
+                                                onClick = { isRecommendationVisible = false; onNavigateToTag?.invoke(tag.tag) },
+                                                label = { 
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(tag.tag, color = Color.White)
+                                                        if (tag.confidence > 0f && tag.confidence < 1f) {
+                                                            Text(text = " ${(tag.confidence * 100).toInt()}%", color = Color.Gray, fontSize = 10.sp)
+                                                        }
+                                                    }
+                                                },
+                                                trailingIcon = {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "削除",
+                                                        modifier = Modifier.size(16.dp).clickable {
+                                                            scope.launch {
+                                                                galleryState?.repository?.mediaDao?.deleteTag(tag)
+                                                            }
+                                                        },
+                                                        tint = Color.Gray
+                                                    )
+                                                },
+                                                colors = InputChipDefaults.inputChipColors(containerColor = Color.DarkGray)
+                                            )
+                                        }
+                                        if (!isTrashMode) {
+                                            IconButton(onClick = { /* showTagDialog logic handled externally */ }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) { 
+                                                Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp)) 
+                                            }
+                                        }
                                     }
                                 }
                             }
