@@ -13,6 +13,8 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.imageembedder.ImageEmbedder
 import com.google.mediapipe.tasks.vision.imageembedder.ImageEmbedder.ImageEmbedderOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class VectorSearchService(
@@ -20,9 +22,10 @@ class VectorSearchService(
     private val repository: MediaRepository
 ) {
     private var imageEmbedder: ImageEmbedder? = null
+    private val mutex = Mutex()
 
     init {
-        ensureInitialized()
+        // 起動時の初期化を停止。必要時に ensureInitialized() を呼ぶ
     }
 
     fun ensureInitialized() {
@@ -31,6 +34,7 @@ class VectorSearchService(
         try {
             val modelFile = ModelDownloader.getVectorModelFile(context)
             if (modelFile.exists()) {
+                Log.d("VectorSearchService", "Initializing ImageEmbedder with model: ${modelFile.absolutePath}")
                 val baseOptionsBuilder = BaseOptions.builder()
                     .setModelAssetPath(modelFile.absolutePath)
 
@@ -55,6 +59,8 @@ class VectorSearchService(
                     imageEmbedder = ImageEmbedder.createFromOptions(context, options)
                     Log.d("VectorSearchService", "ImageEmbedder initialized with CPU")
                 }
+            } else {
+                Log.w("VectorSearchService", "Model file not found at ${modelFile.absolutePath}")
             }
         } catch (e: Exception) {
             Log.e("VectorSearchService", "Failed to initialize ImageEmbedder", e)
@@ -64,34 +70,42 @@ class VectorSearchService(
     suspend fun analyzeSingle(media: MediaData) = withContext(Dispatchers.IO) {
         if (media.isVideo) return@withContext
         
-        if (imageEmbedder == null) {
-            ensureInitialized()
-        }
-        
-        if (imageEmbedder == null) {
-            Log.w("VectorSearchService", "Skipping analysis for ${media.uri}: ImageEmbedder is null (model might be missing)")
-            return@withContext
-        }
-
-        try {
-            val bitmap = decodeBitmap(media.uri) ?: return@withContext
-            val mpImage = BitmapImageBuilder(bitmap).build()
-            val result = imageEmbedder?.embed(mpImage)
-            
-            // ImageEmbedderResult -> EmbeddingResult (via embeddingResult()) -> List<Embedding> -> float[]
-            val embedResult = result?.embeddingResult()
-            val embedding = embedResult?.embeddings()?.firstOrNull()
-            val vector: FloatArray? = embedding?.floatEmbedding()
-
-            if (vector != null) {
-                Log.d("VectorSearchService", "Vector extracted for ${media.uri}, size=${vector.size}")
-                repository.updateFeatureVector(media.uri, vector)
-            } else {
-                Log.w("VectorSearchService", "Failed to extract vector for ${media.uri}")
+        mutex.withLock {
+            if (imageEmbedder == null) {
+                ensureInitialized()
             }
-            bitmap.recycle()
-        } catch (e: Exception) {
-            Log.e("VectorSearchService", "Error analyzing vector for ${media.uri}", e)
+            
+            val embedder = imageEmbedder
+            if (embedder == null) {
+                Log.w("VectorSearchService", "Skipping analysis for ${media.uri}: ImageEmbedder is null (model might be missing)")
+                return@withLock
+            }
+
+            try {
+                Log.d("VectorSearchService", "Analyzing vector for ${media.uri}")
+                val bitmap = decodeBitmap(media.uri) ?: run {
+                    Log.w("VectorSearchService", "Failed to decode bitmap for ${media.uri}")
+                    return@withLock
+                }
+                
+                val mpImage = BitmapImageBuilder(bitmap).build()
+                val result = embedder.embed(mpImage)
+                
+                // ImageEmbedderResult -> EmbeddingResult (via embeddingResult()) -> List<Embedding> -> float[]
+                val embedResult = result.embeddingResult()
+                val embedding = embedResult.embeddings().firstOrNull()
+                val vector: FloatArray? = embedding?.floatEmbedding()
+
+                if (vector != null) {
+                    Log.d("VectorSearchService", "Vector extracted for ${media.uri}, size=${vector.size}")
+                    repository.updateFeatureVector(media.uri, vector, folderName = media.folderName)
+                } else {
+                    Log.w("VectorSearchService", "Failed to extract vector for ${media.uri}: result is null or empty")
+                }
+                bitmap.recycle()
+            } catch (e: Exception) {
+                Log.e("VectorSearchService", "Error analyzing vector for ${media.uri}", e)
+            }
         }
     }
 

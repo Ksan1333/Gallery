@@ -25,6 +25,12 @@ interface MediaDao {
     @Query("DELETE FROM media_metadata WHERE uri = :uri")
     suspend fun deleteMetadata(uri: String)
 
+    @Query("DELETE FROM media_metadata WHERE uri IN (:uris)")
+    suspend fun bulkDeleteMetadata(uris: List<String>)
+
+    @Query("DELETE FROM media_tags WHERE uri IN (:uris)")
+    suspend fun bulkDeleteTags(uris: List<String>)
+
     @Query("SELECT * FROM media_tags WHERE uri = :uri")
     fun getTagsForMedia(uri: String): Flow<List<TagEntity>>
 
@@ -119,7 +125,7 @@ interface MediaDao {
     suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean)
 
     @Query("UPDATE media_metadata SET featureVector = :featureVector WHERE uri = :uri")
-    suspend fun updateFeatureVector(uri: String, featureVector: FloatArray)
+    suspend fun updateFeatureVector(uri: String, featureVector: FloatArray?)
 
     // フォルダグループ用
     @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
@@ -156,6 +162,12 @@ interface MediaDao {
     // 管理フォルダ用
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertManagedFolder(folder: com.example.gallery.data.local.entity.ManagedFolderEntity)
+
+    @Query("SELECT * FROM managed_folders")
+    fun getAllManagedFolders(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.ManagedFolderEntity>>
+
+    @Query("UPDATE managed_folders SET customThumbnailUri = :uri WHERE folderName = :folderName")
+    suspend fun updateFolderThumbnail(folderName: String, uri: String?)
 
     @Query("SELECT folderName FROM managed_folders")
     fun getAllManagedFolderNames(): kotlinx.coroutines.flow.Flow<List<String>>

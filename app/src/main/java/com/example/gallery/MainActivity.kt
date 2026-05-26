@@ -41,10 +41,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.gallery.ui.screen.VideoDownloadScreen
 import com.example.gallery.ui.screen.AnalysisProgressScreen
 import com.example.gallery.ui.screen.FolderGalleryScreen
@@ -156,8 +158,8 @@ fun AppNavigation() {
 
     val refreshTrigger = galleryState.refreshTrigger
     LaunchedEffect(refreshTrigger) {
-        // 起動時(0)は1秒待機し、権限許可によるリフレッシュ(>0)時は即座に開始
-        if (refreshTrigger == 0) delay(1000)
+        // 起動時(0)は3秒待機しUIを優先。権限許可によるリフレッシュ(>0)時は即座に開始
+        if (refreshTrigger == 0) delay(3000)
         ThumbnailGenerationService.startGenerating(
             context,
             galleryState.repository,
@@ -178,8 +180,8 @@ fun AppNavigation() {
             insetsController.systemBarsBehavior =
                 androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-            val isFullScreenRoute = currentRoute == "mass_edit" || 
-                                   currentRoute == "folders_select" || 
+            val isFullScreenRoute = currentRoute == "mass_edit" ||
+                                   currentRoute == "folders_select" ||
                                    currentRoute?.startsWith("analysis") == true
 
             if (isFullScreenRoute) {
@@ -351,33 +353,6 @@ fun AppNavigation() {
                 )
 
                 Spacer(Modifier.weight(1f))
-
-                NavigationDrawerItem(
-                    label = { Text(if (galleryState.isMockMode) "MOCKモードを終了" else "MOCKモードを起動") },
-                    selected = false,
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        galleryState.toggleMockMode()
-                        val currentRouteInner =
-                            navController.currentBackStackEntry?.destination?.route
-                        if (currentRouteInner == "folders" || currentRouteInner == "home") {
-                            navController.navigate(currentRouteInner) {
-                                popUpTo(currentRouteInner) { inclusive = true }
-                            }
-                        }
-                    },
-                    icon = {
-                        Icon(
-                            if (galleryState.isMockMode) Icons.Default.SdStorage else Icons.Default.BugReport,
-                            null
-                        )
-                    },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = if (galleryState.isMockMode) Color.Yellow else Color.White,
-                        unselectedIconColor = if (galleryState.isMockMode) Color.Yellow else Color.White
-                    )
-                )
                 Spacer(Modifier.height(12.dp))
             }
         },
@@ -450,7 +425,7 @@ fun AppNavigation() {
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onNavigateToTag = { tag ->
-                            galleryState.galleryViewMode = com.example.gallery.ui.GalleryViewMode.MYLIST
+                            galleryState.galleryViewMode = GalleryViewMode.MYLIST
                             navController.navigate("mylist/$tag") {
                                 popUpTo(navController.graph.findStartDestination().id) {
                                     saveState = true
@@ -477,7 +452,7 @@ fun AppNavigation() {
                         onFolderSelected = { target ->
                             if (target.startsWith("TAG_NAVIGATION:")) {
                                 val tag = target.removePrefix("TAG_NAVIGATION:")
-                                galleryState.galleryViewMode = com.example.gallery.ui.GalleryViewMode.MYLIST
+                                galleryState.galleryViewMode = GalleryViewMode.MYLIST
                                 navController.navigate("mylist/$tag") {
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
@@ -498,9 +473,6 @@ fun AppNavigation() {
                     MyListScreen(
                         onShowViewer = { isBottomBarVisible = false },
                         onHideViewer = { isBottomBarVisible = true },
-                        onStartAnalysis = { type ->
-                            navController.navigate("analysis/$type")
-                        },
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onBackToMyList = { navController.popBackStack() }
@@ -512,9 +484,6 @@ fun AppNavigation() {
                     MyListScreen(
                         onShowViewer = { isBottomBarVisible = false },
                         onHideViewer = { isBottomBarVisible = true },
-                        onStartAnalysis = { type ->
-                            navController.navigate("analysis/$type")
-                        },
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onBackToMyList = { navController.popBackStack() },
@@ -522,12 +491,17 @@ fun AppNavigation() {
                         initialTagName = tagName
                     )
                 }
-                composable("analysis/{type}") { backStackEntry ->
+                composable(
+                    "analysis/{type}/{periodDays}",
+                    arguments = listOf(
+                        navArgument("type") { type = NavType.StringType },
+                        navArgument("periodDays") { type = NavType.IntType }
+                    )
+                ) { backStackEntry ->
                     val analysisType = backStackEntry.arguments?.getString("type") ?: "AI_TAGGING"
-                    val periodDays = backStackEntry.savedStateHandle.get<Int>("periodDays") ?: -1
+                    val periodDays = backStackEntry.arguments?.getInt("periodDays") ?: -1
                     isBottomBarVisible = false
                     AnalysisProgressScreen(
-                        galleryState = galleryState,
                         analysisType = analysisType,
                         periodDays = periodDays,
                         onComplete = {
@@ -588,7 +562,7 @@ fun AppNavigation() {
                 }
                 composable("books") {
                     var isViewerOpen by remember { mutableStateOf(false) }
-                    
+
                     LaunchedEffect(isViewerOpen) {
                         isBottomBarVisible = !isViewerOpen
                     }
@@ -619,8 +593,8 @@ fun AppNavigation() {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
             val isHideRoute = currentRoute == null ||
-                currentRoute == "mass_edit" || 
-                currentRoute == "folders_select" || 
+                currentRoute == "mass_edit" ||
+                currentRoute == "folders_select" ||
                 currentRoute.startsWith("analysis")
 
             if (isBottomBarVisible && !isHideRoute) {

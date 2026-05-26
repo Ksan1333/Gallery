@@ -29,67 +29,6 @@ class MediaRepository(
     val mediaDao: MediaDao,
     val galleryState: com.example.gallery.ui.GalleryState? = null
 ) {
-    private val tagNames = listOf("人物", "美少女", "風景", "動物", "食べ物", "建物", "空", "海", "花")
-    private val folderNames = listOf("Camera", "Downloads", "Twitter", "Screenshots", "Pixiv", "Instagram")
-
-    private var mockMetadata = mutableMapOf<String, MediaMetadataEntity>()
-    private var mockTags = mutableListOf<TagEntity>()
-
-    private val mockMediaList: List<MediaData> by lazy {
-        (1..100).map { i ->
-            val isPortrait = i % 3 == 0
-            val width = if (isPortrait) 1080 else 1920
-            val height = if (isPortrait) 1920 else 1080
-            // valid Picsum URL: https://picsum.photos/id/1/1920/1080
-            val uri = "https://picsum.photos/id/$i/$width/$height"
-            MediaData(
-                uri = uri,
-                dateAdded = System.currentTimeMillis() - (i * 3600000L),
-                mimeType = "image/jpeg",
-                width = width,
-                height = height,
-                fileName = "MockImage_$i.jpg",
-                folderName = folderNames[i % folderNames.size]
-            )
-        }
-    }
-
-    private val mockFolderMap: Map<String, String> by lazy {
-        mockMediaList.associate { it.uri to it.folderName }
-    }
-
-    fun getMockFolder(uri: String): String? = mockFolderMap[uri]
-
-    private fun ensureMockDataInitialized() {
-        if (mockMetadata.isEmpty() || mockTags.isEmpty()) {
-            mockMetadata.clear()
-            mockTags.clear()
-            mockMediaList.forEachIndexed { i, item ->
-                // 全てのアイテムに基本データを設定（奇数偶数関係なく）
-                val isAnalyzed = i % 2 == 0
-                mockMetadata[item.uri] = MediaMetadataEntity(
-                    uri = item.uri,
-                    ageRating = when {
-                        i % 7 == 0 -> "R18"
-                        i % 5 == 0 -> "R15"
-                        else -> "SFW"
-                    },
-                    isAiAnalyzed = isAnalyzed,
-                    isFavorite = i % 12 == 0
-                )
-                
-                // タグを追加
-                mockTags.add(TagEntity(item.uri, tagNames[i % tagNames.size]))
-                mockTags.add(TagEntity(item.uri, "テスト済"))
-            }
-        }
-    }
-
-    fun clearMockData() {
-        mockMetadata.clear()
-        mockTags.clear()
-    }
-
     private var cachedMediaList: List<MediaData>? = null
     private var lastCacheTime: Long = 0
     private val cacheMutex = Mutex()
@@ -98,30 +37,27 @@ class MediaRepository(
         return getAllMediaFiltered(forceRefresh = forceRefresh, includeDeleted = false)
     }
 
-    /**
-     * DB内のメタデータのうち、実際のファイルが存在しないものを削除する。
-     * getAllMediaFiltered の中から効率的に呼び出すように変更。
-     */
+    fun getTrashMedia(): Flow<List<MediaData>> {
+        return mediaDao.getDeletedMetadataSummaryFlow().map { deletedMetadata ->
+            val deletedUris = deletedMetadata.map { it.uri }.toSet()
+            getAllMediaFiltered(forceRefresh = false, includeDeleted = true)
+                .filter { it.uri in deletedUris }
+        }
+    }
+
     suspend fun cleanupDeletedFiles() {
         // 重い個別ファイルチェックを伴う cleanupDeletedFiles は廃止し、
         // getAllMediaFiltered 内での一括チェックに統合されました。
     }
 
     private suspend fun getAllMediaFiltered(forceRefresh: Boolean = false, includeDeleted: Boolean = false): List<MediaData> {
-        if (galleryState?.isMockMode == true) {
-            return mockMediaList
-        }
-
         cacheMutex.withLock {
             val now = System.currentTimeMillis()
-            // 同時に複数の画面からリクエストが来た場合、
-            // 既に直近（2秒以内）で更新されていれば、強制更新であってもキャッシュを返す
             val isVeryRecent = now - lastCacheTime < 2000
             if (!includeDeleted && cachedMediaList != null && (isVeryRecent || (!forceRefresh && now - lastCacheTime < 10000))) {
                 return cachedMediaList!!
             }
 
-            // メモリ節約：リフレッシュ時は古いキャッシュを一旦解放してGCを助ける
             if (forceRefresh) {
                 cachedMediaList = null
             }
@@ -135,11 +71,9 @@ class MediaRepository(
 
             if (!allGranted) return emptyList()
 
-            // 削除済みURIと既存メタデータを先に取得してフィルタリングとクリーンアップに使用
             val allMetadata = mediaDao.getAllMetadataSummary()
             val deletedUris = allMetadata.filter { it.isDeleted }.map { it.uri }.toSet()
             
-            // 初期容量を大きめに確保してリサイズを減らす
             val mediaList = ArrayList<MediaData>(10000)
             val foundUris = HashSet<String>(10000)
 
@@ -172,7 +106,6 @@ class MediaRepository(
                 collections.forEach { collection ->
                     try {
                         context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
-                            // 実際の件数に合わせて容量を調整
                             mediaList.ensureCapacity(mediaList.size + cursor.count)
                             
                             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
@@ -188,11 +121,7 @@ class MediaRepository(
                             while (cursor.moveToNext()) {
                                 val id = cursor.getLong(idColumn)
                                 val contentUri = ContentUris.withAppendedId(collection, id).toString()
-                                
-                                // 重複チェック
                                 if (!foundUris.add(contentUri)) continue
-
-                                // 削除済みかどうかに基づいて早期フィルタリング（メモリ節約）
                                 val isDeleted = contentUri in deletedUris
                                 if (isDeleted != includeDeleted) continue
 
@@ -215,32 +144,25 @@ class MediaRepository(
                 }
             }
 
-            // 日付順にソート
             mediaList.sortByDescending { it.dateAdded }
 
-            // DB内の実在しないデータのクリーンアップ
             if (forceRefresh || cachedMediaList == null) {
+                val dbUrisToDelete = mutableListOf<String>()
                 allMetadata.forEach { meta ->
-                    val exists = if (meta.uri.startsWith("content://")) {
-                        try {
-                            context.contentResolver.openInputStream(Uri.parse(meta.uri))?.use { true } ?: false
-                        } catch (e: Exception) {
-                            false
-                        }
-                    } else {
-                        foundUris.contains(meta.uri)
+                    val isMediaStoreUri = meta.uri.startsWith("content://media/external/")
+                    if (isMediaStoreUri && !foundUris.contains(meta.uri)) {
+                        dbUrisToDelete.add(meta.uri)
                     }
-
-                    if (!exists) {
-                        mediaDao.deleteMetadata(meta.uri)
-                        mediaDao.deleteTagsForMedia(meta.uri)
+                }
+                if (dbUrisToDelete.isNotEmpty()) {
+                    dbUrisToDelete.chunked(100).forEach { chunk ->
+                        mediaDao.bulkDeleteMetadata(chunk)
+                        mediaDao.bulkDeleteTags(chunk)
                     }
                 }
             }
             
-            // メモリ解放のヒント
             foundUris.clear()
-
             if (!includeDeleted) {
                 cachedMediaList = mediaList
                 lastCacheTime = now
@@ -250,130 +172,60 @@ class MediaRepository(
     }
 
     suspend fun moveToTrash(uris: List<String>) {
-        GlobalOperationService.startOperation("ゴミ箱へ移動中...")
-        if (galleryState?.isMockMode == true) {
-            uris.forEachIndexed { index, uri ->
-                val current = getMetadata(uri)
-                mockMetadata[uri] = current?.copy(isDeleted = true, deletedDate = System.currentTimeMillis()) 
-                    ?: MediaMetadataEntity(uri, isDeleted = true, deletedDate = System.currentTimeMillis())
-                GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size)
-            }
-        } else {
-            mediaDao.bulkSetDeleted(uris, true, System.currentTimeMillis())
-            GlobalOperationService.updateProgress(1.0f)
-        }
+        val opId = GlobalOperationService.startOperation("ゴミ箱へ移動中...")
+        mediaDao.bulkSetDeleted(uris, true, System.currentTimeMillis())
+        GlobalOperationService.updateProgress(1.0f, id = opId)
         cachedMediaList = null
         galleryState?.refresh()
-        GlobalOperationService.finishOperation()
+        GlobalOperationService.finishOperation(opId)
     }
 
     suspend fun restoreFromTrash(uris: List<String>) {
-        GlobalOperationService.startOperation("元に戻しています...")
-        if (galleryState?.isMockMode == true) {
-            uris.forEachIndexed { index, uri ->
-                val current = getMetadata(uri)
-                mockMetadata[uri] = current?.copy(isDeleted = false, deletedDate = null)
-                    ?: MediaMetadataEntity(uri, isDeleted = false, deletedDate = null)
-                GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size)
-            }
-        } else {
-            mediaDao.bulkSetDeleted(uris, false, null)
-            GlobalOperationService.updateProgress(1.0f)
-        }
+        val opId = GlobalOperationService.startOperation("元に戻しています...")
+        mediaDao.bulkSetDeleted(uris, false, null)
+        GlobalOperationService.updateProgress(1.0f, id = opId)
         cachedMediaList = null
         galleryState?.refresh()
-        GlobalOperationService.finishOperation()
+        GlobalOperationService.finishOperation(opId)
     }
 
     suspend fun permanentlyDelete(uris: List<String>) {
-        GlobalOperationService.startOperation("ファイルを完全に削除中...")
-        if (galleryState?.isMockMode == true) {
-            uris.forEach { uri -> mockMetadata.remove(uri) }
-        } else {
-            uris.forEachIndexed { index, uriString ->
-                try {
-                    val uri = Uri.parse(uriString)
-                    context.contentResolver.delete(uri, null, null)
-                    mediaDao.deleteMetadata(uriString)
-                    mediaDao.deleteTagsForMedia(uriString)
-                } catch (e: Exception) {
-                    Log.e("MediaRepository", "Failed to delete $uriString", e)
-                }
-                GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size)
+        val opId = GlobalOperationService.startOperation("ファイルを完全に削除中...")
+        uris.forEachIndexed { index, uriString ->
+            try {
+                val uri = Uri.parse(uriString)
+                context.contentResolver.delete(uri, null, null)
+                mediaDao.deleteMetadata(uriString)
+                mediaDao.deleteTagsForMedia(uriString)
+            } catch (e: Exception) {
+                Log.e("MediaRepository", "Failed to delete $uriString", e)
             }
+            GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size, id = opId)
         }
         cachedMediaList = null
         galleryState?.refresh()
-        GlobalOperationService.finishOperation()
-    }
-
-    fun getTrashMedia(): Flow<List<MediaData>> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                val deletedUris = mockMetadata.filter { it.value.isDeleted }.keys
-                mockMediaList.filter { it.uri in deletedUris }
-            }
-        }
-        return mediaDao.getDeletedMetadataSummaryFlow().map { metadataList ->
-            val deletedUris = metadataList.map { it.uri }.toSet()
-            if (deletedUris.isEmpty()) return@map emptyList<MediaData>()
-
-            val allMedia = getAllMediaFiltered(forceRefresh = true, includeDeleted = true)
-            allMedia.filter { it.uri in deletedUris }
-        }
+        GlobalOperationService.finishOperation(opId)
     }
 
     suspend fun toggleFavorite(uri: String) {
-        if (galleryState?.isMockMode == true) {
-            val current = getMetadata(uri)
-            mockMetadata[uri] = current?.copy(isFavorite = !(current?.isFavorite ?: false))
-                ?: MediaMetadataEntity(uri, isFavorite = true)
-        } else {
-            val current = getMetadata(uri)
-            mediaDao.updateFavorite(uri, !(current?.isFavorite ?: false))
-        }
+        val current = getMetadata(uri)
+        mediaDao.updateFavorite(uri, !(current?.isFavorite ?: false))
     }
 
     suspend fun bulkUpdateFavorite(uris: List<String>, isFavorite: Boolean) {
-        if (galleryState?.isMockMode == true) {
-            uris.forEach { uri ->
-                val current = getMetadata(uri)
-                mockMetadata[uri] = current?.copy(isFavorite = isFavorite)
-                    ?: MediaMetadataEntity(uri, isFavorite = isFavorite)
-            }
-        } else {
-            mediaDao.bulkUpdateFavorite(uris, isFavorite)
-        }
+        mediaDao.bulkUpdateFavorite(uris, isFavorite)
     }
 
     suspend fun bulkUpdateAgeRating(uris: List<String>, ageRating: String?) {
         if (ageRating == null) return
-        if (galleryState?.isMockMode == true) {
-            uris.forEach { uri ->
-                val current = getMetadata(uri)
-                mockMetadata[uri] = current?.copy(ageRating = ageRating)
-                    ?: MediaMetadataEntity(uri, ageRating = ageRating)
-            }
-        } else {
-            // 大量のアイテムを処理する場合を考慮して、一括で必要な情報を取得
-            val allMedia = if (uris.size > 1) getAllMedia() else null
-            uris.forEach { uri ->
-                val current = mediaDao.getMetadata(uri)
-                if (current == null) {
-                    // メタデータが存在しない場合は新規作成（フォルダ名が必要）
-                    val folderName = (allMedia ?: getAllMedia()).find { it.uri == uri }?.folderName ?: ""
-                    mediaDao.insertMetadata(
-                        MediaMetadataEntity(
-                            uri = uri,
-                            ageRating = ageRating,
-                            folderName = folderName,
-                            isAiAnalyzed = false
-                        )
-                    )
-                } else {
-                    mediaDao.bulkUpdateAgeRating(listOf(uri), ageRating)
-                }
+        val allMedia = if (uris.size > 1) getAllMedia() else null
+        uris.forEach { uri ->
+            val current = mediaDao.getMetadata(uri)
+            if (current == null) {
+                val folderName = (allMedia ?: getAllMedia()).find { it.uri == uri }?.folderName ?: ""
+                mediaDao.insertMetadata(MediaMetadataEntity(uri = uri, ageRating = ageRating, folderName = folderName, isAiAnalyzed = false))
+            } else {
+                mediaDao.bulkUpdateAgeRating(listOf(uri), ageRating)
             }
         }
     }
@@ -381,65 +233,38 @@ class MediaRepository(
     suspend fun bulkAddTags(uris: List<String>, tags: List<String>) {
         uris.forEach { uri ->
             tags.forEach { tag ->
-                saveTag(TagEntity(uri, tag, confidence = 1.0f)) // 手動タグは 1.0f
+                saveTag(TagEntity(uri, tag, confidence = 1.0f))
             }
         }
     }
 
-    suspend fun saveMetadata(entity: MediaMetadataEntity) {
-        if (galleryState?.isMockMode == true) {
-            mockMetadata[entity.uri] = entity
+    suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean, folderName: String? = null) {
+        val current = mediaDao.getMetadata(uri)
+        if (current == null) {
+            val finalFolder = folderName ?: getAllMedia().find { it.uri == uri }?.folderName ?: ""
+            mediaDao.insertMetadata(MediaMetadataEntity(uri, ageRating = ageRating, isAiAnalyzed = isAiAnalyzed, folderName = finalFolder))
         } else {
-            mediaDao.insertMetadata(entity)
+            mediaDao.updateAiAnalysisResult(uri, ageRating, isAiAnalyzed)
         }
     }
 
-    suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean) {
-        if (galleryState?.isMockMode == true) {
-            val current = mockMetadata[uri]
-            mockMetadata[uri] = (current ?: MediaMetadataEntity(uri)).copy(ageRating = ageRating, isAiAnalyzed = isAiAnalyzed)
+    suspend fun updateFeatureVector(uri: String, featureVector: FloatArray, folderName: String? = null) {
+        val current = mediaDao.getMetadata(uri)
+        if (current == null) {
+            val finalFolder = folderName ?: getAllMedia().find { it.uri == uri }?.folderName ?: ""
+            mediaDao.insertMetadata(MediaMetadataEntity(uri, featureVector = featureVector, folderName = finalFolder))
         } else {
-            val current = mediaDao.getMetadata(uri)
-            if (current == null) {
-                // MediaDataからフォルダ名を取得
-                val allMedia = getAllMedia()
-                val folderName = allMedia.find { it.uri == uri }?.folderName ?: ""
-                mediaDao.insertMetadata(MediaMetadataEntity(uri, ageRating = ageRating, isAiAnalyzed = isAiAnalyzed, folderName = folderName))
-            } else {
-                mediaDao.updateAiAnalysisResult(uri, ageRating, isAiAnalyzed)
-            }
-        }
-    }
-
-    suspend fun updateFeatureVector(uri: String, featureVector: FloatArray) {
-        if (galleryState?.isMockMode == true) {
-            val current = mockMetadata[uri]
-            mockMetadata[uri] = (current ?: MediaMetadataEntity(uri)).copy(featureVector = featureVector)
-        } else {
-            val current = mediaDao.getMetadata(uri)
-            if (current == null) {
-                val allMedia = getAllMedia()
-                val folderName = allMedia.find { it.uri == uri }?.folderName ?: ""
-                mediaDao.insertMetadata(MediaMetadataEntity(uri, featureVector = featureVector, folderName = folderName))
-            } else {
-                mediaDao.updateFeatureVector(uri, featureVector)
-            }
+            mediaDao.updateFeatureVector(uri, featureVector)
         }
     }
 
     suspend fun saveTag(tag: TagEntity) {
-        if (galleryState?.isMockMode == true) {
-            if (mockTags.none { it.uri == tag.uri && it.tag == tag.tag }) {
-                mockTags.add(tag)
-            }
-        } else {
-            mediaDao.insertTag(tag)
-        }
+        mediaDao.insertTag(tag)
     }
 
     suspend fun moveMediaToFolder(uris: List<String>, targetFolder: String): Boolean {
         return withContext(Dispatchers.IO) {
-            GlobalOperationService.startOperation("フォルダへ移動中: $targetFolder")
+            val opId = GlobalOperationService.startOperation("フォルダへ移動中: $targetFolder")
             var totalSuccess = 0
             val movedPaths = mutableListOf<String>()
 
@@ -488,7 +313,7 @@ class MediaRepository(
                             if (cursor.moveToFirst()) movedPaths.add(cursor.getString(0))
                         }
                     }
-                    GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size)
+                    GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size, id = opId)
                 } catch (e: Exception) {
                     Log.e("MediaRepository", "Error moving media: $uriString", e)
                 }
@@ -498,7 +323,7 @@ class MediaRepository(
                 MediaScannerConnection.scanFile(context, movedPaths.toTypedArray(), null, null)
             }
             cachedMediaList = null
-            GlobalOperationService.finishOperation()
+            GlobalOperationService.finishOperation(opId)
             totalSuccess > 0
         }
     }
@@ -517,49 +342,12 @@ class MediaRepository(
         }
     }
 
-    fun getAllTagNames(): Flow<List<String>> {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            return kotlinx.coroutines.flow.flowOf(mockTags.map { it.tag }.distinct())
-        }
-        return mediaDao.getAllTags()
-    }
-
-    fun getAllTagsWithCounts(): Flow<List<com.example.gallery.data.local.entity.TagCount>> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                val counts = mockTags.groupingBy { it.tag }.eachCount()
-                counts.map { com.example.gallery.data.local.entity.TagCount(it.key, it.value) }.sortedByDescending { it.count }
-            }
-        }
-        return mediaDao.getAllTagsWithCounts().map { list -> list.sortedByDescending { it.count } }
-    }
-
-    fun getCountForTag(tag: String): Flow<Int> {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            return kotlinx.coroutines.flow.flowOf(mockTags.count { it.tag == tag })
-        }
-        return mediaDao.getCountForTag(tag)
-    }
-
-    fun getThumbnailForTag(tag: String): Flow<String?> {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            return kotlinx.coroutines.flow.flowOf(mockTags.find { it.tag == tag }?.uri)
-        }
-        return mediaDao.getThumbnailForTag(tag)
-    }
+    fun getAllTagNames(): Flow<List<String>> = mediaDao.getAllTags()
+    fun getAllTagsWithCounts(): Flow<List<com.example.gallery.data.local.entity.TagCount>> = mediaDao.getAllTagsWithCounts().map { it.sortedByDescending { c -> c.count } }
+    fun getCountForTag(tag: String): Flow<Int> = mediaDao.getCountForTag(tag)
+    fun getThumbnailForTag(tag: String): Flow<String?> = mediaDao.getThumbnailForTag(tag)
 
     fun getFavoriteMedia(): Flow<List<MediaData>> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                val favUris = mockMetadata.filter { it.value.isFavorite }.keys
-                mockMediaList.filter { it.uri in favUris }
-            }
-        }
         return mediaDao.getFavoriteUris().map { uris ->
             val uriSet = uris.toSet()
             getAllMedia().filter { it.uri in uriSet }
@@ -567,11 +355,6 @@ class MediaRepository(
     }
 
     fun getMediaForTag(tag: String): Flow<List<MediaData>> {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            val uris = mockTags.filter { it.tag == tag }.map { it.uri }.toSet()
-            return kotlinx.coroutines.flow.flowOf(mockMediaList.filter { it.uri in uris })
-        }
         return mediaDao.getMediaForTag(tag).map { entities ->
             val uriSet = entities.map { it.uri }.toSet()
             getAllMedia().filter { it.uri in uriSet }
@@ -580,21 +363,10 @@ class MediaRepository(
 
     suspend fun getMediaForTags(tags: List<String>, ageRating: String? = null): List<MediaData> {
         if (tags.isEmpty()) return emptyList()
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            val uris = mockTags.filter { it.tag in tags }.map { it.uri }.toSet()
-            var results = mockMediaList.filter { it.uri in uris }
-            if (ageRating != null) results = results.filter { mockMetadata[it.uri]?.ageRating == ageRating }
-            return results
-        }
-
         val allMedia = getAllMedia()
         val allMediaMap = allMedia.associateBy { it.uri }
         val uris = mutableSetOf<String>()
-        tags.forEach { tag ->
-            mediaDao.getMediaForTag(tag).first().forEach { uris.add(it.uri) }
-        }
-
+        tags.forEach { tag -> mediaDao.getMediaForTag(tag).first().forEach { uris.add(it.uri) } }
         var results = uris.mapNotNull { allMediaMap[it] }
         if (ageRating != null) {
             val metadataMap = getAllMetadataSummary().associateBy { it.uri }
@@ -603,179 +375,67 @@ class MediaRepository(
         return results
     }
 
-    fun getUntaggedCount(): Flow<Int> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                val taggedUris = mockTags.map { it.uri }.toSet()
-                mockMediaList.count { it.uri !in taggedUris && !it.isVideo }
-            }
-        }
-        return mediaDao.getManualTaggedUrisFlow().map { taggedUris ->
-            val taggedSet = taggedUris.toSet()
-            val allMedia = getAllMedia()
-            allMedia.count { it.uri !in taggedSet && !it.isVideo }
-        }
+    fun getUntaggedCount(): Flow<Int> = mediaDao.getManualTaggedUrisFlow().map { taggedUris ->
+        val taggedSet = taggedUris.toSet()
+        getAllMedia().count { it.uri !in taggedSet && !it.isVideo }
     }
 
-    fun getUntaggedMedia(): Flow<List<MediaData>> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                val taggedUris = mockTags.map { it.uri }.toSet()
-                mockMediaList.filter { it.uri !in taggedUris && !it.isVideo }
-            }
-        }
-        return mediaDao.getManualTaggedUrisFlow().map { taggedUris ->
-            val taggedSet = taggedUris.toSet()
-            val allMedia = getAllMedia()
-            allMedia.filter { it.uri !in taggedSet && !it.isVideo }
-        }
+    fun getUntaggedMedia(): Flow<List<MediaData>> = mediaDao.getManualTaggedUrisFlow().map { taggedUris ->
+        val taggedSet = taggedUris.toSet()
+        getAllMedia().filter { it.uri !in taggedSet && !it.isVideo }
     }
 
-    fun getUnanalyzedAiCount(filter: AgeRatingFilter): Flow<Int> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                val analyzedUris = mockMetadata.filter { it.value.isAiAnalyzed }.keys
-                mockMediaList.count { item ->
-                    if (item.isVideo || item.uri in analyzedUris) return@count false
-                    val rating = mockMetadata[item.uri]?.ageRating ?: "SFW"
-                    when (filter) {
-                        AgeRatingFilter.ALL -> true
-                        AgeRatingFilter.SFW -> rating == "SFW"
-                        AgeRatingFilter.R15 -> rating == "R15"
-                        AgeRatingFilter.R18 -> rating == "R18"
-                    }
-                }
-            }
-        }
-        return getAllMetadataSummaryFlow().map { metadata ->
-            val metaMap = metadata.associateBy { it.uri }
-            val analyzedUris = metadata.filter { it.isAiAnalyzed }.map { it.uri }.toSet()
-            val allMedia = getAllMedia()
-            allMedia.count { item ->
-                if (item.isVideo || item.uri in analyzedUris) return@count false
-                val rating = metaMap[item.uri]?.ageRating ?: "SFW"
-                when (filter) {
-                    AgeRatingFilter.ALL -> true
-                    AgeRatingFilter.SFW -> rating == "SFW"
-                    AgeRatingFilter.R15 -> rating == "R15"
-                    AgeRatingFilter.R18 -> rating == "R18"
-                }
+    fun getUnanalyzedAiCount(filter: AgeRatingFilter): Flow<Int> = getAllMetadataSummaryFlow().map { metadata ->
+        val metaMap = metadata.associateBy { it.uri }
+        val analyzedUris = metadata.filter { it.isAiAnalyzed }.map { it.uri }.toSet()
+        getAllMedia().count { item ->
+            if (item.isVideo || item.uri in analyzedUris) return@count false
+            val rating = metaMap[item.uri]?.ageRating ?: "SFW"
+            when (filter) {
+                AgeRatingFilter.ALL -> true
+                AgeRatingFilter.SFW -> rating == "SFW"
+                AgeRatingFilter.R15 -> rating == "R15"
+                AgeRatingFilter.R18 -> rating == "R18"
             }
         }
     }
 
-    suspend fun getMetadata(uri: String): MediaMetadataEntity? {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            return mockMetadata[uri]
-        }
-        return mediaDao.getMetadata(uri)
-    }
-
-    fun getRandomMedia(limit: Int, ageRating: String? = null): List<MediaData> {
-        val allMedia = if (galleryState?.isMockMode == true) mockMediaList else (cachedMediaList ?: emptyList())
-        if (allMedia.isEmpty()) return emptyList()
-        return allMedia.shuffled().take(limit)
-    }
+    suspend fun getMetadata(uri: String): MediaMetadataEntity? = mediaDao.getMetadata(uri)
+    fun getRandomMedia(limit: Int): List<MediaData> = (cachedMediaList ?: emptyList()).shuffled().take(limit)
 
     suspend fun getRandomMediaByAgeRating(limit: Int, ageRating: String): List<MediaData> {
         val allMedia = getAllMedia()
         val allMetadata = getAllMetadataSummary().associateBy { it.uri }
-        return allMedia.filter { 
-            val rating = allMetadata[it.uri]?.ageRating ?: "SFW"
-            rating == ageRating 
-        }
-            .shuffled()
-            .take(limit)
+        return allMedia.filter { (allMetadata[it.uri]?.ageRating ?: "SFW") == ageRating }.shuffled().take(limit)
     }
 
-    suspend fun getAllMetadata(): List<MediaMetadataEntity> {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            return mockMetadata.values.toList()
-        }
-        return mediaDao.getAllMetadata()
-    }
-
-    suspend fun getAllMetadataSummary(): List<MediaMetadataSummary> {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            return mockMetadata.values.map { 
-                MediaMetadataSummary(it.uri, it.isFavorite, it.ageRating, it.isAiAnalyzed, it.folderName, it.isDeleted, it.deletedDate, it.featureVector != null) 
-            }
-        }
-        return mediaDao.getAllMetadataSummary()
-    }
-
-    fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                mockMetadata.values.toList()
-            }
-        }
-        return mediaDao.getAllMetadataFlow()
-    }
-
-    fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                mockMetadata.values.map { 
-                    MediaMetadataSummary(it.uri, it.isFavorite, it.ageRating, it.isAiAnalyzed, it.folderName, it.isDeleted, it.deletedDate, it.featureVector != null)
-                }
-            }
-        }
-        return mediaDao.getAllMetadataSummaryFlow()
-    }
-
-    fun getAllTagsWithUris(): Flow<List<TagEntity>> {
-        if (galleryState?.isMockMode == true) {
-            return galleryState.refreshTriggerFlow().map {
-                ensureMockDataInitialized()
-                mockTags.toList()
-            }
-        }
-        return mediaDao.getAllTagsWithUris()
-    }
+    suspend fun getAllMetadata(): List<MediaMetadataEntity> = mediaDao.getAllMetadata()
+    suspend fun getAllMetadataSummary(): List<MediaMetadataSummary> = mediaDao.getAllMetadataSummary()
+    fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>> = mediaDao.getAllMetadataFlow()
+    fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>> = mediaDao.getAllMetadataSummaryFlow()
+    fun getAllTagsWithUris(): Flow<List<TagEntity>> = mediaDao.getAllTagsWithUris()
 
     fun getAllFolderGroups(): Flow<List<com.example.gallery.data.local.entity.FolderGroupEntity>> = mediaDao.getAllFolderGroups()
     fun getAllFolderGroupMembers(): Flow<List<com.example.gallery.data.local.entity.FolderGroupMemberEntity>> = mediaDao.getAllFolderGroupMembers()
-
     suspend fun createFolderGroup(name: String) = mediaDao.insertFolderGroup(com.example.gallery.data.local.entity.FolderGroupEntity(name))
-
-    suspend fun deleteFolderGroup(name: String) {
-        mediaDao.deleteFolderGroupMembers(name)
-        mediaDao.deleteFolderGroup(name)
-    }
-
+    suspend fun deleteFolderGroup(name: String) { mediaDao.deleteFolderGroupMembers(name); mediaDao.deleteFolderGroup(name) }
     suspend fun addFolderToGroup(folderName: String, groupName: String) {
         if (folderName == "group:$groupName") return
-        if (folderName.startsWith("group:")) {
-            val targetAsChildId = "group:$groupName"
-            val movingGroupName = folderName.removePrefix("group:")
-            val members = mediaDao.getAllFolderGroupMembers().first()
-            if (members.any { it.groupName == movingGroupName && it.folderName == targetAsChildId }) {
-                mediaDao.removeFolderFromAllGroups(targetAsChildId)
-            }
-        }
         mediaDao.removeFolderFromAllGroups(folderName)
         mediaDao.insertFolderGroupMember(com.example.gallery.data.local.entity.FolderGroupMemberEntity(groupName, folderName))
     }
-
     suspend fun removeFolderFromGroup(folderName: String) = mediaDao.removeFolderFromAllGroups(folderName)
-
     fun getAllFolderOrders(): Flow<List<com.example.gallery.data.local.entity.FolderOrderEntity>> = mediaDao.getAllFolderOrders()
-
     suspend fun updateFolderOrders(orders: List<com.example.gallery.data.local.entity.FolderOrderEntity>) = orders.forEach { mediaDao.insertFolderOrder(it) }
-
     fun getAllManagedFolderNames(): Flow<List<String>> = mediaDao.getAllManagedFolderNames()
+    fun getAllManagedFolders(): Flow<List<com.example.gallery.data.local.entity.ManagedFolderEntity>> = mediaDao.getAllManagedFolders()
 
+    suspend fun updateFolderThumbnail(folderName: String, uri: String?) {
+        val existing = mediaDao.getAllManagedFolders().first().find { it.folderName == folderName }
+        if (existing == null) mediaDao.insertManagedFolder(com.example.gallery.data.local.entity.ManagedFolderEntity(folderName, customThumbnailUri = uri))
+        else mediaDao.updateFolderThumbnail(folderName, uri)
+    }
     suspend fun addManagedFolder(name: String) = mediaDao.insertManagedFolder(com.example.gallery.data.local.entity.ManagedFolderEntity(name))
-
     fun scanAllFolders(): List<String> {
         val folders = mutableSetOf<String>()
         try {
@@ -785,36 +445,18 @@ class MediaRepository(
         return folders.toList().sorted()
     }
 
-    fun getTagsForMedia(uri: String): Flow<List<TagEntity>> {
-        if (galleryState?.isMockMode == true) {
-            ensureMockDataInitialized()
-            return galleryState.refreshTriggerFlow().map { mockTags.filter { it.uri == uri } }
-        }
-        return mediaDao.getTagsForMedia(uri)
-    }
-
+    fun getTagsForMedia(uri: String): Flow<List<TagEntity>> = mediaDao.getTagsForMedia(uri)
     fun getManualTaggedUrisFlow(): Flow<List<String>> = mediaDao.getManualTaggedUrisFlow()
 
     suspend fun findMediaByTagSimilarity(uri: String): List<MediaSimilarity> = withContext(Dispatchers.Default) {
         val targetTags = getTagsForMedia(uri).first().filter { !it.tag.endsWith("系") && it.confidence >= 0.6f }.map { it.tag }.toSet()
         if (targetTags.isEmpty()) return@withContext emptyList()
-
-        val allMetadata = getAllMetadataSummary().associateBy { it.uri }
-        
-        // 全てのタグ情報を取得
-        val allTags = mediaDao.getAllTagsWithUris().first()
-            .filter { it.uri != uri && it.tag in targetTags }
-            .groupBy { it.uri }
-
+        val allTags = mediaDao.getAllTagsWithUris().first().filter { it.uri != uri && it.tag in targetTags }.groupBy { it.uri }
         val allMediaMap = getAllMedia().associateBy { it.uri }
-
         allTags.mapNotNull { (resUri, tags) ->
             val media = allMediaMap[resUri] ?: return@mapNotNull null
-            
-            // 一致率の計算: (一致したタグ数 / ターゲットのタグ総数)
             val score = tags.size.toFloat() / targetTags.size.toFloat()
-            if (score < 0.2f) return@mapNotNull null // さらに閾値を下げて確実に表示させる
-            
+            if (score < 0.2f) return@mapNotNull null
             MediaSimilarity(media, score)
         }.sortedByDescending { it.similarityScore }.take(25)
     }
@@ -824,22 +466,11 @@ class MediaRepository(
     suspend fun findSimilarVisualMedia(uri: String): List<MediaSimilarity> = withContext(Dispatchers.Default) {
         val targetMetadata = getMetadata(uri) ?: return@withContext emptyList()
         val targetVector = targetMetadata.featureVector ?: return@withContext emptyList()
-
-        val allVectors = if (galleryState?.isMockMode == true) {
-            mockMetadata.values
-                .filter { it.uri != uri && it.featureVector != null }
-                .map { com.example.gallery.data.local.entity.MediaVector(it.uri, it.featureVector!!) }
-        } else {
-            mediaDao.getAllVectors().filter { it.uri != uri }
-        }
+        val allVectors = mediaDao.getAllVectors().filter { it.uri != uri }
         val allMediaMap = getAllMedia().associateBy { it.uri }
-
         allVectors.asSequence()
-            .map { meta ->
-                val score = VectorSearchService.cosineSimilarity(targetVector, meta.featureVector)
-                meta.uri to score
-            }
-            .filter { it.second > 0.5f } // 閾値を少し下げて 50% 以上にする
+            .map { meta -> meta.uri to VectorSearchService.cosineSimilarity(targetVector, meta.featureVector) }
+            .filter { it.second > 0.4f }
             .sortedByDescending { it.second }
             .take(25)
             .mapNotNull { (resUri, score) -> allMediaMap[resUri]?.let { MediaSimilarity(it, score) } }

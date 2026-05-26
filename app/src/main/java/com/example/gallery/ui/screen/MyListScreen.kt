@@ -24,6 +24,8 @@ import com.example.gallery.service.GlobalOperationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.clickable
 import java.util.Calendar
@@ -31,11 +33,11 @@ import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun MyListScreen(
     onShowViewer: () -> Unit,
     onHideViewer: () -> Unit,
-    onStartAnalysis: (String) -> Unit,
     galleryState: GalleryState,
     onMenuClick: (() -> Unit)? = null,
     onBackToMyList: () -> Unit = {},
@@ -79,18 +81,28 @@ fun MyListScreen(
     var showTagCreateDialog by remember { mutableStateOf(false) }
     var newTagName by remember { mutableStateOf("") }
     var allMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
-    var isLoadingMedia by remember { mutableStateOf(true) }
+    var isLoadingMedia by remember { mutableStateOf(false) }
 
-    val metadataFlow = remember(galleryState.isMockMode) { galleryState.repository.getAllMetadataSummaryFlow() }
-    val allMetadata by metadataFlow.collectAsState(initial = emptyList())
-    val metadataMap = remember(allMetadata) { allMetadata.associateBy { it.uri } }
+    val metadataMap = remember { mutableStateMapOf<String, com.example.gallery.data.local.entity.MediaMetadataSummary>() }
+    LaunchedEffect(galleryState.repository) {
+        galleryState.repository.getAllMetadataSummaryFlow()
+            .debounce(1000)
+            .distinctUntilChanged()
+            .collect { list ->
+                list.forEach { metadataMap[it.uri] = it }
+                if (metadataMap.size > list.size + 100) {
+                    val uris = list.map { it.uri }.toSet()
+                    metadataMap.keys.retainAll(uris)
+                }
+            }
+    }
 
     val allTagsData by galleryState.repository.getAllTagsWithUris().collectAsState(initial = emptyList())
     val tagToUrisMap = remember(allTagsData) { allTagsData.groupBy({ it.tag }, { it.uri }) }
     val taggedUriSet = remember(allTagsData) { allTagsData.filter { !it.tag.endsWith("系") }.map { it.uri }.toSet() }
 
-    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
-        if (isLoadingMedia && allMedia.isNotEmpty()) return@LaunchedEffect
+    LaunchedEffect(galleryState.refreshTrigger) {
+        if (isLoadingMedia) return@LaunchedEffect
         isLoadingMedia = true
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val media = galleryState.repository.getAllMedia(forceRefresh = false)
@@ -114,17 +126,23 @@ fun MyListScreen(
         }
     }
 
-    val favorites = remember(allMedia, metadataMap, galleryState.ageRatingFilter) {
-        allMedia.filter { metadataMap[it.uri]?.isFavorite == true && filterItem(it) }
+    val favorites by remember(allMedia, metadataMap, galleryState.ageRatingFilter) {
+        derivedStateOf {
+            allMedia.filter { metadataMap[it.uri]?.isFavorite == true && filterItem(it) }
+        }
     }
-    val untaggedMedia = remember(allMedia, taggedUriSet, galleryState.ageRatingFilter, metadataMap) {
-        allMedia.filter { !it.isVideo && it.uri !in taggedUriSet && filterItem(it) }
+    val untaggedMedia by remember(allMedia, taggedUriSet, galleryState.ageRatingFilter, metadataMap) {
+        derivedStateOf {
+            allMedia.filter { !it.isVideo && it.uri !in taggedUriSet && filterItem(it) }
+        }
     }
 
-    val categories = remember(allMedia, tagToUrisMap, favorites, untaggedMedia, galleryState.ageRatingFilter, metadataMap) {
-        val allMediaMap = allMedia.associateBy { it.uri }
-        mutableListOf<CategoryData>().apply {
-            if (favorites.isNotEmpty()) add(CategoryData("Favorites", "お気に入り", favorites.size, favorites.firstOrNull()?.uri))
+    val categories by remember(allMedia, tagToUrisMap, favorites, untaggedMedia, galleryState.ageRatingFilter, metadataMap) {
+        derivedStateOf {
+            val allMediaMap = allMedia.associateBy { it.uri }
+            val result = mutableListOf<CategoryData>()
+            
+            if (favorites.isNotEmpty()) result.add(CategoryData("Favorites", "お気に入り", favorites.size, favorites.firstOrNull()?.uri))
             
             // 未タグ・未分析の通知を含めたカテゴリ
             val unanalyzedAi = allMedia.filter { !it.isVideo && metadataMap[it.uri]?.isAiAnalyzed != true && filterItem(it) }
@@ -135,13 +153,13 @@ fun MyListScreen(
                     if (untaggedMedia.isNotEmpty()) append("未タグ:${unanalyzedAi.size}\n")
                     if (unanalyzedVector.isNotEmpty()) append("未ベクトル:${unanalyzedVector.size}")
                 }.trim()
-                add(CategoryData("Untagged", "未整理・未分析", (untaggedMedia + unanalyzedAi + unanalyzedVector).distinctBy { it.uri }.size, untaggedMedia.firstOrNull()?.uri ?: unanalyzedAi.firstOrNull()?.uri ?: unanalyzedVector.firstOrNull()?.uri, subTitle = subText))
+                result.add(CategoryData("Untagged", "未整理・未分析", (untaggedMedia + unanalyzedAi + unanalyzedVector).distinctBy { it.uri }.size, untaggedMedia.firstOrNull()?.uri ?: unanalyzedAi.firstOrNull()?.uri ?: unanalyzedVector.firstOrNull()?.uri, subTitle = subText))
             }
 
             tagToUrisMap.filter { !it.key.endsWith("系") }.forEach { (tag, uris) ->
                 val filtered = uris.mapNotNull { allMediaMap[it] }.filter { filterItem(it) }
                 if (filtered.isNotEmpty()) {
-                    add(CategoryData(
+                    result.add(CategoryData(
                         id = "Tag:$tag",
                         title = com.example.gallery.service.TagTranslationService.translate(tag),
                         count = filtered.size,
@@ -149,7 +167,8 @@ fun MyListScreen(
                     ))
                 }
             }
-        }.sortedByDescending { it.count }
+            result.sortedByDescending { it.count }
+        }
     }
 
     var taggedMediaDetail by remember { mutableStateOf<List<MediaData>>(emptyList()) }
@@ -171,7 +190,7 @@ fun MyListScreen(
 
     val isStartupCompleted by com.example.gallery.service.ThumbnailGenerationService.isStartupTasksCompleted.collectAsState()
     val isStartupProcessing by com.example.gallery.service.ThumbnailGenerationService.isProcessing.collectAsState()
-    val isGlobalProcessing by GlobalOperationService.isProcessing.collectAsState()
+    val isGlobalProcessing by GlobalOperationService.isProcessing.collectAsState(initial = false)
     
     // サムネイルやベクトル分析の「起動時タスク」が動いているか、または何らかのグローバル処理中かチェック
     val isBusy = remember(isStartupProcessing, !isStartupCompleted, isLoadingMedia, isGlobalProcessing) {
@@ -341,8 +360,7 @@ fun MyListScreen(
                             analysisPeriodDays
                         }
                         
-                        galleryState.navController?.currentBackStackEntry?.savedStateHandle?.set("periodDays", daysToPass)
-                        onStartAnalysis(analysisTypePending) 
+                        galleryState.navController?.navigate("analysis/${analysisTypePending}/$daysToPass")
                     },
                     enabled = filteredList.isNotEmpty()
                 ) {

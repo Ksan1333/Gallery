@@ -20,7 +20,7 @@ import com.example.gallery.data.local.entity.TagEntity
         com.example.gallery.data.local.entity.TagTranslationEntity::class,
         com.example.gallery.data.local.entity.VideoDownloadEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

@@ -505,7 +505,8 @@ fun CategoryScreen(
                 scrollToUri = if (selectedImageIndex == null) lastViewedUri else null,
                 onPageChangedInViewer = onPageChangedInViewer,
                 onBulkEdit = onBulkEdit,
-                onScrollConsumed = onScrollConsumed
+                onScrollConsumed = onScrollConsumed,
+                topBarActions = topBarActions
             )
         }
 
@@ -612,20 +613,6 @@ private fun GroupThumbnailItem(uri: String?) {
         Box(modifier = Modifier
             .fillMaxSize()
             .background(Color.White.copy(alpha = 0.05f)))
-    } else if (uri.startsWith("mock://")) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Gray.copy(alpha = 0.3f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Default.Image,
-                null,
-                tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.size(16.dp)
-            )
-        }
     } else {
         Image(
             painter = rememberAsyncImagePainter(
@@ -725,7 +712,12 @@ fun CategoryCard(
                 } else if (data.thumbnail != null) {
                     Image(
                         painter = rememberAsyncImagePainter(
-                            model = ImageRequest.Builder(context).data(data.thumbnail).videoFrameMillis(1000).build()
+                            model = remember(data.thumbnail) {
+                                ImageRequest.Builder(context)
+                                    .data(data.thumbnail)
+                                    .videoFrameMillis(1000)
+                                    .build()
+                            }
                         ),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),

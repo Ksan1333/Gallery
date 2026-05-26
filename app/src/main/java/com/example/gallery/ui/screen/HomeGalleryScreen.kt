@@ -36,7 +36,7 @@ fun HomeGalleryScreen(
     onNavigateToTag: ((String) -> Unit)? = null // 追加
 ) {
     val context = LocalContext.current
-    val imageList = remember { mutableStateListOf<MediaData>() }
+    var imageList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     
@@ -51,7 +51,7 @@ fun HomeGalleryScreen(
 
     LaunchedEffect(imageList.size) {
         if (selectedIndex != null && flatListForViewer.isEmpty() && imageList.isNotEmpty()) {
-            flatListForViewer = imageList.toList()
+            flatListForViewer = imageList
         }
     }
 
@@ -63,7 +63,7 @@ fun HomeGalleryScreen(
         if (initialMediaUri != null && imageList.isNotEmpty()) {
             val idx = imageList.indexOfFirst { it.uri == initialMediaUri }
             if (idx != -1) {
-                flatListForViewer = imageList.toList()
+                flatListForViewer = imageList
                 selectedIndex = idx
                 onShowViewer()
             }
@@ -88,13 +88,9 @@ fun HomeGalleryScreen(
             withContext(Dispatchers.Main) { isLoading = true }
             val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
             withContext(Dispatchers.Main) {
-                // 内容を比較して、変更がある場合のみ更新する
-                val currentUris = imageList.map { it.uri }
-                val newUris = allMedia.map { it.uri }
-                
-                if (currentUris != newUris) {
-                    imageList.clear()
-                    imageList.addAll(allMedia)
+                // 件数や最初のアイテムが違う場合のみ更新（簡易的な比較）
+                if (imageList.size != allMedia.size || imageList.getOrNull(0)?.uri != allMedia.getOrNull(0)?.uri) {
+                    imageList = allMedia
                 }
                 isLoading = false
             }
@@ -102,7 +98,7 @@ fun HomeGalleryScreen(
     }
 
     // 起動時の初期ロード
-    LaunchedEffect(galleryState.isMockMode, galleryState.refreshTrigger) {
+    LaunchedEffect(galleryState.refreshTrigger) {
         localLoadImages()
     }
 
@@ -115,7 +111,7 @@ fun HomeGalleryScreen(
                 isLoading = isLoading,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
-                title = if (galleryState.isMockMode) "すべて (MOCK)" else "すべて",
+                title = "すべて",
                 scrollToUri = if (selectedIndex == null) galleryState.lastViewedUri else null,
                 isFilterEnabled = true,
                 onMenuClick = onMenuClick,

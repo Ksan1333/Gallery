@@ -87,16 +87,28 @@ object ThumbnailUtils {
     private fun getVideoFrame(context: Context, uri: Uri): Bitmap? {
         val retriever = MediaMetadataRetriever()
         return try {
-            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
-                retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            } ?: retriever.setDataSource(context, uri)
+            // content:// URI の場合、ParcelFileDescriptor を使用するのが最も確実
+            val pfd = try {
+                context.contentResolver.openFileDescriptor(uri, "r")
+            } catch (e: Exception) {
+                null
+            }
+
+            if (pfd != null) {
+                pfd.use {
+                    retriever.setDataSource(it.fileDescriptor)
+                }
+            } else {
+                // フォールバック: 直接 URI を渡す（一部のデバイスや URI スキームで必要）
+                retriever.setDataSource(context, uri)
+            }
             
             // XのGIF(短い動画)対策: 1秒地点(1000000us)だと動画が終わっている可能性があるため、
             // まずは0秒(先頭)を、失敗した場合は closest で取得を試みる
             retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get video frame for $uri", e)
+            Log.e(TAG, "Failed to get video frame for $uri: ${e.message}")
             null
         } finally {
             try { retriever.release() } catch (e: Exception) {}

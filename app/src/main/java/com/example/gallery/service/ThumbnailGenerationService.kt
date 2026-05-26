@@ -2,8 +2,6 @@ package com.example.gallery.service
 
 import android.content.Context
 import android.util.Log
-import com.example.gallery.data.repository.AiTaggingService
-import com.example.gallery.data.repository.VectorSearchService
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.util.ModelDownloader
 import com.example.gallery.util.ThumbnailUtils
@@ -16,7 +14,6 @@ object ThumbnailGenerationService {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var job: Job? = null
 
-    // 下記の StateFlow は下位互換性/内部管理用に残すが、外部表示は GlobalOperationService を使う
     private val _progress = MutableStateFlow(0f)
     val progress = _progress.asStateFlow()
 
@@ -27,6 +24,7 @@ object ThumbnailGenerationService {
     val isStartupTasksCompleted = _isStartupTasksCompleted.asStateFlow()
 
     private var hasInitialCheckDone = false
+    private val sessionAttemptedUris = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     fun startGenerating(context: Context, repository: MediaRepository, force: Boolean = false) {
         if (_isProcessing.value && !force) return
@@ -35,98 +33,89 @@ object ThumbnailGenerationService {
             return
         }
 
-        job?.cancel() // 既存のジョブがあればキャンセル
+        job?.cancel()
         
-        job = serviceScope.launch(Dispatchers.IO) { // UIをブロックしないように IO スレッドを明示
+        job = serviceScope.launch(Dispatchers.IO) {
             _isProcessing.value = true
             _isStartupTasksCompleted.value = false
             try {
-                Log.d(TAG, "Starting cleanup and media scan... (force=$force)")
-                // まず軽いクリーンアップ
-                repository.mediaDao.cleanupAgeRatingTags()
-                
-                // 全スキャン
-                val allMedia = repository.getAllMedia(forceRefresh = true)
+                Log.d(TAG, "Starting startup tasks... (force=$force)")
+                val allMedia = repository.getAllMedia(forceRefresh = false)
                 val allMetadata = repository.getAllMetadataSummary().associateBy { it.uri }
-                
+
                 if (!isActive) return@launch
-                
-                // サムネイルがない、またはベクトル分析がないものを対象にする
-                val targetList = allMedia.filter { 
-                    !ThumbnailUtils.getThumbnailFile(context, it.uri).exists() ||
-                    (!it.isVideo && allMetadata[it.uri]?.hasFeatureVector != true)
+
+                // 1. サムネイル作成が必要なアイテム
+                val thumbTargets = allMedia.filter { media ->
+                    !sessionAttemptedUris.contains(media.uri) && 
+                    !ThumbnailUtils.getThumbnailFile(context, media.uri).exists()
                 }
+
+                // 2. ベクトル解析が必要なアイテム (画像のみ)
+                val vectorTargets = allMedia.filter { media ->
+                    (!media.isVideo && 
+                    !sessionAttemptedUris.contains(media.uri + "_vector") &&
+                    allMetadata[media.uri]?.hasFeatureVector != true)
+                }
+
+                val totalThumb = thumbTargets.size
+                val totalVector = vectorTargets.size
                 
-                val total = targetList.size
-                if (total == 0) {
-                    Log.d(TAG, "All thumbnails and vectors already exist or no media found")
-                    // メディアが1つでも見つかっていれば、チェック完了とする
-                    if (allMedia.isNotEmpty()) {
-                        hasInitialCheckDone = true
-                    }
+                if (totalThumb == 0 && totalVector == 0) {
+                    Log.d(TAG, "No pending startup tasks")
+                    hasInitialCheckDone = true
                     _isStartupTasksCompleted.value = true
                     return@launch
                 }
 
-                Log.d(TAG, "Starting background tasks for $total items")
-                // ここで確実に Operation を開始
+                val opId = "STARTUP_TASKS"
                 withContext(Dispatchers.Main) {
-                    GlobalOperationService.startOperation("バックグラウンド準備中...", tag = "STARTUP_TASKS")
+                    GlobalOperationService.startOperation(
+                        "起動時タスク実行中...",
+                        tag = opId,
+                        canCancel = false,
+                    )
                 }
 
-                // 必要なAIモデルが欠けている場合はダウンロードを試みる
-                val allModelsExist = ModelDownloader.getVectorModelFile(context).exists() &&
-                                     ModelDownloader.getDanbooruModelFile(context).exists() &&
-                                     ModelDownloader.getDanbooruTagsFile(context).exists()
-
-                if (!allModelsExist) {
-                    Log.d(TAG, "AI models missing, attempting background download...")
-                    ModelDownloader.downloadAllModels(context) { progress ->
-                        GlobalOperationService.updateProgress(progress * 0.1f, "AIモデル準備中...")
-                    }
-                }
-
-                // 実行前にサービスの初期化を試みる
-                repository.galleryState?.vectorSearchService?.ensureInitialized()
-                repository.galleryState?.aiTaggingService?.ensureInitialized()
-
-                targetList.forEachIndexed { index, media ->
-                    if (!isActive) return@launch
-                    
-                    val currentProgress = (index + 1).toFloat() / total
-                    if (index % 20 == 0 || index == total - 1) {
-                        GlobalOperationService.updateProgress(currentProgress, "準備中: ${index + 1} / $total")
-                    }
-                    
-                    // サムネイル作成
-                    ThumbnailUtils.generateThumbnailIfMissing(context, media.uri)
-
-                    // ベクトル分析 (画像のみ)
-                    if (!media.isVideo) {
-                        // DBの状態を再確認して、本当に未分析な場合のみ実行
-                        val currentMeta = repository.mediaDao.getMetadata(media.uri)
-                        if (currentMeta?.featureVector == null) {
-                            Log.d(TAG, "Analyzing vector for ${media.uri} during startup")
-                            repository.galleryState?.vectorSearchService?.analyzeSingle(media)
+                // フェーズ1: サムネイル作成
+                if (totalThumb > 0) {
+                    thumbTargets.forEachIndexed { index, media ->
+                        if (!isActive) return@launch
+                        val currentProgress = (index + 1).toFloat() / totalThumb.toFloat()
+                        if (index % 5 == 0 || index == totalThumb - 1) {
+                            GlobalOperationService.updateProgress(currentProgress * 0.5f, "サムネイル作成中: ${index + 1} / $totalThumb", opId)
                         }
+                        ThumbnailUtils.generateThumbnailIfMissing(context, media.uri)
+                        sessionAttemptedUris.add(media.uri)
+                        if (index % 10 == 0) delay(10)
                     }
-
-                    _progress.value = currentProgress
-                    
-                    // CPU負荷を抑える
-                    if (index % 10 == 0) delay(10)
                 }
+
+                // フェーズ2: ベクトル解析 (モデルが存在する場合のみ)
+                if (totalVector > 0 && ModelDownloader.isVectorModelValid(context)) {
+                    repository.galleryState?.vectorSearchService?.ensureInitialized()
+                    vectorTargets.forEachIndexed { index, media ->
+                        if (!isActive) return@launch
+                        val currentProgress = (index + 1).toFloat() / totalVector.toFloat()
+                        if (index % 5 == 0 || index == totalVector - 1) {
+                            GlobalOperationService.updateProgress(0.5f + (currentProgress * 0.5f), "解析中: ${index + 1} / $totalVector", opId)
+                        }
+                        repository.galleryState?.vectorSearchService?.analyzeSingle(media)
+                        sessionAttemptedUris.add(media.uri + "_vector")
+                        if (index % 5 == 0) delay(15)
+                    }
+                }
+
                 Log.d(TAG, "Startup tasks completed successfully")
                 hasInitialCheckDone = true
                 _isStartupTasksCompleted.value = true
-                GlobalOperationService.updateProgress(1.0f, "準備が完了しました")
-                delay(1000)
+                GlobalOperationService.updateProgress(1.0f, "準備完了", opId)
+                delay(800)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in startup tasks", e)
             } finally {
                 _isProcessing.value = false
-                _progress.value = 1.0f
-                GlobalOperationService.finishOperation()
+                GlobalOperationService.finishOperation("STARTUP_TASKS")
             }
         }
     }

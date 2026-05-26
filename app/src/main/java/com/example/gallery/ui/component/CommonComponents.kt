@@ -52,17 +52,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.ui.zIndex
 import com.example.gallery.service.GlobalOperationService
+import com.example.gallery.service.OperationState
 
 @Composable
 fun GlobalProgressOverlay() {
-    val isProcessing by GlobalOperationService.isProcessing.collectAsState()
-    val progress by GlobalOperationService.progress.collectAsState()
-    val statusTitle by GlobalOperationService.statusTitle.collectAsState()
-    val statusText by GlobalOperationService.statusText.collectAsState()
-
+    val operations by GlobalOperationService.operations.collectAsState(initial = emptyList())
     var isMinimized by rememberSaveable { mutableStateOf(false) }
 
-    if (isProcessing) {
+    if (operations.isNotEmpty()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -70,110 +67,136 @@ fun GlobalProgressOverlay() {
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .zIndex(2000f)
         ) {
-            if (isMinimized) {
-                // 最小化表示: 上部に細いバーのみ
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { isMinimized = false },
-                    color = Color.Black.copy(alpha = 0.7f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                                .background(Color.Cyan)
-                        )
-                    }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // 最大2つまで表示する
+                operations.take(2).forEach { op ->
+                    OperationCard(
+                        op = op,
+                        isMinimized = isMinimized,
+                        onMinimizeToggle = { isMinimized = !isMinimized }
+                    )
                 }
-            } else {
-                // 通常表示
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    if (dragAmount.y < -10f) isMinimized = true
-                                }
-                            )
-                        },
-                    color = Color.Black.copy(alpha = 0.85f),
-                    shape = RoundedCornerShape(12.dp),
-                    shadowElevation = 8.dp,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = statusTitle,
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                )
-                                IconButton(
-                                    onClick = { isMinimized = true },
-                                    modifier = Modifier.size(24.dp).padding(start = 4.dp)
-                                ) {
-                                    Icon(Icons.Default.ArrowDropUp, null, tint = Color.Gray)
-                                }
-                            }
-                            
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${(progress * 100).toInt()}%",
-                                    color = Color.Cyan,
-                                    fontSize = 13.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                IconButton(
-                                    onClick = { GlobalOperationService.requestCancel() },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, "中断", tint = Color.Gray, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LinearProgressIndicator(
-                            progress = { progress.coerceIn(0f, 1f) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = Color.Cyan,
-                            trackColor = Color.White.copy(alpha = 0.15f)
-                        )
-                        if (statusText.isNotEmpty()) {
-                            Text(
-                                text = statusText,
-                                color = Color.Gray,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(top = 6.dp),
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                            )
-                        }
-                    }
+                
+                if (operations.size > 2 && !isMinimized) {
+                    Text(
+                        text = "他 ${operations.size - 2} 件のタスクが進行中...",
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
                 }
             }
         }
     } else {
-        // 完了したらリセット
         SideEffect { isMinimized = false }
+    }
+}
+
+@Composable
+private fun OperationCard(
+    op: OperationState,
+    isMinimized: Boolean,
+    onMinimizeToggle: () -> Unit
+) {
+    if (isMinimized) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { onMinimizeToggle() },
+            color = Color.Black.copy(alpha = 0.7f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(op.progress.coerceIn(0f, 1f))
+                        .background(if (op.tag == "STARTUP_TASKS") Color.LightGray else Color.Cyan)
+                )
+            }
+        }
+    } else {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            if (dragAmount.y < -10f) onMinimizeToggle()
+                        }
+                    )
+                },
+            color = Color.Black.copy(alpha = 0.85f),
+            shape = RoundedCornerShape(12.dp),
+            shadowElevation = 8.dp,
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = op.title,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        IconButton(
+                            onClick = onMinimizeToggle,
+                            modifier = Modifier.size(24.dp).padding(start = 4.dp)
+                        ) {
+                            Icon(Icons.Default.ArrowDropUp, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${(op.progress * 100).toInt()}%",
+                            color = Color.Cyan,
+                            fontSize = 12.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                        if (op.canCancel) {
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(
+                                onClick = { GlobalOperationService.requestCancel(op.id) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.Close, "中断", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { op.progress.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = Color.Cyan,
+                    trackColor = Color.White.copy(alpha = 0.15f)
+                )
+                if (op.text.isNotEmpty()) {
+                    Text(
+                        text = op.text,
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 4.dp),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
     }
 }
 

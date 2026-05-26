@@ -1,6 +1,5 @@
 package com.example.gallery.ui.screen
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -17,15 +16,14 @@ import com.example.gallery.service.AnalysisService
 
 @Composable
 fun AnalysisProgressScreen(
-    galleryState: GalleryState,
     analysisType: String = "AI_TAGGING",
     periodDays: Int = -1,
     onComplete: () -> Unit,
     onCancel: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val isProcessing by GlobalOperationService.isProcessing.collectAsState()
-    val isCancelRequested by GlobalOperationService.isCancelRequested.collectAsState()
+    val isProcessing by GlobalOperationService.isProcessing(analysisType).collectAsState(initial = false)
+    val isCancelRequested by GlobalOperationService.isCancelRequested(analysisType).collectAsState(initial = false)
 
     // フォアグラウンドサービスを開始
     LaunchedEffect(Unit) {
@@ -42,9 +40,13 @@ fun AnalysisProgressScreen(
     }
 
     // 処理完了を監視して戻る
+    var hasStarted by remember { mutableStateOf(false) }
     LaunchedEffect(isProcessing) {
+        if (isProcessing) {
+            hasStarted = true
+        }
         // 解析中から非解析中に変わった（＝完了した）場合
-        if (!isProcessing) {
+        if (hasStarted && !isProcessing) {
             onComplete()
         }
     }

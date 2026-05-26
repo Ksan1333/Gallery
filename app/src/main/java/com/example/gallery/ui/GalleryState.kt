@@ -25,14 +25,6 @@ class GalleryState(context: Context) {
         com.example.gallery.service.TagTranslationService.init(context)
     }
 
-    var isMockMode by mutableStateOf(false)
-        private set
-
-    fun toggleMockMode() {
-        isMockMode = !isMockMode
-        repository.clearMockData()
-    }
-
     var navController: androidx.navigation.NavHostController? = null
 
     fun refreshTriggerFlow(): kotlinx.coroutines.flow.Flow<Int> = androidx.compose.runtime.snapshotFlow { refreshTrigger }

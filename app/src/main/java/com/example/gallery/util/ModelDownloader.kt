@@ -37,6 +37,19 @@ object ModelDownloader {
     fun getDanbooruModelFile(context: Context): File = File(context.filesDir, DANBOORU_MODEL_FILENAME)
     fun getDanbooruTagsFile(context: Context): File = File(context.filesDir, DANBOORU_TAGS_FILENAME)
 
+    fun isVectorModelValid(context: Context): Boolean {
+        return getVectorModelFile(context).let { it.exists() && it.length() > 500_000L }
+    }
+
+    fun isTaggerModelValid(context: Context): Boolean {
+        return getDanbooruModelFile(context).let { it.exists() && it.length() > 50_000_000L } &&
+               getDanbooruTagsFile(context).let { it.exists() && it.length() > 5_000L }
+    }
+
+    fun areModelsValid(context: Context): Boolean {
+        return isVectorModelValid(context) && isTaggerModelValid(context)
+    }
+
     suspend fun downloadAllModels(context: Context, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         val tasks = listOf(
             DownloadTask(VECTOR_MODEL_URL, getVectorModelFile(context), 0.2f, 1_000_000L), // 小さいモデル

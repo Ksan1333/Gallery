@@ -32,7 +32,7 @@ class AiTaggingService(
     private val imgDataBuffer = FloatBuffer.allocate(1 * 448 * 448 * 3)
 
     init {
-        ensureInitialized()
+        // 起動時の初期化を停止。必要時に ensureInitialized() を呼ぶ
     }
 
     fun ensureInitialized() {
@@ -152,7 +152,8 @@ class AiTaggingService(
             repository.updateAiAnalysisResult(
                 uri = media.uri,
                 ageRating = ageRating,
-                isAiAnalyzed = true
+                isAiAnalyzed = true,
+                folderName = media.folderName
             )
             resizedBitmap.recycle()
             if (bitmap != resizedBitmap) bitmap.recycle()
