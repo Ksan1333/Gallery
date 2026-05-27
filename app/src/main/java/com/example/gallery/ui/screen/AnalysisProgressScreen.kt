@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
-import com.example.gallery.ui.GalleryState
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.AnalysisService
 

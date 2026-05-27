@@ -16,9 +16,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.security.Security
 import org.conscrypt.Conscrypt
-import kotlin.system.exitProcess
-
-import com.example.gallery.ui.GalleryState
+import com.example.gallery.ui.state.GalleryState
 
 class GalleryApplication : Application(), ImageLoaderFactory {
     lateinit var galleryState: GalleryState

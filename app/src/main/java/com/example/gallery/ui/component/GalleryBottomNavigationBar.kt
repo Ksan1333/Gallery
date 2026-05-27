@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import com.example.gallery.ui.GalleryState
-import com.example.gallery.ui.GalleryViewMode
+import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.state.GalleryViewMode
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

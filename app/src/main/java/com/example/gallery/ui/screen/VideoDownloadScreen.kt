@@ -2,15 +2,12 @@ package com.example.gallery.ui.screen
 
 import android.content.Context
 import android.media.MediaScannerConnection
-import android.os.Environment
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
@@ -27,14 +24,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.gallery.data.local.entity.VideoDownloadEntity
-import com.example.gallery.ui.AppConstants
-import com.example.gallery.ui.GalleryState
+import com.example.gallery.ui.state.GalleryState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.TlsVersion
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import java.io.File
@@ -67,7 +62,6 @@ fun VideoDownloadScreen(
     val scope = rememberCoroutineScope()
     var urlInput by remember { mutableStateOf("") }
     var showDownloadModal by remember { mutableStateOf(false) }
-    var selectedQuality by remember { mutableStateOf("High (1080p)") }
     
     val downloads by galleryState.repository.mediaDao.getAllVideoDownloads().collectAsState(initial = emptyList())
 

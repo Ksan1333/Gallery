@@ -1,39 +1,32 @@
 package com.example.gallery.ui.screen
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.gallery.ui.GalleryState
-import com.example.gallery.ui.MediaData
-import com.example.gallery.ui.AgeRatingFilter
-import com.example.gallery.ui.component.CategoryData
-import com.example.gallery.ui.component.CategoryScreen
+import com.example.gallery.data.model.MediaData
+import com.example.gallery.ui.state.*
+import com.example.gallery.ui.screen.CategoryData
+import com.example.gallery.ui.screen.CategoryScreen
 import com.example.gallery.service.GlobalOperationService
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.clickable
-import java.util.Calendar
-import java.util.Date
 import java.text.SimpleDateFormat
-import java.util.Locale
+import java.util.*
 
-@OptIn(kotlinx.coroutines.FlowPreview::class)
+@OptIn(kotlinx.coroutines.FlowPreview::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MyListScreen(
     onShowViewer: () -> Unit,

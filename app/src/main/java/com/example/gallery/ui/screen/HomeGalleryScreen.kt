@@ -1,29 +1,20 @@
 package com.example.gallery.ui.screen
 
-import android.Manifest
-import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.example.gallery.data.model.MediaData
+import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.component.GalleryGridView
-import com.example.gallery.ui.component.PictureViewer
+import com.example.gallery.ui.state.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.example.gallery.ui.AppConstants
-import com.example.gallery.ui.MediaData
-import com.example.gallery.ui.GalleryState
-import com.example.gallery.ui.AgeRatingFilter
-import android.util.Log
-import androidx.compose.runtime.saveable.rememberSaveable
-
 
 @Composable
 fun HomeGalleryScreen(
@@ -123,7 +114,7 @@ fun HomeGalleryScreen(
 
         selectedIndex?.let { initialPage ->
             if (flatListForViewer.isNotEmpty()) {
-                PictureViewer(
+                MediaViewerScreen(
                     onClickedClose = { selectedIndex = null; onHideViewer() },
                     initialPage = initialPage,
                     imageList = flatListForViewer,

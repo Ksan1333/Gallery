@@ -31,9 +31,8 @@ import coil.compose.AsyncImage
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.ui.AppConstants
-import com.example.gallery.ui.component.BookViewer
+import com.example.gallery.ui.screen.BookViewerScreen
 import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.rememberSaveable
 import com.example.gallery.data.repository.BookType
 import kotlinx.coroutines.launch
 
@@ -137,7 +136,7 @@ fun BookScreen(
     }
 
     if (selectedBook != null) {
-        BookViewer(
+        BookViewerScreen(
             book = selectedBook!!,
             repository = repository,
             onClose = { selectedBook = null }

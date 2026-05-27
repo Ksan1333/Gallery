@@ -13,9 +13,11 @@ import com.example.gallery.data.local.dao.MediaDao
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.MediaMetadataSummary
 import com.example.gallery.data.local.entity.TagEntity
-import com.example.gallery.ui.MediaData
-import com.example.gallery.ui.AgeRatingFilter
+import com.example.gallery.data.model.MediaData
+import com.example.gallery.ui.state.AgeRatingFilter
+import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.service.GlobalOperationService
+import com.example.gallery.data.service.VectorSearchService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -27,7 +29,7 @@ import kotlinx.coroutines.sync.withLock
 class MediaRepository(
     private val context: Context,
     val mediaDao: MediaDao,
-    val galleryState: com.example.gallery.ui.GalleryState? = null
+    val galleryState: GalleryState? = null
 ) {
     private var cachedMediaList: List<MediaData>? = null
     private var lastCacheTime: Long = 0
@@ -116,7 +118,7 @@ class MediaRepository(
                             val widthColumn = cursor.getColumnIndex(MediaStore.MediaColumns.WIDTH)
                             val heightColumn = cursor.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
                             val sizeColumn = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
-                            val nameColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
 
                             while (cursor.moveToNext()) {
                                 val id = cursor.getLong(idColumn)

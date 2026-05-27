@@ -1,26 +1,13 @@
 package com.example.gallery.ui.component
 
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.FilterAlt
-import androidx.compose.material.icons.filled.Gif
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.ImageSearch
-import androidx.compose.material.icons.filled.PrivacyTip
-import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.ViewModule
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,30 +16,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import com.example.gallery.ui.GalleryState
-import kotlinx.coroutines.delay
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.List
-import com.example.gallery.ui.AgeRatingFilter
-import com.example.gallery.ui.DeviceFilter
-import com.example.gallery.ui.GroupingMode
-import com.example.gallery.ui.MediaTypeFilter
-import com.example.gallery.ui.SortMode
-
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.ui.zIndex
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.OperationState
+import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.state.AgeRatingFilter
+import com.example.gallery.ui.state.DeviceFilter
+import com.example.gallery.ui.state.GroupingMode
+import com.example.gallery.ui.state.MediaTypeFilter
+import com.example.gallery.ui.state.SortMode
+import kotlinx.coroutines.delay
 
 @Composable
 fun GlobalProgressOverlay() {

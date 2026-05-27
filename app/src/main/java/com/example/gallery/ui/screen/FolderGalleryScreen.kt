@@ -2,21 +2,18 @@ package com.example.gallery.ui.screen
 
 import android.Manifest
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.FolderSpecial
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,17 +22,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.gallery.ui.GalleryState
-import com.example.gallery.ui.GalleryViewMode
-import com.example.gallery.ui.AgeRatingFilter
-import com.example.gallery.ui.MediaData
-import com.example.gallery.ui.component.CategoryData
-import com.example.gallery.ui.component.CategoryScreen
-import android.widget.Toast
+import com.example.gallery.data.model.MediaData
+import com.example.gallery.ui.state.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
@@ -234,7 +225,12 @@ fun FolderGalleryScreen(
             selectedCategoryTitle = selectedFolderName,
             selectedCategoryMedia = folderData[selectedFolderName]?.filter { m ->
                 val rating = metadataMap[m.uri]?.ageRating ?: "SFW"
-                when (galleryState.ageRatingFilter) { AgeRatingFilter.ALL -> true; AgeRatingFilter.SFW -> rating == "SFW"; AgeRatingFilter.R15 -> rating == "R15"; AgeRatingFilter.R18 -> rating == "R18" }
+                when (galleryState.ageRatingFilter) {
+                    AgeRatingFilter.ALL -> true
+                    AgeRatingFilter.SFW -> rating == "SFW"
+                    AgeRatingFilter.R15 -> rating == "R15"
+                    AgeRatingFilter.R18 -> rating == "R18"
+                }
             } ?: emptyList(),
             onBackFromCategory = { if (selectedFolderName != null) { selectedFolderName = null; isSubCategorySelected = false } else if (selectedGroupId != null) selectedGroupId = null else onBackToFolders() },
             onTabIconClick = { selectedFolderName = null; isSubCategorySelected = false; selectedGroupId = null; onBackToFolders() },

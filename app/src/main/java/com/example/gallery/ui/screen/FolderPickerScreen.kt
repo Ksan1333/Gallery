@@ -1,6 +1,5 @@
 package com.example.gallery.ui.screen
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -16,9 +15,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
-import com.example.gallery.ui.GalleryState
-import com.example.gallery.ui.component.CategoryCard
-import com.example.gallery.ui.component.CategoryData
+import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.screen.CategoryCard
+import com.example.gallery.ui.screen.CategoryData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
