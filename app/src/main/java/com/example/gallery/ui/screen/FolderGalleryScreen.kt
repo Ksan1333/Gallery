@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -47,8 +48,6 @@ fun FolderGalleryScreen(
     var selectedFolderName by rememberSaveable { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
-    val folderGroups by galleryState.repository.getAllFolderGroups().collectAsState(initial = emptyList())
-    val groupMembers by galleryState.repository.getAllFolderGroupMembers().collectAsState(initial = emptyList())
     val managedFolders by galleryState.repository.getAllManagedFolders().collectAsState(initial = emptyList())
     val managedFolderNames = remember(managedFolders) { managedFolders.map { it.folderName } }
     val folderThumbnails = remember(managedFolders) { managedFolders.associate { it.folderName to it.customThumbnailUri } }
@@ -69,14 +68,9 @@ fun FolderGalleryScreen(
             }
     }
 
-    var showCreateGroupDialog by remember { mutableStateOf(false) }
-    var newGroupName by remember { mutableStateOf("") }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
-    var showDeleteGroupConfirm by remember { mutableStateOf<String?>(null) }
-    var selectedFoldersForGroup by remember { mutableStateOf<List<String>?>(null) }
     var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
-    var selectedGroupId by rememberSaveable { mutableStateOf<String?>(null) }
 
     var showFolderMenu by remember { mutableStateOf<CategoryData?>(null) }
 
@@ -116,110 +110,50 @@ fun FolderGalleryScreen(
         // Pager logic removed as it's now independent
     }
 
-    BackHandler(isSubCategorySelected || selectedGroupId != null) {
+    BackHandler(isSubCategorySelected) {
         if (selectedFolderName != null) {
             selectedFolderName = null
             isSubCategorySelected = false
-        } else if (selectedGroupId != null) {
-            selectedGroupId = null
         }
     }
 
-    val memberMap = groupMembers.groupBy { it.groupName }.mapValues { e -> e.value.map { it.folderName } }
-    val foldersInGroups = groupMembers.map { it.folderName }.toSet()
-
-    val categories by remember(selectedGroupId, memberMap, folderData, metadataMap, galleryState.ageRatingFilter, folderThumbnails, folderOrders, folderGroups, foldersInGroups) {
+    val categories by remember(folderData, metadataMap, galleryState.ageRatingFilter, folderThumbnails, folderOrders) {
         derivedStateOf {
-            if (selectedGroupId != null) {
-                (memberMap[selectedGroupId] ?: emptyList()).map { name ->
-                    if (name.startsWith("group:")) {
-                        val gName = name.removePrefix("group:")
-                        val sub = memberMap[gName] ?: emptyList()
-                        CategoryData(name, gName, sub.size, null, sub.take(4).mapNotNull { folderData[it]?.firstOrNull()?.uri }, isGroup = true)
-                    } else {
-                        val images = folderData[name] ?: emptyList()
-                        val filtered = images.filter { m ->
-                            val rating = metadataMap[m.uri]?.ageRating ?: "SFW"
-                            galleryState.ageRatingFilter == AgeRatingFilter.ALL || (galleryState.ageRatingFilter == AgeRatingFilter.SFW && rating == "SFW") || (galleryState.ageRatingFilter == AgeRatingFilter.R15 && rating == "R15") || (galleryState.ageRatingFilter == AgeRatingFilter.R18 && rating == "R18")
-                        }
-                        CategoryData(
-                            id = name,
-                            title = name,
-                            count = filtered.size,
-                            thumbnail = folderThumbnails[name] ?: filtered.firstOrNull()?.uri ?: images.firstOrNull()?.uri,
-                            isPhysical = managedFolderNames.contains(name)
-                        )
-                    }
-                }.sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.title }))
-            } else {
-                val topFolders = folderData.filter { !foldersInGroups.contains(it.key) }.map { (name, images) ->
-                    val filtered = images.filter { m ->
-                        val rating = metadataMap[m.uri]?.ageRating ?: "SFW"
-                        galleryState.ageRatingFilter == AgeRatingFilter.ALL || (galleryState.ageRatingFilter == AgeRatingFilter.SFW && rating == "SFW") || (galleryState.ageRatingFilter == AgeRatingFilter.R15 && rating == "R15") || (galleryState.ageRatingFilter == AgeRatingFilter.R18 && rating == "R18")
-                    }
-                    CategoryData(
-                        id = name,
-                        title = name,
-                        count = filtered.size,
-                        thumbnail = folderThumbnails[name] ?: filtered.firstOrNull()?.uri ?: images.firstOrNull()?.uri,
-                        isPhysical = managedFolderNames.contains(name)
-                    )
+            folderData.map { (name, images) ->
+                val filtered = images.filter { m ->
+                    val rating = metadataMap[m.uri]?.ageRating ?: "SFW"
+                    galleryState.ageRatingFilter == AgeRatingFilter.ALL || (galleryState.ageRatingFilter == AgeRatingFilter.SFW && rating == "SFW") || (galleryState.ageRatingFilter == AgeRatingFilter.R15 && rating == "R15") || (galleryState.ageRatingFilter == AgeRatingFilter.R18 && rating == "R18")
                 }
-                val groups = folderGroups.filter { !foldersInGroups.contains("group:${it.name}") }.map { g ->
-                    val sub = memberMap[g.name] ?: emptyList()
-                    CategoryData("group:${g.name}", g.name, sub.size, null, sub.take(4).mapNotNull { folderData[it]?.firstOrNull()?.uri }, isGroup = true)
-                }
-                (topFolders + groups).sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.title }))
-            }.filter { it.isGroup || it.isPhysical || (folderData[it.id]?.size ?: 0) > 0 || folderThumbnails[it.id] != null }
+                CategoryData(
+                    id = name,
+                    title = name,
+                    count = filtered.size,
+                    thumbnail = folderThumbnails[name] ?: filtered.firstOrNull()?.uri ?: images.firstOrNull()?.uri,
+                    isPhysical = managedFolderNames.contains(name)
+                )
+            }.sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.title }))
+            .filter { it.isPhysical || (folderData[it.id]?.size ?: 0) > 0 || folderThumbnails[it.id] != null }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         CategoryScreen(
-            title = if (selectedGroupId != null) selectedGroupId!! else if (isSelectionMode) "移動先フォルダを選択" else "フォルダ",
+            title = if (isSelectionMode) "移動先フォルダを選択" else "フォルダ",
             categories = categories, isLoading = isLoading, galleryState = galleryState,
             onNavigateToTag = { tag ->
                 onBackToFolders() // まずフォルダリストへ戻る
                 onFolderSelected("TAG_NAVIGATION:$tag") // 特別なプレフィックスで通知 (MainActivityで処理)
             },
-            onMenuClick = if (selectedGroupId == null && !isSelectionMode) onMenuClick else null,
+            onMenuClick = if (!isSelectionMode) onMenuClick else null,
             topBarActions = {
-                var showTopMenu by remember { mutableStateOf(false) }
-                Box {
-                    IconButton(onClick = { showTopMenu = true }) { Icon(Icons.Default.MoreVert, "メニュー", tint = Color.White) }
-                    DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                        if (selectedFolderName != null) {
-                            // フォルダの中を表示中
-                            DropdownMenuItem(
-                                text = { Text("サムネイルを削除", color = Color.White) },
-                                leadingIcon = { Icon(Icons.Default.Refresh, null, tint = Color.White) },
-                                onClick = {
-                                    showTopMenu = false
-                                    scope.launch {
-                                        galleryState.repository.updateFolderThumbnail(selectedFolderName!!, null)
-                                        Toast.makeText(context, "サムネイルをリセットしました", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            )
-                        } else {
-                            // フォルダ一覧を表示中
-                            if (selectedGroupId != null && !isSelectionMode) DropdownMenuItem(text = { Text("グループ削除", color = Color.White) }, onClick = { showTopMenu = false; showDeleteGroupConfirm = selectedGroupId })
-                            if (selectedGroupId == null && !isSelectionMode) {
-                                DropdownMenuItem(text = { Text("フォルダ作成", color = Color.White) }, onClick = { showTopMenu = false; showCreateFolderDialog = true })
-                                DropdownMenuItem(text = { Text("グループ作成", color = Color.White) }, onClick = { showTopMenu = false; showCreateGroupDialog = true })
-                            }
-                        }
+                if (selectedFolderName == null && !isSelectionMode) {
+                    IconButton(onClick = { showCreateFolderDialog = true }) {
+                        Icon(androidx.compose.material.icons.Icons.Default.Add, "フォルダ作成", tint = Color.White)
                     }
                 }
             },
-            onCategoryClick = { if (it.isGroup) selectedGroupId = it.title else { if (isSelectionMode) onFolderSelected(it.id) else { selectedFolderName = it.id; isSubCategorySelected = true } } },
-            onCategoryLongClick = { if (!it.isGroup) showFolderMenu = it },
-            onMoveSelectedToGroup = { selectedFoldersForGroup = it },
-            onDeleteGroups = { if (it.isNotEmpty()) showDeleteGroupConfirm = it.first() },
-            onDrop = { drag, target ->
-                if (target.startsWith("group:")) { scope.launch { galleryState.repository.addFolderToGroup(drag, target.removePrefix("group:")) } }
-                else if (target == "ROOT" && selectedGroupId != null) scope.launch { galleryState.repository.removeFolderFromGroup(drag) }
-            },
+            onCategoryClick = { if (isSelectionMode) onFolderSelected(it.id) else { selectedFolderName = it.id; isSubCategorySelected = true } },
+            onCategoryLongClick = { showFolderMenu = it },
             onReorder = { ids -> scope.launch { galleryState.repository.updateFolderOrders(ids.mapIndexed { i, id -> com.example.gallery.data.local.entity.FolderOrderEntity(id, i) }) } },
             onShowViewer = onShowViewer, onHideViewer = onHideViewer,
             selectedCategoryTitle = selectedFolderName,
@@ -232,8 +166,8 @@ fun FolderGalleryScreen(
                     AgeRatingFilter.R18 -> rating == "R18"
                 }
             } ?: emptyList(),
-            onBackFromCategory = { if (selectedFolderName != null) { selectedFolderName = null; isSubCategorySelected = false } else if (selectedGroupId != null) selectedGroupId = null else onBackToFolders() },
-            onTabIconClick = { selectedFolderName = null; isSubCategorySelected = false; selectedGroupId = null; onBackToFolders() },
+            onBackFromCategory = { if (selectedFolderName != null) { selectedFolderName = null; isSubCategorySelected = false } else onBackToFolders() },
+            onTabIconClick = { selectedFolderName = null; isSubCategorySelected = false; onBackToFolders() },
             lastViewedUri = galleryState.lastViewedUri, 
             onPageChangedInViewer = { galleryState.lastViewedUri = it }, 
             onBulkEdit = onBulkEdit,
@@ -241,24 +175,9 @@ fun FolderGalleryScreen(
         )
     }
 
-    if (showCreateGroupDialog) {
-        AlertDialog(onDismissRequest = { showCreateGroupDialog = false }, title = { Text("グループ作成") }, text = { OutlinedTextField(value = newGroupName, onValueChange = { newGroupName = it }, label = { Text("グループ名") }, singleLine = true, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = { Button(onClick = { if (newGroupName.isNotBlank()) { scope.launch { galleryState.repository.createFolderGroup(newGroupName.trim()); showCreateGroupDialog = false; newGroupName = "" } } }) { Text("作成") } }, dismissButton = { TextButton(onClick = { showCreateGroupDialog = false }) { Text("キャンセル") } })
-    }
     if (showCreateFolderDialog) {
         AlertDialog(onDismissRequest = { showCreateFolderDialog = false }, title = { Text("フォルダ作成") }, text = { Column { Text("DCIM直下に作成されます", fontSize = 12.sp, color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = newFolderName, onValueChange = { newFolderName = it }, label = { Text("フォルダ名") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } },
             confirmButton = { Button(onClick = { if (newFolderName.isNotBlank()) { scope.launch { if (galleryState.repository.createFolderUnderDCIM(newFolderName.trim())) { galleryState.repository.addManagedFolder(newFolderName.trim()); loadAllMedia() }; showCreateFolderDialog = false; newFolderName = "" } } }) { Text("作成") } }, dismissButton = { TextButton(onClick = { showCreateFolderDialog = false }) { Text("キャンセル") } })
-    }
-    if (showDeleteGroupConfirm != null) {
-        val name = showDeleteGroupConfirm!!
-        AlertDialog(onDismissRequest = { showDeleteGroupConfirm = null }, title = { Text("グループ削除") }, text = { Text("グループ「$name」を削除しますか？\n中のフォルダは削除されず、外に出されます。") },
-            confirmButton = { Button(onClick = { scope.launch { galleryState.repository.deleteFolderGroup(name); if (selectedGroupId == name) selectedGroupId = null; showDeleteGroupConfirm = null } }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("削除") } }, dismissButton = { TextButton(onClick = { showDeleteGroupConfirm = null }) { Text("キャンセル") } })
-    }
-    if (selectedFoldersForGroup != null) {
-        val ids = selectedFoldersForGroup!!
-        AlertDialog(onDismissRequest = { selectedFoldersForGroup = null }, title = { Text(if (ids.size == 1) "${ids.first()} を移動" else "${ids.size} 件を移動") },
-            text = { Column { Button(onClick = { scope.launch { ids.forEach { galleryState.repository.removeFolderFromGroup(it) }; selectedFoldersForGroup = null } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) { Text("グループ解除") }; Spacer(Modifier.height(16.dp)); Text("移動先を選択:"); LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) { items(folderGroups) { g -> ListItem(headlineContent = { Text(g.name) }, modifier = Modifier.clickable { scope.launch { ids.forEach { galleryState.repository.addFolderToGroup(it, g.name) }; selectedFoldersForGroup = null } }) } } } },
-            confirmButton = {}, dismissButton = { TextButton(onClick = { selectedFoldersForGroup = null }) { Text("キャンセル") } })
     }
 
     if (showFolderMenu != null) {

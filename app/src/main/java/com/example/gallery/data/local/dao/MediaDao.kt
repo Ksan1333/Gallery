@@ -16,11 +16,14 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata WHERE uri = :uri")
     fun getMetadataFlow(uri: String): Flow<MediaMetadataEntity?>
 
-    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata WHERE uri = :uri")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata WHERE uri = :uri")
     fun getMetadataSummaryFlow(uri: String): Flow<MediaMetadataSummary?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMetadata(metadata: MediaMetadataEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun bulkInsertMetadata(metadataList: List<MediaMetadataEntity>)
 
     @Query("DELETE FROM media_metadata WHERE uri = :uri")
     suspend fun deleteMetadata(uri: String)
@@ -82,16 +85,16 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata")
     fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
-    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata")
     suspend fun getAllMetadataSummary(): List<MediaMetadataSummary>
 
-    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata")
     fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
 
     @Query("SELECT * FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
     fun getDeletedMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
-    @Query("SELECT uri, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
     fun getDeletedMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
 
     @Query("SELECT * FROM media_metadata WHERE ageRating = :ageRating AND featureVector IS NOT NULL")
@@ -127,27 +130,18 @@ interface MediaDao {
     @Query("UPDATE media_metadata SET featureVector = :featureVector WHERE uri = :uri")
     suspend fun updateFeatureVector(uri: String, featureVector: FloatArray?)
 
-    // フォルダグループ用
-    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
-    suspend fun insertFolderGroup(group: com.example.gallery.data.local.entity.FolderGroupEntity)
+    // 計測データ用
+    @Query("SELECT * FROM measure_stats WHERE uri = :uri")
+    suspend fun getMeasureStats(uri: String): com.example.gallery.data.local.entity.MeasureStatsEntity?
 
-    @Query("SELECT * FROM folder_groups")
-    fun getAllFolderGroups(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.FolderGroupEntity>>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMeasureStats(stats: com.example.gallery.data.local.entity.MeasureStatsEntity)
 
-    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
-    suspend fun insertFolderGroupMember(member: com.example.gallery.data.local.entity.FolderGroupMemberEntity)
+    @Query("SELECT * FROM measure_stats ORDER BY totalDurationSeconds DESC, viewCount DESC LIMIT :limit")
+    fun getTopMeasureStats(limit: Int): Flow<List<com.example.gallery.data.local.entity.MeasureStatsEntity>>
 
-    @Query("SELECT * FROM folder_group_members")
-    fun getAllFolderGroupMembers(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.FolderGroupMemberEntity>>
-
-    @Query("DELETE FROM folder_group_members WHERE folderName = :folderName")
-    suspend fun removeFolderFromAllGroups(folderName: String)
-
-    @Query("DELETE FROM folder_groups WHERE name = :groupName")
-    suspend fun deleteFolderGroup(groupName: String)
-
-    @Query("DELETE FROM folder_group_members WHERE groupName = :groupName")
-    suspend fun deleteFolderGroupMembers(groupName: String)
+    @Query("SELECT * FROM measure_stats")
+    fun getAllMeasureStatsFlow(): Flow<List<com.example.gallery.data.local.entity.MeasureStatsEntity>>
 
     // フォルダ順序用
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -191,4 +185,34 @@ interface MediaDao {
 
     @Query("DELETE FROM video_downloads")
     suspend fun clearVideoDownloadHistory()
+
+    // Paging Support with Filtering
+    @Query("""
+        SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector 
+        FROM media_metadata 
+        WHERE isDeleted = 0 
+        AND (:mediaType = 'ALL' 
+            OR (:mediaType = 'IMAGE' AND mimeType NOT LIKE 'video/%' AND mimeType NOT LIKE 'image/gif' AND uri NOT LIKE '%.gif') 
+            OR (:mediaType = 'VIDEO' AND mimeType LIKE 'video/%') 
+            OR (:mediaType = 'GIF' AND (mimeType LIKE 'image/gif' OR uri LIKE '%.gif')))
+        AND (:ageRating = 'ALL' OR ageRating = :ageRating)
+        AND (:deviceFilter = 'ALL' 
+            OR (:deviceFilter = 'SMARTPHONE' AND height > width AND (height * 100 / width) BETWEEN (:aspectRatio100 - 20) AND (:aspectRatio100 + 20))
+            OR (:deviceFilter = 'PC' AND width > height AND (width * 100 / height) > 130))
+        ORDER BY 
+            CASE WHEN :sortMode = 'DATE_ADDED' AND :isAscending = 1 THEN dateAdded END ASC,
+            CASE WHEN :sortMode = 'DATE_ADDED' AND :isAscending = 0 THEN dateAdded END DESC,
+            CASE WHEN :sortMode = 'SIZE' AND :isAscending = 1 THEN fileSize END ASC,
+            CASE WHEN :sortMode = 'SIZE' AND :isAscending = 0 THEN fileSize END DESC,
+            CASE WHEN :sortMode = 'NAME' AND :isAscending = 1 THEN fileName END ASC,
+            CASE WHEN :sortMode = 'NAME' AND :isAscending = 0 THEN fileName END DESC
+    """)
+    fun getFilteredMediaPagingSource(
+        mediaType: String, 
+        ageRating: String, 
+        deviceFilter: String,
+        aspectRatio100: Int,
+        sortMode: String,
+        isAscending: Boolean
+    ): androidx.paging.PagingSource<Int, MediaMetadataSummary>
 }

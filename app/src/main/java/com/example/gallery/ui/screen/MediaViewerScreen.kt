@@ -142,6 +142,53 @@ fun MediaViewerScreen(
 
     val currentMedia = remember(pagerState.currentPage, imageList) { imageList.getOrNull(pagerState.currentPage) }
 
+    // 計測モード用
+    var viewStartTime by remember { mutableLongStateOf(0L) }
+    var lastViewedUriInMode by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(pagerState.currentPage, galleryState?.isMeasureModeActive) {
+        val state = galleryState ?: return@LaunchedEffect
+        val currentUri = currentMedia?.uri
+        if (state.isMeasureModeActive) {
+            // 前の画像の時間を記録
+            if (lastViewedUriInMode != null && viewStartTime > 0) {
+                val duration = (System.currentTimeMillis() - viewStartTime) / 1000
+                if (duration > 0) {
+                    state.repository.updateMeasureStats(lastViewedUriInMode!!, duration)
+                }
+            }
+            // 新しい画像の開始時間を記録
+            viewStartTime = System.currentTimeMillis()
+            lastViewedUriInMode = currentUri
+        } else {
+            // モード終了時に最後の画像を記録
+            if (lastViewedUriInMode != null && viewStartTime > 0) {
+                val duration = (System.currentTimeMillis() - viewStartTime) / 1000
+                if (duration > 0) {
+                    state.repository.updateMeasureStats(lastViewedUriInMode!!, duration)
+                }
+            }
+            viewStartTime = 0L
+            lastViewedUriInMode = null
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            val state = galleryState
+            if (state?.isMeasureModeActive == true && lastViewedUriInMode != null && viewStartTime > 0) {
+                val duration = (System.currentTimeMillis() - viewStartTime) / 1000
+                if (duration > 0) {
+                    val uri = lastViewedUriInMode!!
+                    val repo = state.repository
+                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        repo.updateMeasureStats(uri, duration)
+                    }
+                }
+            }
+        }
+    }
+
     val currentMetadata by remember(currentMedia?.uri) {
         galleryState?.repository?.mediaDao?.getMetadataSummaryFlow(currentMedia?.uri ?: "")
             ?: kotlinx.coroutines.flow.flowOf(null)

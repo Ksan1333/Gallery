@@ -16,6 +16,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
@@ -330,6 +333,52 @@ fun AppNavigation() {
                     )
                 )
 
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = Color.Gray.copy(alpha = 0.3f)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text(if (galleryState.isMeasureModeActive) "計測モード停止中..." else "計測モード開始") },
+                    selected = galleryState.isMeasureModeActive,
+                    onClick = {
+                        galleryState.isMeasureModeActive = !galleryState.isMeasureModeActive
+                        if (!galleryState.isMeasureModeActive) {
+                            // 計測停止時に何か処理が必要ならここ
+                        }
+                    },
+                    icon = { 
+                        Icon(
+                            if (galleryState.isMeasureModeActive) Icons.Default.Pause else Icons.Default.PlayArrow, 
+                            null,
+                            tint = if (galleryState.isMeasureModeActive) Color.Red else Color.Green
+                        ) 
+                    },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White,
+                        selectedContainerColor = Color.DarkGray,
+                        selectedTextColor = Color.Red,
+                        selectedIconColor = Color.Red
+                    )
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("おすすめ") },
+                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "recommendations",
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("recommendations")
+                    },
+                    icon = { Icon(Icons.Default.Star, null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
+                )
+
                 Spacer(Modifier.weight(1f))
                 Spacer(Modifier.height(12.dp))
             }
@@ -560,6 +609,15 @@ fun AppNavigation() {
                     isBottomBarVisible = true
                     VideoDownloadScreen(
                         galleryState = galleryState,
+                        onMenuClick = { scope.launch { drawerState.open() } }
+                    )
+                }
+                composable("recommendations") {
+                    isBottomBarVisible = true
+                    RecommendationScreen(
+                        galleryState = galleryState,
+                        onShowViewer = { isBottomBarVisible = false },
+                        onHideViewer = { isBottomBarVisible = true },
                         onMenuClick = { scope.launch { drawerState.open() } }
                     )
                 }

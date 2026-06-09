@@ -7,7 +7,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.component.GalleryGridView
@@ -26,13 +28,34 @@ fun HomeGalleryScreen(
     onBulkEdit: ((List<String>) -> Unit)? = null,
     onNavigateToTag: ((String) -> Unit)? = null // 追加
 ) {
-    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val deviceAspectRatio = configuration.screenHeightDp.toFloat() / configuration.screenWidthDp.toFloat()
+
+    val pagingItems = remember(
+        galleryState.mediaTypeFilter,
+        galleryState.ageRatingFilter,
+        galleryState.deviceFilter,
+        galleryState.sortMode,
+        galleryState.isAscending,
+        galleryState.groupingMode,
+        galleryState.refreshTrigger
+    ) {
+        galleryState.repository.getGridItemPagingFlow(
+            mediaType = galleryState.mediaTypeFilter,
+            ageRating = galleryState.ageRatingFilter,
+            deviceFilter = galleryState.deviceFilter,
+            deviceAspectRatio = deviceAspectRatio,
+            sortMode = galleryState.sortMode,
+            isAscending = galleryState.isAscending,
+            groupingMode = galleryState.groupingMode
+        )
+    }.collectAsLazyPagingItems()
+
     var imageList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     
     // インスタンス状態への保存を停止（TransactionTooLargeException対策）
-    // configChanges を設定しているため、回転時にはこれで保持される
     val flatListForViewerState = remember {
         mutableStateOf(emptyList<MediaData>()) 
     }
@@ -72,17 +95,18 @@ fun HomeGalleryScreen(
     }
 
     fun localLoadImages() {
-        // すでにロード中なら重複して走らせない
         if (isLoading) return
         
         scope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { isLoading = true }
-            val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
+            
+            // 1. 裏で同期を実行。同期が終わるのを待たずにUIはPagingで勝手に更新される。
+            galleryState.repository.syncMediaStoreToRoom()
+            
+            // 2. Viewer用の全リスト同期などのためにDBから取得
+            val updatedMedia = galleryState.repository.getAllMedia(forceRefresh = true)
             withContext(Dispatchers.Main) {
-                // 件数や最初のアイテムが違う場合のみ更新（簡易的な比較）
-                if (imageList.size != allMedia.size || imageList.getOrNull(0)?.uri != allMedia.getOrNull(0)?.uri) {
-                    imageList = allMedia
-                }
+                imageList = updatedMedia
                 isLoading = false
             }
         }
@@ -97,6 +121,7 @@ fun HomeGalleryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             GalleryGridView(
                 imageList = imageList,
+                pagingItems = pagingItems,
                 onImageClick = { index, list -> flatListForViewer = list; selectedIndex = index; onShowViewer() },
                 galleryState = galleryState,
                 isLoading = isLoading,

@@ -70,9 +70,7 @@ data class CategoryData(
     val title: String,
     val count: Int,
     val thumbnail: String?,
-    val groupThumbnails: List<String>? = null,
     val indicatorColor: Color? = null,
-    val isGroup: Boolean = false,
     val isPhysical: Boolean = false,
     val subTitle: String? = null
 )
@@ -105,10 +103,7 @@ fun CategoryScreen(
     onBulkEdit: ((List<String>) -> Unit)? = null,
     onScrollConsumed: () -> Unit = {},
     onNavigateToTag: ((String) -> Unit)? = null,
-    onDrop: (String, String) -> Unit = { _, _ -> },
     onCategoryLongClick: (CategoryData) -> Unit = {},
-    onMoveSelectedToGroup: (List<String>) -> Unit = {},
-    onDeleteGroups: (List<String>) -> Unit = {},
     onReorder: (List<String>) -> Unit = {},
     showThumbnails: Boolean = true,
     initialColumnIndex: Int? = null
@@ -151,7 +146,6 @@ fun CategoryScreen(
     var initialDragCenter by remember { mutableStateOf(Offset.Zero) }
     var initialDragLocalOffset by remember { mutableStateOf(Offset.Zero) }
     val categoryBounds = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
-    val currentOnDrop by rememberUpdatedState(onDrop)
     val currentOnReorder by rememberUpdatedState(onReorder)
 
     val previewCategories = remember { mutableStateListOf<CategoryData>() }
@@ -221,16 +215,6 @@ fun CategoryScreen(
         }
     }
 
-    val onlyGroupsSelected = remember(selectedCategoryIds, previewCategories) {
-        selectedCategoryIds.isNotEmpty() && selectedCategoryIds.all { id -> previewCategories.find { it.id == id }?.isGroup == true }
-    }
-    val selectedGroupTitles = remember(selectedCategoryIds, previewCategories) {
-        selectedCategoryIds.mapNotNull { id ->
-            val cat = previewCategories.find { it.id == id }
-            if (cat?.isGroup == true) cat.title else null
-        }
-    }
-
     var showSelectionMenu by remember { mutableStateOf(false) }
 
     Box(
@@ -280,25 +264,6 @@ fun CategoryScreen(
                                 onDismissRequest = { showSelectionMenu = false },
                                 modifier = Modifier.background(Color.DarkGray)
                             ) {
-                                if (onlyGroupsSelected) {
-                                    DropdownMenuItem(
-                                        text = { Text("グループ削除", color = Color.White) },
-                                        onClick = {
-                                            showSelectionMenu = false
-                                            onDeleteGroups(selectedGroupTitles)
-                                            selectedCategoryIds.clear()
-                                        }
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = { Text("グループへ移動", color = Color.White) },
-                                    onClick = {
-                                        showSelectionMenu = false
-                                        onMoveSelectedToGroup(selectedCategoryIds.toList())
-                                        selectedCategoryIds.clear()
-                                        isCategorySelectionMode = false
-                                    }
-                                )
                                 DropdownMenuItem(
                                     text = { Text("一括編集", color = Color.White) },
                                     onClick = {
@@ -410,45 +375,26 @@ fun CategoryScreen(
                                                         if (foundTarget != null) {
                                                             val targetId = foundTarget.key
                                                             val targetBounds = foundTarget.value
-                                                            val targetCat = previewCategories.find { it.id == targetId }
-                                                            val groupZone = targetBounds.deflate(targetBounds.width * 0.2f)
-                                                            if (targetCat?.isGroup == true && groupZone.contains(currentCenter) && !selectedCategoryIds.contains(targetId)) {
-                                                                hoveredCategoryId = targetId
-                                                            } else {
-                                                                hoveredCategoryId = null
-                                                                val fromIndex = previewCategories.indexOfFirst { it.id == category.id }
-                                                                val toIndex = previewCategories.indexOfFirst { it.id == targetId }
-                                                                val swapThreshold = targetBounds.width * 0.15f
-                                                                val isNearEdges = currentCenter.x < targetBounds.left + swapThreshold ||
-                                                                                currentCenter.x > targetBounds.right - swapThreshold ||
-                                                                                currentCenter.y < targetBounds.top + swapThreshold ||
-                                                                                currentCenter.y > targetBounds.bottom - swapThreshold
-                                                                if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex && isNearEdges) {
-                                                                    val item = previewCategories.removeAt(fromIndex)
-                                                                    previewCategories.add(toIndex, item)
-                                                                }
+                                                            hoveredCategoryId = null
+                                                            val fromIndex = previewCategories.indexOfFirst { it.id == category.id }
+                                                            val toIndex = previewCategories.indexOfFirst { it.id == targetId }
+                                                            val swapThreshold = targetBounds.width * 0.15f
+                                                            val isNearEdges = currentCenter.x < targetBounds.left + swapThreshold ||
+                                                                            currentCenter.x > targetBounds.right - swapThreshold ||
+                                                                            currentCenter.y < targetBounds.top + swapThreshold ||
+                                                                            currentCenter.y > targetBounds.bottom - swapThreshold
+                                                            if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex && isNearEdges) {
+                                                                val item = previewCategories.removeAt(fromIndex)
+                                                                previewCategories.add(toIndex, item)
                                                             }
                                                         } else {
-                                                            if (categoryBounds["ROOT"]?.contains(currentCenter) == true) {
-                                                                hoveredCategoryId = "ROOT"
-                                                            } else {
-                                                                hoveredCategoryId = null
-                                                            }
+                                                            hoveredCategoryId = null
                                                         }
                                                     }
                                                 },
                                                 onDragEnd = {
                                                     if (draggedCategoryId == category.id) {
-                                                        if (hoveredCategoryId != null) {
-                                                            val targetId = hoveredCategoryId!!
-                                                            selectedCategoryIds.forEach { id ->
-                                                                currentOnDrop(id, targetId)
-                                                            }
-                                                            selectedCategoryIds.clear()
-                                                            isCategorySelectionMode = false
-                                                        } else {
-                                                            currentOnReorder(previewCategories.map { it.id })
-                                                        }
+                                                        currentOnReorder(previewCategories.map { it.id })
                                                         draggedCategoryId = null
                                                         hoveredCategoryId = null
                                                         dragOffset = Offset.Zero
@@ -470,7 +416,7 @@ fun CategoryScreen(
                                         data = category,
                                         isSelected = selectedCategoryIds.contains(category.id),
                                         isDragging = isDragging,
-                                        isDragTarget = hoveredCategoryId == category.id && category.isGroup,
+                                        isDragTarget = false,
                                         alpha = if (isDragging) 0f else 1f,
                                         onClick = {
                                             if (isCategorySelectionMode) {
@@ -686,34 +632,9 @@ fun CategoryCard(
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (data.isGroup) Color.DarkGray.copy(alpha = 0.8f) else Color.DarkGray)
+                    .background(Color.DarkGray)
             ) {
-                if (data.isGroup) {
-                    if (!data.groupThumbnails.isNullOrEmpty()) {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            Row(modifier = Modifier.weight(1f)) {
-                                Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
-                                    GroupThumbnailItem(data.groupThumbnails.getOrNull(0))
-                                }
-                                Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
-                                    GroupThumbnailItem(data.groupThumbnails.getOrNull(1))
-                                }
-                            }
-                            Row(modifier = Modifier.weight(1f)) {
-                                Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
-                                    GroupThumbnailItem(data.groupThumbnails.getOrNull(2))
-                                }
-                                Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(0.5.dp)) {
-                                    GroupThumbnailItem(data.groupThumbnails.getOrNull(3))
-                                }
-                            }
-                        }
-                    } else {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(imageVector = Icons.Default.FolderCopy, null, tint = Color.LightGray, modifier = Modifier.size(48.dp))
-                        }
-                    }
-                } else if (data.thumbnail != null) {
+                if (data.thumbnail != null) {
                     Image(
                         painter = rememberAsyncImagePainter(
                             model = remember(data.thumbnail) {
@@ -744,7 +665,7 @@ fun CategoryCard(
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = data.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
-        Text(text = if (data.isGroup) "${data.count} フォルダ" else "${data.count} 枚", color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        Text(text = "${data.count} 枚", color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
         if (data.subTitle != null) {
             Text(text = data.subTitle, color = Color.Yellow.copy(alpha = 0.8f), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }

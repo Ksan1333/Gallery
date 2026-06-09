@@ -32,7 +32,7 @@ class GalleryApplication : Application(), ImageLoaderFactory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(this.cacheDir.resolve("image_cache"))
-                    .maxSizePercent(0.02)
+                    .maxSizePercent(0.1) // 2%から10%に拡大
                     .build()
             }
             .components {
@@ -43,8 +43,10 @@ class GalleryApplication : Application(), ImageLoaderFactory {
                 }
                 add(VideoFrameDecoder.Factory())
             }
-            .allowHardware(false) // GIFやアニメーションの品質向上のため、ハードウェアビットマップを無効化
-            .crossfade(false) // アニメーションGIFでの残像（つぶつぶ）を防ぐため無効化
+            .allowRgb565(true) // デコード速度を向上させメモリ消費を半分に
+            .interceptorDispatcher(kotlinx.coroutines.Dispatchers.IO) // IOスレッドで実行
+            .allowHardware(true) // グリッド表示を高速化（ビューワーは個別設定可能）
+            .crossfade(true)
             .build()
     }
 
@@ -55,7 +57,7 @@ class GalleryApplication : Application(), ImageLoaderFactory {
         Security.insertProviderAt(Conscrypt.newProvider(), 1)
 
         galleryState = GalleryState(this)
-        
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

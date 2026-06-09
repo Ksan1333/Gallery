@@ -13,14 +13,13 @@ import com.example.gallery.data.local.entity.TagEntity
     entities = [
         MediaMetadataEntity::class,
         TagEntity::class,
-        com.example.gallery.data.local.entity.FolderGroupEntity::class,
-        com.example.gallery.data.local.entity.FolderGroupMemberEntity::class,
         com.example.gallery.data.local.entity.FolderOrderEntity::class,
         com.example.gallery.data.local.entity.ManagedFolderEntity::class,
         com.example.gallery.data.local.entity.TagTranslationEntity::class,
-        com.example.gallery.data.local.entity.VideoDownloadEntity::class
+        com.example.gallery.data.local.entity.VideoDownloadEntity::class,
+        com.example.gallery.data.local.entity.MeasureStatsEntity::class
     ],
-    version = 13,
+    version = 15,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

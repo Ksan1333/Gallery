@@ -136,7 +136,7 @@ private fun OperationCard(
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "${(op.progress * 100).toInt()}%",
+                            text = "${kotlin.math.round(op.progress * 100).toInt()}%",
                             color = Color.Cyan,
                             fontSize = 12.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold

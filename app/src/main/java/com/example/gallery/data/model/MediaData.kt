@@ -1,10 +1,12 @@
 package com.example.gallery.data.model
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import android.os.Bundle
 
+@Immutable
 data class MediaData(
     val uri: String,
     val dateAdded: Long,
@@ -16,6 +18,7 @@ data class MediaData(
     val fileName: String = "",
     val folderName: String = "" // フォルダ名を保持
 ) {
+    val id: Long get() = uri.substringAfterLast("/").toLongOrNull() ?: -1L
     val isGif: Boolean get() = mimeType == "image/gif" || uri.lowercase().endsWith(".gif") || uri.contains("gif", ignoreCase = true)
     val isVideo: Boolean get() = mimeType?.startsWith("video") == true || uri.contains("video", ignoreCase = true)
     val isPortrait: Boolean get() = height > width && width > 0

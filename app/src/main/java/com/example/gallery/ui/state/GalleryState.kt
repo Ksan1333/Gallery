@@ -52,6 +52,7 @@ class GalleryState(context: Context) {
     // 操作状態
     var isZooming by mutableStateOf(false)
     var isSelectionMode by mutableStateOf(false)
+    var isMeasureModeActive by mutableStateOf(false)
     var lastViewedUri by mutableStateOf<String?>(null)
 
     fun refresh() {
