@@ -1,6 +1,7 @@
 package com.example.gallery
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
@@ -51,20 +52,35 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private var sharedXUrl by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sharedXUrl = intent.extractXStatusUrl()
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
         setContent {
-            AppNavigation()
+            AppNavigation(
+                sharedXUrl = sharedXUrl,
+                onSharedXUrlConsumed = { sharedXUrl = null }
+            )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        sharedXUrl = intent.extractXStatusUrl()
     }
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(
+    sharedXUrl: String? = null,
+    onSharedXUrlConsumed: () -> Unit = {}
+) {
     val context = LocalContext.current
     val galleryState = (context.applicationContext as GalleryApplication).galleryState
     val scope = rememberCoroutineScope()
@@ -74,6 +90,18 @@ fun AppNavigation() {
     galleryState.navController = navController
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var isBottomBarVisible by rememberSaveable { mutableStateOf(true) }
+
+    LaunchedEffect(sharedXUrl) {
+        if (sharedXUrl != null) {
+            navController.navigate("video_downloader") {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     // 通知権限の要求 (Android 13+)
     val notificationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -139,8 +167,7 @@ fun AppNavigation() {
 
     val refreshTrigger = galleryState.refreshTrigger
     LaunchedEffect(refreshTrigger) {
-        // 起動時(0)は3秒待機しUIを優先。権限許可によるリフレッシュ(>0)時は即座に開始
-        if (refreshTrigger == 0) delay(3000)
+        // 起動時も即座にサムネイル生成を開始（UI準備は十分）
         ThumbnailGenerationService.startGenerating(
             context,
             galleryState.repository,
@@ -609,7 +636,18 @@ fun AppNavigation() {
                     isBottomBarVisible = true
                     VideoDownloadScreen(
                         galleryState = galleryState,
-                        onMenuClick = { scope.launch { drawerState.open() } }
+                        onMenuClick = { scope.launch { drawerState.open() } },
+                        onNavigateHome = {
+                            navController.navigate("home") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        initialUrl = sharedXUrl,
+                        onInitialUrlConsumed = onSharedXUrlConsumed
                     )
                 }
                 composable("recommendations") {
@@ -657,3 +695,21 @@ fun AppNavigation() {
         }
     }
 }
+
+private fun Intent.extractXStatusUrl(): String? {
+    val candidates = buildList {
+        dataString?.let { add(it) }
+        getStringExtra(Intent.EXTRA_TEXT)?.let { add(it) }
+        getStringExtra(Intent.EXTRA_SUBJECT)?.let { add(it) }
+    }
+
+    return candidates
+        .asSequence()
+        .mapNotNull { X_STATUS_URL_REGEX.find(it)?.value }
+        .firstOrNull()
+}
+
+private val X_STATUS_URL_REGEX = Regex(
+    """https?://(?:www\.)?(?:x\.com|twitter\.com)/[^\s/]+/status/\d+[^\s]*""",
+    RegexOption.IGNORE_CASE
+)

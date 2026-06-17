@@ -34,7 +34,6 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.*
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.window.Popup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -80,6 +79,7 @@ import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.util.Log
@@ -468,6 +468,8 @@ fun MediaViewerScreen(
                             .graphicsLayer { scaleX = scale.value; scaleY = scale.value; translationX = offsetX.value; translationY = offsetY.value }
                             .pointerInput(Unit) {
                                 awaitEachGesture {
+                                    var accumulatedPan = Offset.Zero
+                                    var isTransforming = false
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val zoomChange = event.calculateZoom()
@@ -475,16 +477,19 @@ fun MediaViewerScreen(
                                         val currentScale = scale.value
                                         val isZoomed = currentScale > 1.01f
                                         if (event.changes.size >= 2 || isZoomed) {
-                                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                            accumulatedPan += panChange
+                                            val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
+                                            if (shouldHandleTransform && (zoomChange != 1f || panChange != Offset.Zero)) {
+                                                isTransforming = true
                                                 scope.launch {
-                                                    val newScale = (currentScale * zoomChange).coerceIn(0.5f, 5f)
+                                                    val newScale = (currentScale * zoomChange).coerceIn(1f, 5f)
                                                     scale.snapTo(newScale)
                                                     val panFactor = if (newScale < 1f) 0.5f else 1f
                                                     offsetX.snapTo(if (newScale > 1.05f) offsetX.value + panChange.x * newScale * panFactor else 0f)
                                                     offsetY.snapTo(offsetY.value + panChange.y * newScale * panFactor)
                                                 }
+                                                event.changes.forEach { if (it.pressed) it.consume() }
                                             }
-                                            event.changes.forEach { if (it.pressed) it.consume() }
                                         } else {
                                             if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 3.0f) {
                                                 isVerticalSwiping = true
@@ -533,8 +538,7 @@ fun MediaViewerScreen(
                                                 }
                                             }
 
-                                            if (scale.value < 0.95f) { scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } } }
-                                            else if (scale.value <= 1.05f) {
+                                            if (scale.value <= 1.05f) {
                                                 if (!isRecommendationVisible && offsetY.value > 250f) onClickedClose()
                                                 else scope.launch { offsetY.animateTo(0f) }
                                             }
@@ -551,6 +555,23 @@ fun MediaViewerScreen(
         if (isUiVisible && !isCurrentPageZoomed && !isRecommendationVisible) {
             val currentMediaItem = imageList.getOrNull(pagerState.currentPage)
             if (currentMediaItem != null) {
+                if (currentMediaItem.isVideo && videoDuration > 0 && !pagerState.isScrollInProgress) {
+                    VideoTransportControlRow(
+                        currentPosition = videoPosition,
+                        duration = videoDuration,
+                        isPlaying = isVideoPlaying,
+                        onTogglePlay = { isVideoPlaying = !isVideoPlaying },
+                        onSeekRequested = { target ->
+                            seekTargetPosition = target
+                            videoPosition = target
+                            isSeeking = true
+                            scope.launch { delay(100); isSeeking = false; seekTargetPosition = -1L }
+                        },
+                        galleryState = galleryState,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
                 var showTagDialog by remember { mutableStateOf(false) }
                 LaunchedEffect(showTagDialog) {
                     if (showTagDialog) {
@@ -575,9 +596,11 @@ fun MediaViewerScreen(
                                             if (!isSeeking) {
                                                 wasPlayingBeforeSeek = isVideoPlaying
                                             }
+                                            val frameStepMs = 1000L / 30L
+                                            val target = (((it.toLong() + frameStepMs / 2) / frameStepMs) * frameStepMs).coerceIn(0L, videoDuration)
                                             isSeeking = true
-                                            videoPosition = it.toLong()
-                                            seekTargetPosition = it.toLong()
+                                            videoPosition = target
+                                            seekTargetPosition = target
                                             isVideoPlaying = false
                                         },
                                         onValueChangeFinished = {
@@ -612,10 +635,29 @@ fun MediaViewerScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 GalleryFloatingActionButton(icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, onClick = { isMuted = !isMuted }, size = 32.dp, iconSize = 18.dp)
                             }
-                            SeekControlRow(currentPosition = videoPosition, duration = videoDuration, onSeekRequested = { target ->
-                                seekTargetPosition = target; videoPosition = target; isSeeking = true
-                                scope.launch { delay(100); isSeeking = false; seekTargetPosition = -1L }
-                            }, galleryState = galleryState)
+                            FrameStepControlRow(
+                                currentPosition = videoPosition,
+                                duration = videoDuration,
+                                onFrameStep = { direction ->
+                                    val frameStepMs = 1000L / 30L
+                                    val target = (videoPosition + direction.toLong() * frameStepMs).coerceIn(0L, videoDuration)
+                                    seekTargetPosition = target
+                                    videoPosition = target
+                                    isSeeking = true
+                                    isVideoPlaying = false
+                                    scope.launch { delay(80); isSeeking = false; seekTargetPosition = -1L }
+                                },
+                                onScrubTo = { target ->
+                                    val bounded = target.coerceIn(0L, videoDuration)
+                                    seekTargetPosition = bounded
+                                    videoPosition = bounded
+                                    isSeeking = true
+                                    isVideoPlaying = false
+                                },
+                                onScrubFinished = {
+                                    scope.launch { delay(80); isSeeking = false; seekTargetPosition = -1L }
+                                }
+                            )
                         }
                     }
 
@@ -669,14 +711,14 @@ fun MediaViewerScreen(
                         GalleryFloatingActionButton(icon = Icons.Default.ScreenRotation, tooltipDescription = "回転 (縦横切替)", size = 36.dp, iconSize = 20.dp, onClick = { val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; screenOrientation = target; (context as Activity).requestedOrientation = target })
 
                         // 3. 再生制御
-                        GalleryFloatingActionButton(
+                        if (false) GalleryFloatingActionButton(
                             icon = if (isVideoPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             tooltipDescription = if (isVideoPlaying) "一時停止" else "再生",
                             size = 36.dp,
                             iconSize = 20.dp,
-                            enabled = currentMediaItem.isVideo,
-                            contentColor = if (currentMediaItem.isVideo) Color.White else Color.Gray,
-                            onClick = { isVideoPlaying = !isVideoPlaying }
+                            enabled = false,
+                            contentColor = Color.Transparent,
+                            onClick = { }
                         )
 
                         // 4. お気に入り
@@ -858,12 +900,173 @@ fun MediaViewerScreen(
 }
 
 @Composable
-fun SeekControlRow(currentPosition: Long, duration: Long, onSeekRequested: (Long) -> Unit, galleryState: GalleryState?) {
+fun FrameStepControlRow(
+    currentPosition: Long,
+    duration: Long,
+    onFrameStep: (Int) -> Unit,
+    onScrubTo: (Long) -> Unit,
+    onScrubFinished: () -> Unit
+) {
+    val frameStepMs = 1000L / 30L
+    var isScrubbing by remember { mutableStateOf(false) }
+    var previewFrameDelta by remember { mutableIntStateOf(0) }
+    val latestCurrentPosition by rememberUpdatedState(currentPosition)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RepeatFrameStepButton(direction = -1, onFrameStep = onFrameStep)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(34.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(if (isScrubbing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f))
+                .border(1.dp, Color.White.copy(alpha = if (isScrubbing) 0.45f else 0.18f), RoundedCornerShape(17.dp))
+                .pointerInput(duration) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        val startPosition = latestCurrentPosition
+                        isScrubbing = true
+                        previewFrameDelta = 0
+                        var totalDragX = 0f
+                        var lastTarget = startPosition
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null || !change.pressed) break
+                            totalDragX += change.position.x - change.previousPosition.x
+                            val frameDelta = (totalDragX / 10f).roundToInt()
+                            val target = (startPosition + frameDelta * frameStepMs).coerceIn(0L, duration)
+                            previewFrameDelta = frameDelta
+                            if (target != lastTarget) {
+                                lastTarget = target
+                                onScrubTo(target)
+                            }
+                            change.consume()
+                        }
+                        isScrubbing = false
+                        previewFrameDelta = 0
+                        onScrubFinished()
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (isScrubbing) "${if (previewFrameDelta >= 0) "+" else ""}$previewFrameDelta f" else "1 f",
+                    color = if (isScrubbing) Color.Cyan else Color.White.copy(alpha = 0.75f),
+                    fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    modifier = Modifier.width(58.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .height(2.dp)
+                        .weight(1f)
+                        .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(1.dp))
+                )
+            }
+        }
+        RepeatFrameStepButton(direction = 1, onFrameStep = onFrameStep)
+    }
+}
+
+@Composable
+private fun RepeatFrameStepButton(
+    direction: Int,
+    onFrameStep: (Int) -> Unit
+) {
+    val latestOnFrameStep by rememberUpdatedState(onFrameStep)
+    val repeatScope = rememberCoroutineScope()
+    var repeatJob by remember { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose { repeatJob?.cancel() }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .pointerInput(direction) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    latestOnFrameStep(direction)
+
+                    repeatJob?.cancel()
+                    repeatJob = repeatScope.launch {
+                        delay(1000)
+                        while (true) {
+                            latestOnFrameStep(direction)
+                            delay(80)
+                        }
+                    }
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null || !change.pressed) break
+                        change.consume()
+                    }
+                    repeatJob?.cancel()
+                    repeatJob = null
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            if (direction < 0) Icons.AutoMirrored.Filled.ArrowBack else Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+@Composable
+fun VideoTransportControlRow(
+    currentPosition: Long,
+    duration: Long,
+    isPlaying: Boolean,
+    onTogglePlay: () -> Unit,
+    onSeekRequested: (Long) -> Unit,
+    galleryState: GalleryState?,
+    modifier: Modifier = Modifier
+) {
     val currentInterval = galleryState?.videoSeekInterval ?: 10
-    Row(modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        SeekButtonWithPicker(isForward = false, currentInterval = currentInterval, onIntervalSelected = { galleryState?.videoSeekInterval = it }, onClick = { onSeekRequested((currentPosition - currentInterval * 1000L).coerceAtLeast(0L)) })
-        Spacer(modifier = Modifier.width(32.dp))
-        SeekButtonWithPicker(isForward = true, currentInterval = currentInterval, onIntervalSelected = { galleryState?.videoSeekInterval = it }, onClick = { onSeekRequested((currentPosition + currentInterval * 1000L).coerceAtMost(duration)) })
+    Row(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.42f), RoundedCornerShape(32.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SeekButtonWithPicker(
+            isForward = false,
+            currentInterval = currentInterval,
+            onIntervalSelected = { galleryState?.videoSeekInterval = it },
+            onClick = { onSeekRequested((currentPosition - currentInterval * 1000L).coerceAtLeast(0L)) }
+        )
+        Spacer(modifier = Modifier.width(24.dp))
+        IconButton(
+            onClick = onTogglePlay,
+            modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.14f), CircleShape)
+        ) {
+            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+        }
+        Spacer(modifier = Modifier.width(24.dp))
+        SeekButtonWithPicker(
+            isForward = true,
+            currentInterval = currentInterval,
+            onIntervalSelected = { galleryState?.videoSeekInterval = it },
+            onClick = { onSeekRequested((currentPosition + currentInterval * 1000L).coerceAtMost(duration)) }
+        )
     }
 }
 
@@ -871,11 +1074,12 @@ fun SeekControlRow(currentPosition: Long, duration: Long, onSeekRequested: (Long
 fun SeekButtonWithPicker(isForward: Boolean, currentInterval: Int, onIntervalSelected: (Int) -> Unit, onClick: () -> Unit) {
     val options = listOf(1, 2, 5, 10, 30, 60)
     var isPickerVisible by remember { mutableStateOf(false) }
-    var dragY by remember { mutableFloatStateOf(0f) }
+    var selectedIndexByDrag by remember(currentInterval) {
+        mutableIntStateOf(options.indexOf(currentInterval).let { if (it == -1) 3 else it })
+    }
     val currentOnClick by rememberUpdatedState(onClick); val currentOnIntervalSelected by rememberUpdatedState(onIntervalSelected)
-    val selectedIndexByDrag = remember(dragY, currentInterval) { val step = 40f; val indexOffset = (dragY / step).roundToInt(); val baseIndex = options.indexOf(currentInterval).let { if (it == -1) 1 else it }; (baseIndex + indexOffset).coerceIn(0, options.size - 1) }
     Box(contentAlignment = Alignment.Center) {
-        Column(modifier = Modifier.pointerInput(currentInterval) { awaitPointerEventScope { while (true) { val down = awaitFirstDown(); val startTimestamp = System.currentTimeMillis(); var isLongPress = false; dragY = 0f; while (true) { val event = awaitPointerEvent(); val currentTime = System.currentTimeMillis(); if (currentTime - startTimestamp > 400 && !isLongPress) { isLongPress = true; isPickerVisible = true }; if (isLongPress) { val dragChange = event.changes.first(); dragY = dragChange.position.y - down.position.y; dragChange.consume() }; if (event.changes.any { !it.pressed }) { if (isLongPress) { currentOnIntervalSelected(options[selectedIndexByDrag]); isPickerVisible = false } else currentOnClick(); break } } } } }.size(48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Column(modifier = Modifier.pointerInput(currentInterval) { awaitPointerEventScope { while (true) { val down = awaitFirstDown(); val startTimestamp = System.currentTimeMillis(); var isLongPress = false; val baseIndex = options.indexOf(currentInterval).let { if (it == -1) 3 else it }; selectedIndexByDrag = baseIndex; while (true) { val event = awaitPointerEvent(); val currentTime = System.currentTimeMillis(); if (currentTime - startTimestamp > 400 && !isLongPress) { isLongPress = true; isPickerVisible = true }; if (isLongPress) { val dragChange = event.changes.first(); val dragY = dragChange.position.y - down.position.y; val indexOffset = (dragY / 40f).roundToInt(); selectedIndexByDrag = (baseIndex + indexOffset).coerceIn(0, options.size - 1); dragChange.consume() }; if (event.changes.any { !it.pressed }) { if (isLongPress) { currentOnIntervalSelected(options[selectedIndexByDrag]); isPickerVisible = false } else currentOnClick(); break } } } } }.size(48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) { Icon(imageVector = if (isForward) Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(28.dp)); Text(text = currentInterval.toString(), color = Color.White, fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
             Text("skip", color = Color.White, fontSize = 9.sp)
         }
@@ -921,9 +1125,11 @@ fun VideoPlayer(
     var scrubbingTouchPoint by remember { mutableStateOf<Offset?>(null) }
 
     // シーク要求への反応 (Sliderなど外部からの操作)
-    LaunchedEffect(seekToPosition, isSeeking) {
-        if (seekToPosition >= 0 && (isSeeking || Math.abs(exoPlayer.currentPosition - seekToPosition) > 1) && seekToPosition != lastInternalSeek.longValue) {
+    LaunchedEffect(seekToPosition) {
+        if (seekToPosition >= 0 && seekToPosition != lastInternalSeek.longValue) {
+            exoPlayer.setSeekParameters(SeekParameters.EXACT)
             exoPlayer.seekTo(seekToPosition)
+            lastInternalSeek.longValue = seekToPosition
         }
     }
 
@@ -935,13 +1141,15 @@ fun VideoPlayer(
             awaitPointerEventScope {
                 while (true) {
                     val firstDown = awaitFirstDown()
-                    val isScrubbingZone = firstDown.position.y > size.height * 0.6f
+                    val isScrubbingZone = false
 
                     var totalDragX = 0f
                     var totalDragY = 0f
                     var decided = false
                     var isHorizontal = false
                     var scrubbingStartPosition = 0L
+                    var accumulatedPan = Offset.Zero
+                    var isTransforming = false
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -949,9 +1157,14 @@ fun VideoPlayer(
                         val panChange = event.calculatePan()
 
                         if (event.changes.size >= 2 || scale > 1.01f) {
+                            accumulatedPan += panChange
+                            val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
                             showTooltip = false
-                            onZoomPan(zoomChange, panChange)
-                            event.changes.forEach { it.consume() }
+                            if (shouldHandleTransform) {
+                                isTransforming = true
+                                onZoomPan(zoomChange, panChange)
+                                event.changes.forEach { it.consume() }
+                            }
                             if (event.changes.all { !it.pressed }) break
                             continue
                         }
@@ -979,8 +1192,11 @@ fun VideoPlayer(
                                     showTooltip = true
                                     scrubbingTouchPoint = dragChange.position
                                     // 開始位置からの累積移動量で計算
-                                    val totalSeekDiff = (totalDragX * 5).toLong()
-                                    val targetPos = (scrubbingStartPosition + totalSeekDiff).coerceIn(0, exoPlayer.duration)
+                                    val frameStepMs = 1000L / 30L
+                                    val frameDelta = (totalDragX / 12f).roundToInt()
+                                    val totalSeekDiff = frameDelta * frameStepMs
+                                    val duration = exoPlayer.duration.coerceAtLeast(0L)
+                                    val targetPos = (scrubbingStartPosition + totalSeekDiff).coerceIn(0L, duration)
 
                                     if (targetPos != lastInternalSeek.longValue) {
                                         exoPlayer.seekTo(targetPos)
@@ -1080,12 +1296,42 @@ fun VideoPlayer(
 
 @Composable
 fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: Float, offsetX: Float, offsetY: Float, onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDoubleTap: () -> Unit, imageLoader: ImageLoader, isFrameSteppingVisible: Boolean, gifFrames: List<Bitmap>, currentFrameIndex: Int, modifier: Modifier = Modifier) {
-    val context = LocalContext.current; val painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(uri).build(), imageLoader = imageLoader)
+    val context = LocalContext.current
+    val painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(uri).build(), imageLoader = imageLoader)
     Box(modifier = modifier.background(Color.Black).graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY }
         .pointerInput(Unit) { detectTapGestures(onTap = { onToggleUi() }, onDoubleTap = { onDoubleTap() }) }
-        .pointerInput(scale) { awaitEachGesture { while (true) { val event = awaitPointerEvent(); val zoomChange = event.calculateZoom(); val panChange = event.calculatePan(); if (event.changes.size >= 2 || scale > 1.01f) { onZoomPan(zoomChange, panChange); event.changes.forEach { it.consume() } } else { if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 2.5f) { onVerticalDrag(panChange.y); event.changes.forEach { it.consume() } } }; if (event.changes.all { !it.pressed }) break } } }
+        .pointerInput(scale) {
+            awaitEachGesture {
+                var accumulatedPan = Offset.Zero
+                var isTransforming = false
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val zoomChange = event.calculateZoom()
+                    val panChange = event.calculatePan()
+                    if (event.changes.size >= 2 || scale > 1.01f) {
+                        accumulatedPan += panChange
+                        val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
+                        if (shouldHandleTransform) {
+                            isTransforming = true
+                            onZoomPan(zoomChange, panChange)
+                            event.changes.forEach { it.consume() }
+                        }
+                    } else if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 2.5f) {
+                        onVerticalDrag(panChange.y)
+                        event.changes.forEach { it.consume() }
+                    }
+                    if (event.changes.all { !it.pressed }) break
+                }
+            }
+        }
         .pointerInput(Unit) { awaitPointerEventScope { while (true) { val event = awaitPointerEvent(); if (event.changes.all { !it.pressed }) onDragEnd() } } }
-    ) { if (isFrameSteppingVisible && gifFrames.isNotEmpty()) Image(bitmap = gifFrames[currentFrameIndex].asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onToggleUi() }, contentScale = ContentScale.Fit) else Image(painter = painter, contentDescription = null, modifier = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onToggleUi() }, contentScale = ContentScale.Fit) }
+    ) {
+        if (isFrameSteppingVisible && gifFrames.isNotEmpty()) {
+            Image(bitmap = gifFrames[currentFrameIndex].asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        } else {
+            Image(painter = painter, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        }
+    }
 }
 
 @Composable

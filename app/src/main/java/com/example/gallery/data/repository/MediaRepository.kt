@@ -195,7 +195,8 @@ class MediaRepository(
 
         if (!allGranted) return@withContext
 
-        val opId = GlobalOperationService.startOperation("ライブラリを同期中...", tag = "STARTUP_TASKS")
+        // タムネイル生成タスクと重複しないよう、明示的に異なるIDを使用
+        val opId = GlobalOperationService.startOperation("ライブラリを同期中...", tag = "SYNC_MEDIA_STORE")
         GlobalOperationService.updateProgress(0f, "準備中...", id = opId)
         
         try {

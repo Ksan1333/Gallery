@@ -53,6 +53,7 @@ fun HomeGalleryScreen(
 
     var imageList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var centerViewedMediaOnReturn by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     
     // インスタンス状態への保存を停止（TransactionTooLargeException対策）
@@ -77,6 +78,8 @@ fun HomeGalleryScreen(
         if (initialMediaUri != null && imageList.isNotEmpty()) {
             val idx = imageList.indexOfFirst { it.uri == initialMediaUri }
             if (idx != -1) {
+                centerViewedMediaOnReturn = true
+                galleryState.lastViewedUri = initialMediaUri
                 flatListForViewer = imageList
                 selectedIndex = idx
                 onShowViewer()
@@ -122,25 +125,40 @@ fun HomeGalleryScreen(
             GalleryGridView(
                 imageList = imageList,
                 pagingItems = pagingItems,
-                onImageClick = { index, list -> flatListForViewer = list; selectedIndex = index; onShowViewer() },
+                onImageClick = { index, list ->
+                    centerViewedMediaOnReturn = true
+                    galleryState.lastViewedUri = list.getOrNull(index)?.uri
+                    flatListForViewer = list
+                    selectedIndex = index
+                    onShowViewer()
+                },
                 galleryState = galleryState,
                 isLoading = isLoading,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
                 title = "すべて",
-                scrollToUri = if (selectedIndex == null) galleryState.lastViewedUri else null,
+                scrollToUri = if (selectedIndex == null && centerViewedMediaOnReturn) galleryState.lastViewedUri else null,
+                centerScrollToUri = centerViewedMediaOnReturn,
                 isFilterEnabled = true,
                 onMenuClick = onMenuClick,
-                onPageChangedInViewer = { galleryState.lastViewedUri = it },
+                onPageChangedInViewer = {
+                    galleryState.lastViewedUri = it
+                },
                 onBulkEdit = onBulkEdit,
-                onScrollConsumed = { galleryState.lastViewedUri = null }
+                onScrollConsumed = {
+                    galleryState.lastViewedUri = null
+                    centerViewedMediaOnReturn = false
+                }
             )
         }
 
         selectedIndex?.let { initialPage ->
             if (flatListForViewer.isNotEmpty()) {
                 MediaViewerScreen(
-                    onClickedClose = { selectedIndex = null; onHideViewer() },
+                    onClickedClose = {
+                        selectedIndex = null
+                        onHideViewer()
+                    },
                     initialPage = initialPage,
                     imageList = flatListForViewer,
                     galleryState = galleryState,
@@ -149,8 +167,13 @@ fun HomeGalleryScreen(
                         onHideViewer()
                         onNavigateToTag?.invoke(tag)
                     },
-                    onPageSelected = { selectedIndex = it },
+                    onPageSelected = {
+                        selectedIndex = it
+                        flatListForViewer.getOrNull(it)?.uri?.let { uri -> galleryState.lastViewedUri = uri }
+                    },
                     onNavigateToMedia = { uri ->
+                        centerViewedMediaOnReturn = true
+                        galleryState.lastViewedUri = uri
                         val idx = imageList.indexOfFirst { it.uri == uri }
                         if (idx != -1) { flatListForViewer = imageList.toList(); selectedIndex = idx }
                         else {

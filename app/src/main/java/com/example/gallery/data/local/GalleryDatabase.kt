@@ -8,6 +8,7 @@ import androidx.room.TypeConverters
 import com.example.gallery.data.local.dao.MediaDao
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
+import com.example.gallery.data.local.migrations.Migration15To16
 
 @Database(
     entities = [
@@ -19,7 +20,7 @@ import com.example.gallery.data.local.entity.TagEntity
         com.example.gallery.data.local.entity.VideoDownloadEntity::class,
         com.example.gallery.data.local.entity.MeasureStatsEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -37,6 +38,7 @@ abstract class GalleryDatabase : RoomDatabase() {
                     GalleryDatabase::class.java,
                     "gallery_database",
                 )
+                    .addMigrations(Migration15To16)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance

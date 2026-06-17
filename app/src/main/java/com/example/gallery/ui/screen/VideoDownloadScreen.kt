@@ -5,7 +5,16 @@ import android.media.MediaScannerConnection
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -14,8 +23,32 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,65 +56,99 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.gallery.data.local.entity.VideoDownloadEntity
 import com.example.gallery.ui.state.GalleryState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
+import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 private val okHttpClient = OkHttpClient.Builder()
     .connectTimeout(20, TimeUnit.SECONDS)
-    .readTimeout(20, TimeUnit.SECONDS)
+    .readTimeout(60, TimeUnit.SECONDS)
     .followRedirects(true)
     .followSslRedirects(true)
     .addInterceptor(HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BASIC
     })
-    .connectionSpecs(listOf(
-        ConnectionSpec.MODERN_TLS,
-        ConnectionSpec.COMPATIBLE_TLS
-    ))
+    .connectionSpecs(
+        listOf(
+            ConnectionSpec.MODERN_TLS,
+            ConnectionSpec.COMPATIBLE_TLS
+        )
+    )
     .build()
+
+private data class MediaUrlCandidate(
+    val url: String,
+    val bitrate: Int = 0,
+    val contentType: String? = null
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoDownloadScreen(
     galleryState: GalleryState,
-    onMenuClick: () -> Unit
+    onMenuClick: () -> Unit,
+    onNavigateHome: () -> Unit = {},
+    initialUrl: String? = null,
+    onInitialUrlConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var urlInput by remember { mutableStateOf("") }
     var showDownloadModal by remember { mutableStateOf(false) }
-    
-    val downloads by galleryState.repository.mediaDao.getAllVideoDownloads().collectAsState(initial = emptyList())
 
-    // クリップボードからの自動検知
+    val downloads by galleryState.repository.mediaDao.getAllVideoDownloads().collectAsState(initial = emptyList())
     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-    
-    // 画面が表示されたタイミングで一度だけ実行
-    LaunchedEffect(Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    fun showOptionsForUrl(url: String) {
+        if (url.isXStatusUrl() && (urlInput != url || !showDownloadModal)) {
+            urlInput = url
+            showDownloadModal = true
+        }
+    }
+
+    fun showOptionsFromClipboard() {
+        if (showDownloadModal || urlInput.isNotBlank()) return
+
         val clip = clipboardManager.primaryClip
         if (clip != null && clip.itemCount > 0) {
-            val text = clip.getItemAt(0).text?.toString() ?: ""
-            if ((text.contains("x.com") || text.contains("twitter.com")) && text.contains("/status/")) {
-                // すでに同じURLが入力されていないか、または直近のDLでないかを確認
-                if (urlInput != text) {
-                    urlInput = text
-                    // 自動解析（モーダル表示）を開始
-                    showDownloadModal = true
-                }
+            val text = clip.getItemAt(0).text?.toString().orEmpty()
+            showOptionsForUrl(text)
+        }
+    }
+
+    LaunchedEffect(initialUrl) {
+        if (initialUrl != null) {
+            showOptionsForUrl(initialUrl)
+            onInitialUrlConsumed()
+        } else if (urlInput.isBlank() && !showDownloadModal) {
+            showOptionsFromClipboard()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && initialUrl == null) {
+                showOptionsFromClipboard()
             }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -104,7 +171,6 @@ fun VideoDownloadScreen(
                 .padding(padding)
                 .padding(16.dp)
         ) {
-            // URL入力エリア
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
@@ -119,9 +185,9 @@ fun VideoDownloadScreen(
                 ),
                 singleLine = true
             )
-            
+
             Spacer(Modifier.height(16.dp))
-            
+
             Button(
                 onClick = {
                     if (urlInput.isNotBlank()) {
@@ -131,7 +197,7 @@ fun VideoDownloadScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DA1F2)) // X Blue
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DA1F2))
             ) {
                 Icon(Icons.Default.Download, null)
                 Spacer(Modifier.width(8.dp))
@@ -139,7 +205,7 @@ fun VideoDownloadScreen(
             }
 
             Spacer(Modifier.height(32.dp))
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -150,13 +216,13 @@ fun VideoDownloadScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("ダウンロード履歴", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
-                
+
                 if (downloads.isNotEmpty()) {
                     TextButton(
                         onClick = {
                             scope.launch {
                                 galleryState.repository.mediaDao.clearVideoDownloadHistory()
-                                Toast.makeText(context, "履歴をリセットしました", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "履歴をクリアしました", Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {
@@ -166,9 +232,9 @@ fun VideoDownloadScreen(
                     }
                 }
             }
-            
+
             Spacer(Modifier.height(8.dp))
-            
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -185,9 +251,12 @@ fun VideoDownloadScreen(
             url = urlInput,
             galleryState = galleryState,
             onDismiss = { showDownloadModal = false },
+            onNavigateHome = {
+                showDownloadModal = false
+                onNavigateHome()
+            },
             onDownloadStart = { resolvedUrl, quality ->
                 showDownloadModal = false
-                // 元のURL(Xポストリンク)を重複チェック用に残しつつ、解決済みURLでダウンロード開始
                 startDownloadTask(context, resolvedUrl, quality, galleryState, originalUrl = urlInput)
                 urlInput = ""
             }
@@ -211,7 +280,11 @@ fun DownloadHistoryItem(download: VideoDownloadEntity) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(dateFormat.format(Date(download.downloadDate)), color = Color.Gray, fontSize = 11.sp)
-                Text(download.status, color = if (download.status == "COMPLETED") Color.Green else Color.Red, fontSize = 11.sp)
+                Text(
+                    download.status,
+                    color = if (download.status == "COMPLETED") Color.Green else Color.Red,
+                    fontSize = 11.sp
+                )
             }
         }
     }
@@ -223,11 +296,12 @@ fun DownloadOptionsModal(
     url: String,
     galleryState: GalleryState,
     onDismiss: () -> Unit,
+    onNavigateHome: () -> Unit,
     onDownloadStart: (String, String) -> Unit
 ) {
     var isDuplicate by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
-    var resolvedUrl by remember { mutableStateOf<String?>(null) }
+    var resolvedUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var selectedQuality by remember { mutableStateOf("High (1080p)") }
     val qualities = listOf("High (1080p)", "Medium (720p)", "Low (480p)")
@@ -235,14 +309,14 @@ fun DownloadOptionsModal(
     LaunchedEffect(url) {
         isLoading = true
         error = null
+        resolvedUrls = emptyList()
         isDuplicate = galleryState.repository.mediaDao.isVideoDownloaded(url)
-        
-        // X/Twitterリンクを解析
-        withContext(kotlinx.coroutines.Dispatchers.IO) {
+
+        withContext(Dispatchers.IO) {
             try {
-                resolvedUrl = resolveXVideoUrl(url)
-                if (resolvedUrl == null) {
-                    error = "動画URLの取得に失敗しました。公開アカウントのポストか確認してください。"
+                resolvedUrls = resolveXVideoUrls(url)
+                if (resolvedUrls.isEmpty()) {
+                    error = "動画URLの取得に失敗しました。公開アカウントの投稿か確認してください。"
                 }
             } catch (e: Exception) {
                 error = "解析エラー: ${e.localizedMessage}"
@@ -268,14 +342,17 @@ fun DownloadOptionsModal(
             } else {
                 Column {
                     if (isDuplicate) {
-                        Text("⚠️ この動画は既にダウンロード済みです。", color = Color.Yellow, fontSize = 14.sp)
+                        Text("注意: この投稿は既にダウンロード済みです。", color = Color.Yellow, fontSize = 14.sp)
                         Spacer(Modifier.height(8.dp))
                     }
                     Text("画質を選択してください:", color = Color.LightGray)
                     qualities.forEach { quality ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable { selectedQuality = quality }.padding(vertical = 8.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedQuality = quality }
+                                .padding(vertical = 8.dp)
                         ) {
                             RadioButton(selected = (selectedQuality == quality), onClick = { selectedQuality = quality })
                             Text(quality, color = Color.White)
@@ -286,103 +363,180 @@ fun DownloadOptionsModal(
         },
         confirmButton = {
             Button(
-                onClick = { resolvedUrl?.let { onDownloadStart(it, selectedQuality) } },
-                enabled = !isLoading && error == null && resolvedUrl != null
-            ) { 
-                Text(if (isDuplicate) "再ダウンロード" else "ダウンロード開始") 
+                onClick = {
+                    selectUrlForQuality(resolvedUrls, selectedQuality)?.let {
+                        onDownloadStart(it, selectedQuality)
+                    }
+                },
+                enabled = !isLoading && error == null && resolvedUrls.isNotEmpty()
+            ) {
+                Text(if (isDuplicate) "再ダウンロード" else "ダウンロード開始")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("キャンセル", color = Color.Gray) }
+            Row {
+                TextButton(onClick = onNavigateHome) { Text("HOME", color = Color.Gray) }
+                TextButton(onClick = onDismiss) { Text("キャンセル", color = Color.Gray) }
+            }
         }
     )
 }
 
-/**
- * X/Twitterリンクから直接の動画URLを抽出する
- */
-private fun resolveXVideoUrl(statusUrl: String): String? {
-    if (!statusUrl.contains("x.com") && !statusUrl.contains("twitter.com")) return statusUrl
-    
-    // プロトコルがない場合は追加し、クエリパラメータを除去
+private fun selectUrlForQuality(urls: List<String>, quality: String): String? {
+    if (urls.isEmpty()) return null
+    return when {
+        quality.startsWith("Low") -> urls.last()
+        quality.startsWith("Medium") -> urls[urls.size / 2]
+        else -> urls.first()
+    }
+}
+
+private fun resolveXVideoUrls(statusUrl: String): List<String> {
+    if (!statusUrl.isXStatusUrl()) return listOf(statusUrl)
+
     val normalizedUrl = if (!statusUrl.startsWith("http")) "https://$statusUrl" else statusUrl
     val baseUrl = normalizedUrl.substringBefore("?")
-
-    // api.fxtwitter.com を使用してメタデータを取得（vxtwitterよりSSL互換性が高い傾向にある）
     val apiUrl = when {
         baseUrl.contains("x.com") -> baseUrl.replace("x.com", "api.fxtwitter.com")
         baseUrl.contains("twitter.com") -> baseUrl.replace("twitter.com", "api.fxtwitter.com")
         else -> baseUrl
     }
-        
+
     return try {
         val request = Request.Builder()
             .url(apiUrl)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
             .header("Accept", "application/json, text/plain, */*")
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
-            
+
         okHttpClient.newCall(request).execute().use { response ->
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: return null
-                Log.d("VideoDownloader", "API Response: $body")
-                val json = JSONObject(body)
-                
-                // fxtwitter APIのレスポンス構造を確認 (tweet object直下か、tweet内のmediaか)
-                val tweet = if (json.has("tweet")) json.getJSONObject("tweet") else json
-                val mediaList = tweet.optJSONArray("media_extended") ?: tweet.optJSONObject("media")?.optJSONArray("all")
-                
-                if (mediaList != null && mediaList.length() > 0) {
-                    // 最初のメディア要素を取得
-                    val firstMedia = mediaList.getJSONObject(0)
-                    val videoUrl = firstMedia.optString("url")
-                    
-                    if (videoUrl.isNotEmpty()) {
-                        Log.d("VideoDownloader", "Resolved Video URL: $videoUrl")
-                        videoUrl
-                    } else {
-                        Log.w("VideoDownloader", "No media URL found")
-                        null
-                    }
-                } else {
-                    Log.w("VideoDownloader", "No media found in response")
-                    null
-                }
-            } else {
+            if (!response.isSuccessful) {
                 Log.e("VideoDownloader", "API request failed: ${response.code} ${response.message}")
-                null
+                return@use emptyList()
             }
+
+            val body = response.body?.string() ?: return@use emptyList()
+            Log.d("VideoDownloader", "API Response: $body")
+
+            extractMediaUrlCandidates(JSONObject(body))
+                .sortedWith(
+                    compareByDescending<MediaUrlCandidate> {
+                        it.url.isMp4Url() || it.contentType.equals("video/mp4", ignoreCase = true)
+                    }.thenByDescending { it.bitrate }
+                )
+                .map { it.url }
+                .distinct()
+                .also { Log.d("VideoDownloader", "Resolved media URLs: $it") }
         }
     } catch (e: Exception) {
         val errorMessage = if (e is javax.net.ssl.SSLHandshakeException) {
-            "SSL Handshake failed: ${e.localizedMessage}. The server may require a newer TLS version or SNI. OkHttp was used for this request."
+            "SSL Handshake failed: ${e.localizedMessage}. OkHttp was used for this request."
         } else {
             "Failed to resolve X URL: ${e.localizedMessage}"
         }
         Log.e("VideoDownloader", errorMessage, e)
-        null
+        emptyList()
     }
 }
 
-fun startDownloadTask(context: Context, url: String, quality: String, galleryState: GalleryState, originalUrl: String? = null) {
-    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
+private fun extractMediaUrlCandidates(json: JSONObject): List<MediaUrlCandidate> {
+    val tweet = json.optJSONObject("tweet") ?: json
+    val mediaObjects = buildList {
+        tweet.optJSONArray("media_extended")?.let { addAll(it.toJsonObjects()) }
+        tweet.optJSONArray("media")?.let { addAll(it.toJsonObjects()) }
+        tweet.optJSONObject("media")?.let { media ->
+            media.optJSONArray("all")?.let { addAll(it.toJsonObjects()) }
+            media.optJSONArray("videos")?.let { addAll(it.toJsonObjects()) }
+            media.optJSONArray("photos")?.let { addAll(it.toJsonObjects()) }
+        }
+    }
+
+    return mediaObjects.flatMap { media ->
+        buildList {
+            media.optJSONArray("variants")?.let { addAll(it.toCandidates()) }
+            media.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates()) }
+            media.optString("url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it)) }
+            media.optString("media_url_https").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it)) }
+        }
+    }
+}
+
+private fun JSONArray.toJsonObjects(): List<JSONObject> = buildList {
+    for (index in 0 until length()) {
+        optJSONObject(index)?.let { add(it) }
+    }
+}
+
+private fun JSONArray.toCandidates(): List<MediaUrlCandidate> = buildList {
+    for (index in 0 until length()) {
+        val variant = optJSONObject(index) ?: continue
+        val url = variant.optString("url").takeIf { it.isDirectMediaUrl() } ?: continue
+        val contentType = variant.optString("content_type")
+            .ifBlank { variant.optString("contentType") }
+            .ifBlank { null }
+        if (contentType == "application/x-mpegURL" || url.contains(".m3u8")) continue
+        add(MediaUrlCandidate(url, variant.optInt("bitrate", 0), contentType))
+    }
+}
+
+private fun String.isXStatusUrl(): Boolean {
+    val lower = lowercase(Locale.US)
+    return (lower.contains("x.com") || lower.contains("twitter.com")) && lower.contains("/status/")
+}
+
+private fun String.isDirectMediaUrl(): Boolean {
+    if (isBlank()) return false
+    val lower = lowercase(Locale.US)
+    return lower.isMp4Url() ||
+        lower.contains(".gif") ||
+        lower.contains("format=gif") ||
+        lower.contains(".webp") ||
+        lower.contains("format=webp") ||
+        lower.contains(".jpg") ||
+        lower.contains(".jpeg") ||
+        lower.contains("format=jpg") ||
+        lower.contains("format=jpeg") ||
+        lower.contains(".png") ||
+        lower.contains("format=png")
+}
+
+private fun String.isMp4Url(): Boolean = lowercase(Locale.US).contains(".mp4")
+
+fun startDownloadTask(
+    context: Context,
+    url: String,
+    quality: String,
+    galleryState: GalleryState,
+    originalUrl: String? = null
+) {
+    val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
     scope.launch {
         val timestamp = System.currentTimeMillis()
         val checkUrl = originalUrl ?: url
-        
-        // 取得したURL自体の末尾（拡張子）を見て保存形式を決定する
-        val isMp4 = url.lowercase().contains(".mp4")
-        val isGif = url.lowercase().contains(".gif")
-        val isWebp = url.lowercase().contains(".webp")
-        
+
+        val lowerUrl = url.lowercase(Locale.US)
+        val isMp4 = lowerUrl.contains(".mp4")
+        val isGif = lowerUrl.contains(".gif") || lowerUrl.contains("format=gif")
+        val isWebp = lowerUrl.contains(".webp") || lowerUrl.contains("format=webp")
+        val isJpeg = lowerUrl.contains(".jpg") ||
+            lowerUrl.contains(".jpeg") ||
+            lowerUrl.contains("format=jpg") ||
+            lowerUrl.contains("format=jpeg")
+        val isPng = lowerUrl.contains(".png") || lowerUrl.contains("format=png")
+
         val (extension, mimeType) = when {
             isMp4 -> "mp4" to "video/mp4"
             isGif -> "gif" to "image/gif"
             isWebp -> "webp" to "image/webp"
-            else -> "mp4" to "video/mp4" // デフォルト
+            isJpeg -> "jpg" to "image/jpeg"
+            isPng -> "png" to "image/png"
+            else -> "mp4" to "video/mp4"
         }
-        
+
         Log.i("VideoDownloader", "========================================")
         Log.i("VideoDownloader", "DOWNLOAD START")
         Log.i("VideoDownloader", "Original URL: $checkUrl")
@@ -390,10 +544,8 @@ fun startDownloadTask(context: Context, url: String, quality: String, gallerySta
         Log.i("VideoDownloader", "Detected Extension: $extension")
         Log.i("VideoDownloader", "Detected MIME Type: $mimeType")
         Log.i("VideoDownloader", "========================================")
-        
-        val filename = "X_Media_$timestamp.$extension"
 
-        // 状態登録
+        val filename = "X_Media_$timestamp.$extension"
         val entity = VideoDownloadEntity(
             url = checkUrl,
             title = "Media $timestamp ($quality)",
@@ -409,7 +561,7 @@ fun startDownloadTask(context: Context, url: String, quality: String, gallerySta
                 put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                 put(android.provider.MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000)
                 put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
-                
+
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     val relativePath = if (mimeType.startsWith("video/")) "Movies/Gallery" else "Pictures/Gallery"
                     put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
@@ -429,9 +581,12 @@ fun startDownloadTask(context: Context, url: String, quality: String, gallerySta
             resolver.openOutputStream(uri)?.use { outputStream ->
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .header(
+                        "User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    )
                     .build()
-                    
+
                 okHttpClient.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         response.body?.byteStream()?.use { input ->
@@ -442,9 +597,8 @@ fun startDownloadTask(context: Context, url: String, quality: String, gallerySta
                         throw Exception("Download failed: ${response.code}")
                     }
                 }
-            }
+            } ?: throw Exception("Failed to open output stream")
 
-            // Pending状態の解除
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 val updateValues = android.content.ContentValues().apply {
                     put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
@@ -452,7 +606,6 @@ fun startDownloadTask(context: Context, url: String, quality: String, gallerySta
                 resolver.update(uri, updateValues, null, null)
             }
 
-            // 確定したパスの取得
             val actualPath = try {
                 val cursor = resolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)
                 cursor?.use { if (it.moveToFirst()) it.getString(0) else uri.toString() } ?: uri.toString()
@@ -464,7 +617,6 @@ fun startDownloadTask(context: Context, url: String, quality: String, gallerySta
             Log.i("VideoDownloader", "Saved Path: $actualPath")
             Log.i("VideoDownloader", "========================================")
 
-            // メディアスキャナーに通知してOSのインデックスを更新
             if (!actualPath.startsWith("content://")) {
                 MediaScannerConnection.scanFile(context, arrayOf(actualPath), arrayOf(mimeType)) { _, scannedUri ->
                     Log.d("VideoDownloader", "Scan finished for $scannedUri")
@@ -476,13 +628,13 @@ fun startDownloadTask(context: Context, url: String, quality: String, gallerySta
 
             galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "COMPLETED", savePath = actualPath))
 
-            withContext(kotlinx.coroutines.Dispatchers.Main) {
+            withContext(Dispatchers.Main) {
                 Toast.makeText(context, "ダウンロード完了: $extension", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Log.e("VideoDownloader", "Task failed", e)
             galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "FAILED"))
-            withContext(kotlinx.coroutines.Dispatchers.Main) {
+            withContext(Dispatchers.Main) {
                 Toast.makeText(context, "失敗: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }

@@ -36,6 +36,7 @@ object ThumbnailGenerationService {
         job?.cancel()
         
         job = serviceScope.launch(Dispatchers.IO) {
+            val opId = "THUMBNAIL_GENERATION"
             _isProcessing.value = true
             _isStartupTasksCompleted.value = false
             try {
@@ -45,9 +46,10 @@ object ThumbnailGenerationService {
 
                 if (!isActive) return@launch
 
-                // 1. サムネイル作成が必要なアイテム
+                // 1. サムネイル作成が必要なアイテム（DBフラグと実ファイルの両方でチェック）
                 val thumbTargets = allMedia.filter { media ->
                     !sessionAttemptedUris.contains(media.uri) && 
+                    allMetadata[media.uri]?.hasThumbnail != true &&
                     !ThumbnailUtils.getThumbnailFile(context, media.uri).exists()
                 }
 
@@ -68,13 +70,14 @@ object ThumbnailGenerationService {
                     return@launch
                 }
 
-                val opId = "STARTUP_TASKS"
                 withContext(Dispatchers.Main) {
                     GlobalOperationService.startOperation(
                         "起動時タスク実行中...",
                         tag = opId,
                         canCancel = false,
                     )
+                    // 初期値を明確に0に設定
+                    GlobalOperationService.updateProgress(0f, "準備中...", opId)
                 }
 
                 // フェーズ1: サムネイル作成
@@ -86,6 +89,10 @@ object ThumbnailGenerationService {
                             GlobalOperationService.updateProgress(currentProgress * 0.5f, "サムネイル作成中: ${index + 1} / $totalThumb", opId)
                         }
                         ThumbnailUtils.generateThumbnailIfMissing(context, media.uri)
+                        
+                        // サムネイル生成後、DBフラグを更新
+                        repository.mediaDao.updateHasThumbnail(media.uri, true)
+                        
                         sessionAttemptedUris.add(media.uri)
                         if (index % 10 == 0) delay(10)
                     }
@@ -115,7 +122,7 @@ object ThumbnailGenerationService {
                 Log.e(TAG, "Error in startup tasks", e)
             } finally {
                 _isProcessing.value = false
-                GlobalOperationService.finishOperation("STARTUP_TASKS")
+                GlobalOperationService.finishOperation(opId)
             }
         }
     }
