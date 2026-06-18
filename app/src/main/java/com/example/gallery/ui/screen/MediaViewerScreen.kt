@@ -1135,7 +1135,7 @@ fun VideoPlayer(
 
     var showTooltip by remember { mutableStateOf(false) }
 
-    Box(modifier = modifier.background(Color.Black).graphicsLayer { scaleX = scale; scaleY = scale; translationX = offsetX; translationY = offsetY }
+    Box(modifier = modifier.background(Color.Black)
         .pointerInput(Unit) { detectTapGestures(onTap = { onToggleUi() }, onDoubleTap = { onDoubleTap() }) }
         .pointerInput(scale) {
             awaitPointerEventScope {
@@ -1153,18 +1153,9 @@ fun VideoPlayer(
 
                     while (true) {
                         val event = awaitPointerEvent()
-                        val zoomChange = event.calculateZoom()
                         val panChange = event.calculatePan()
 
-                        if (event.changes.size >= 2 || scale > 1.01f) {
-                            accumulatedPan += panChange
-                            val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
-                            showTooltip = false
-                            if (shouldHandleTransform) {
-                                isTransforming = true
-                                onZoomPan(zoomChange, panChange)
-                                event.changes.forEach { it.consume() }
-                            }
+                        if (event.changes.size >= 2) {
                             if (event.changes.all { !it.pressed }) break
                             continue
                         }
@@ -1232,6 +1223,10 @@ fun VideoPlayer(
                 exoPlayer.volume = if (isMuted) 0f else 1f
             },
             modifier = Modifier.fillMaxSize()
+        )
+
+        Box(
+            modifier = Modifier.matchParentSize()
         )
 
         // 操作フィードバック (光る演出)

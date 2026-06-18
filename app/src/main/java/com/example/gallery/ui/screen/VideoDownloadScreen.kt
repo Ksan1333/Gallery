@@ -2,13 +2,17 @@ package com.example.gallery.ui.screen
 
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,12 +21,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,14 +57,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.entity.VideoDownloadEntity
 import com.example.gallery.ui.state.GalleryState
 import kotlinx.coroutines.Dispatchers
@@ -94,7 +106,8 @@ private val okHttpClient = OkHttpClient.Builder()
 private data class MediaUrlCandidate(
     val url: String,
     val bitrate: Int = 0,
-    val contentType: String? = null
+    val contentType: String? = null,
+    val isGifSource: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -110,6 +123,7 @@ fun VideoDownloadScreen(
     val scope = rememberCoroutineScope()
     var urlInput by remember { mutableStateOf("") }
     var showDownloadModal by remember { mutableStateOf(false) }
+    var viewerMedia by remember { mutableStateOf<MediaData?>(null) }
 
     val downloads by galleryState.repository.mediaDao.getAllVideoDownloads().collectAsState(initial = emptyList())
     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -174,7 +188,7 @@ fun VideoDownloadScreen(
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
-                label = { Text("X (Twitter) URLを入力") },
+                label = { Text("X (Twitter) URL") },
                 modifier = Modifier.fillMaxWidth(),
                 leadingIcon = { Icon(Icons.Default.Link, null) },
                 colors = OutlinedTextFieldDefaults.colors(
@@ -193,7 +207,7 @@ fun VideoDownloadScreen(
                     if (urlInput.isNotBlank()) {
                         showDownloadModal = true
                     } else {
-                        Toast.makeText(context, "URLを入力してください", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Enter a URL", Toast.LENGTH_SHORT).show()
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -201,7 +215,7 @@ fun VideoDownloadScreen(
             ) {
                 Icon(Icons.Default.Download, null)
                 Spacer(Modifier.width(8.dp))
-                Text("ダウンロードオプションを表示")
+                Text("Show download options")
             }
 
             Spacer(Modifier.height(32.dp))
@@ -214,7 +228,7 @@ fun VideoDownloadScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.History, null, tint = Color.Gray)
                     Spacer(Modifier.width(8.dp))
-                    Text("ダウンロード履歴", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Download history", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
 
                 if (downloads.isNotEmpty()) {
@@ -222,13 +236,13 @@ fun VideoDownloadScreen(
                         onClick = {
                             scope.launch {
                                 galleryState.repository.mediaDao.clearVideoDownloadHistory()
-                                Toast.makeText(context, "履歴をクリアしました", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "History cleared", Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {
                         Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("履歴をクリア", fontSize = 12.sp)
+                        Text("Clear history", fontSize = 12.sp)
                     }
                 }
             }
@@ -240,10 +254,22 @@ fun VideoDownloadScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(downloads) { download ->
-                    DownloadHistoryItem(download)
+                    DownloadHistoryItem(
+                        download = download,
+                        onOpenInViewer = { media -> viewerMedia = media }
+                    )
                 }
             }
         }
+    }
+
+    viewerMedia?.let { media ->
+        MediaViewerScreen(
+            imageList = listOf(media),
+            initialPage = 0,
+            onClickedClose = { viewerMedia = null },
+            galleryState = galleryState
+        )
     }
 
     if (showDownloadModal) {
@@ -265,27 +291,82 @@ fun VideoDownloadScreen(
 }
 
 @Composable
-fun DownloadHistoryItem(download: VideoDownloadEntity) {
+fun DownloadHistoryItem(
+    download: VideoDownloadEntity,
+    onOpenInViewer: (MediaData) -> Unit
+) {
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(download.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
-            Spacer(Modifier.height(4.dp))
-            Text(download.url, color = Color.Gray, fontSize = 12.sp, maxLines = 1)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(dateFormat.format(Date(download.downloadDate)), color = Color.Gray, fontSize = 11.sp)
-                Text(
-                    download.status,
-                    color = if (download.status == "COMPLETED") Color.Green else Color.Red,
-                    fontSize = 11.sp
-                )
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DownloadMediaPreview(
+                uri = download.savePath.takeIf { download.status == "COMPLETED" && it != "Pending..." },
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(64.dp),
+                onClick = {
+                    buildDownloadMediaData(context, download)?.let(onOpenInViewer)
+                }
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(download.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
+                Spacer(Modifier.height(4.dp))
+                Text(download.url, color = Color.Gray, fontSize = 12.sp, maxLines = 1)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(dateFormat.format(Date(download.downloadDate)), color = Color.Gray, fontSize = 11.sp)
+                    Text(
+                        download.status,
+                        color = if (download.status == "COMPLETED") Color.Green else Color.Red,
+                        fontSize = 11.sp
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun DownloadMediaPreview(
+    uri: String?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {}
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF0A0A0A))
+            .clickable(enabled = !uri.isNullOrBlank(), onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!uri.isNullOrBlank()) {
+            val context = LocalContext.current
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(uri)
+                    .videoFrameMillis(1000)
+                    .build(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Icon(
+                Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier.size(28.dp)
+            )
+        } else {
+            Text("...", color = Color.Gray, fontSize = 12.sp)
         }
     }
 }
@@ -301,7 +382,7 @@ fun DownloadOptionsModal(
 ) {
     var isDuplicate by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
-    var resolvedUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+    var resolvedUrls by remember { mutableStateOf<List<MediaUrlCandidate>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var selectedQuality by remember { mutableStateOf("High (1080p)") }
     val qualities = listOf("High (1080p)", "Medium (720p)", "Low (480p)")
@@ -316,10 +397,10 @@ fun DownloadOptionsModal(
             try {
                 resolvedUrls = resolveXVideoUrls(url)
                 if (resolvedUrls.isEmpty()) {
-                    error = "動画URLの取得に失敗しました。公開アカウントの投稿か確認してください。"
+                    error = "Failed to get media URL. Check that the post is public."
                 }
             } catch (e: Exception) {
-                error = "解析エラー: ${e.localizedMessage}"
+                error = "Resolve error: ${e.localizedMessage}"
             } finally {
                 isLoading = false
             }
@@ -329,33 +410,44 @@ fun DownloadOptionsModal(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF1A1A1A),
-        title = { Text("ダウンロード設定", color = Color.White) },
+        title = { Text("Download settings", color = Color.White) },
         text = {
-            if (isLoading) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    CircularProgressIndicator(color = Color.Cyan)
-                    Spacer(Modifier.height(8.dp))
-                    Text("動画を解析中...", color = Color.LightGray)
-                }
-            } else if (error != null) {
-                Text(error!!, color = Color.Red)
-            } else {
-                Column {
-                    if (isDuplicate) {
-                        Text("注意: この投稿は既にダウンロード済みです。", color = Color.Yellow, fontSize = 14.sp)
+            when {
+                isLoading -> {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        CircularProgressIndicator(color = Color.Cyan)
                         Spacer(Modifier.height(8.dp))
+                        Text("Resolving media...", color = Color.LightGray)
                     }
-                    Text("画質を選択してください:", color = Color.LightGray)
-                    qualities.forEach { quality ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                }
+                error != null -> {
+                    Text(error!!, color = Color.Red)
+                }
+                else -> {
+                    Column {
+                        DownloadMediaPreview(
+                            uri = resolvedUrls.firstOrNull()?.url,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { selectedQuality = quality }
-                                .padding(vertical = 8.dp)
-                        ) {
-                            RadioButton(selected = (selectedQuality == quality), onClick = { selectedQuality = quality })
-                            Text(quality, color = Color.White)
+                                .aspectRatio(16f / 9f)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        if (isDuplicate) {
+                            Text("Note: this post is already downloaded.", color = Color.Yellow, fontSize = 14.sp)
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        Text("Select quality:", color = Color.LightGray)
+                        qualities.forEach { quality ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedQuality = quality }
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                RadioButton(selected = selectedQuality == quality, onClick = { selectedQuality = quality })
+                                Text(quality, color = Color.White)
+                            }
                         }
                     }
                 }
@@ -364,25 +456,25 @@ fun DownloadOptionsModal(
         confirmButton = {
             Button(
                 onClick = {
-                    selectUrlForQuality(resolvedUrls, selectedQuality)?.let {
-                        onDownloadStart(it, selectedQuality)
+                    selectUrlForQuality(resolvedUrls, selectedQuality)?.let { resolvedMedia ->
+                        onDownloadStart(resolvedMedia.url, selectedQuality)
                     }
                 },
                 enabled = !isLoading && error == null && resolvedUrls.isNotEmpty()
             ) {
-                Text(if (isDuplicate) "再ダウンロード" else "ダウンロード開始")
+                Text(if (isDuplicate) "Download again" else "Start download")
             }
         },
         dismissButton = {
             Row {
                 TextButton(onClick = onNavigateHome) { Text("HOME", color = Color.Gray) }
-                TextButton(onClick = onDismiss) { Text("キャンセル", color = Color.Gray) }
+                TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) }
             }
         }
     )
 }
 
-private fun selectUrlForQuality(urls: List<String>, quality: String): String? {
+private fun selectUrlForQuality(urls: List<MediaUrlCandidate>, quality: String): MediaUrlCandidate? {
     if (urls.isEmpty()) return null
     return when {
         quality.startsWith("Low") -> urls.last()
@@ -391,8 +483,8 @@ private fun selectUrlForQuality(urls: List<String>, quality: String): String? {
     }
 }
 
-private fun resolveXVideoUrls(statusUrl: String): List<String> {
-    if (!statusUrl.isXStatusUrl()) return listOf(statusUrl)
+private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
+    if (!statusUrl.isXStatusUrl()) return listOf(MediaUrlCandidate(statusUrl))
 
     val normalizedUrl = if (!statusUrl.startsWith("http")) "https://$statusUrl" else statusUrl
     val baseUrl = normalizedUrl.substringBefore("?")
@@ -425,11 +517,14 @@ private fun resolveXVideoUrls(statusUrl: String): List<String> {
             extractMediaUrlCandidates(JSONObject(body))
                 .sortedWith(
                     compareByDescending<MediaUrlCandidate> {
+                        it.url.isGifUrl() || it.contentType.equals("image/gif", ignoreCase = true)
+                    }.thenByDescending {
+                        it.isGifSource && !it.url.isMp4Url()
+                    }.thenByDescending {
                         it.url.isMp4Url() || it.contentType.equals("video/mp4", ignoreCase = true)
                     }.thenByDescending { it.bitrate }
                 )
-                .map { it.url }
-                .distinct()
+                .distinctBy { it.url }
                 .also { Log.d("VideoDownloader", "Resolved media URLs: $it") }
         }
     } catch (e: Exception) {
@@ -456,12 +551,43 @@ private fun extractMediaUrlCandidates(json: JSONObject): List<MediaUrlCandidate>
     }
 
     return mediaObjects.flatMap { media ->
+        val isGifSource = media.isGifMediaObject()
         buildList {
-            media.optJSONArray("variants")?.let { addAll(it.toCandidates()) }
-            media.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates()) }
-            media.optString("url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it)) }
-            media.optString("media_url_https").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it)) }
+            media.gifDirectUrls().forEach { add(MediaUrlCandidate(it, contentType = "image/gif", isGifSource = true)) }
+            media.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
+            media.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
+            media.optString("url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optString("media_url_https").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optString("media_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optString("display_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optString("expanded_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optString("thumbnail_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optString("thumb").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optJSONArray("urls")?.let { addAll(it.toStringCandidates(isGifSource)) }
         }
+    }
+}
+
+private fun JSONObject.isGifMediaObject(): Boolean {
+    return listOf("type", "media_type", "mediaType", "format", "mediaTypeName")
+        .any { key -> optString(key).contains("gif", ignoreCase = true) }
+}
+
+private fun JSONObject.gifDirectUrls(): List<String> {
+    val gifKeys = listOf(
+        "gif_url",
+        "gifUrl",
+        "animated_gif_url",
+        "animatedGifUrl",
+        "original_gif_url",
+        "originalGifUrl",
+        "download_gif_url",
+        "downloadGifUrl"
+    )
+
+    return gifKeys.mapNotNull { key ->
+        optString(key)
+            .takeIf { it.isDirectMediaUrl() && it.isGifUrl() }
     }
 }
 
@@ -471,7 +597,7 @@ private fun JSONArray.toJsonObjects(): List<JSONObject> = buildList {
     }
 }
 
-private fun JSONArray.toCandidates(): List<MediaUrlCandidate> = buildList {
+private fun JSONArray.toCandidates(isGifSource: Boolean = false): List<MediaUrlCandidate> = buildList {
     for (index in 0 until length()) {
         val variant = optJSONObject(index) ?: continue
         val url = variant.optString("url").takeIf { it.isDirectMediaUrl() } ?: continue
@@ -479,7 +605,15 @@ private fun JSONArray.toCandidates(): List<MediaUrlCandidate> = buildList {
             .ifBlank { variant.optString("contentType") }
             .ifBlank { null }
         if (contentType == "application/x-mpegURL" || url.contains(".m3u8")) continue
-        add(MediaUrlCandidate(url, variant.optInt("bitrate", 0), contentType))
+        val variantIsGifSource = isGifSource || variant.isGifMediaObject()
+        add(MediaUrlCandidate(url, variant.optInt("bitrate", 0), contentType, variantIsGifSource))
+    }
+}
+
+private fun JSONArray.toStringCandidates(isGifSource: Boolean = false): List<MediaUrlCandidate> = buildList {
+    for (index in 0 until length()) {
+        val url = optString(index).takeIf { it.isDirectMediaUrl() } ?: continue
+        add(MediaUrlCandidate(url, isGifSource = isGifSource))
     }
 }
 
@@ -506,6 +640,33 @@ private fun String.isDirectMediaUrl(): Boolean {
 
 private fun String.isMp4Url(): Boolean = lowercase(Locale.US).contains(".mp4")
 
+private fun String.isGifUrl(): Boolean {
+    val lower = lowercase(Locale.US)
+    return lower.contains(".gif") || lower.contains("format=gif")
+}
+
+private fun detectMediaType(url: String, contentTypeHeader: String?): Pair<String, String> {
+    val lowerUrl = url.lowercase(Locale.US)
+    val contentType = contentTypeHeader
+        ?.substringBefore(";")
+        ?.trim()
+        ?.lowercase(Locale.US)
+        .orEmpty()
+
+    return when {
+        contentType == "image/gif" || lowerUrl.contains(".gif") || lowerUrl.contains("format=gif") -> "gif" to "image/gif"
+        contentType == "image/webp" || lowerUrl.contains(".webp") || lowerUrl.contains("format=webp") -> "webp" to "image/webp"
+        contentType == "image/png" || lowerUrl.contains(".png") || lowerUrl.contains("format=png") -> "png" to "image/png"
+        contentType == "image/jpeg" ||
+            lowerUrl.contains(".jpg") ||
+            lowerUrl.contains(".jpeg") ||
+            lowerUrl.contains("format=jpg") ||
+            lowerUrl.contains("format=jpeg") -> "jpg" to "image/jpeg"
+        contentType == "video/mp4" || lowerUrl.contains(".mp4") -> "mp4" to "video/mp4"
+        else -> "mp4" to "video/mp4"
+    }
+}
+
 fun startDownloadTask(
     context: Context,
     url: String,
@@ -518,34 +679,12 @@ fun startDownloadTask(
         val timestamp = System.currentTimeMillis()
         val checkUrl = originalUrl ?: url
 
-        val lowerUrl = url.lowercase(Locale.US)
-        val isMp4 = lowerUrl.contains(".mp4")
-        val isGif = lowerUrl.contains(".gif") || lowerUrl.contains("format=gif")
-        val isWebp = lowerUrl.contains(".webp") || lowerUrl.contains("format=webp")
-        val isJpeg = lowerUrl.contains(".jpg") ||
-            lowerUrl.contains(".jpeg") ||
-            lowerUrl.contains("format=jpg") ||
-            lowerUrl.contains("format=jpeg")
-        val isPng = lowerUrl.contains(".png") || lowerUrl.contains("format=png")
-
-        val (extension, mimeType) = when {
-            isMp4 -> "mp4" to "video/mp4"
-            isGif -> "gif" to "image/gif"
-            isWebp -> "webp" to "image/webp"
-            isJpeg -> "jpg" to "image/jpeg"
-            isPng -> "png" to "image/png"
-            else -> "mp4" to "video/mp4"
-        }
-
         Log.i("VideoDownloader", "========================================")
         Log.i("VideoDownloader", "DOWNLOAD START")
         Log.i("VideoDownloader", "Original URL: $checkUrl")
         Log.i("VideoDownloader", "Resolved URL: $url")
-        Log.i("VideoDownloader", "Detected Extension: $extension")
-        Log.i("VideoDownloader", "Detected MIME Type: $mimeType")
         Log.i("VideoDownloader", "========================================")
 
-        val filename = "X_Media_$timestamp.$extension"
         val entity = VideoDownloadEntity(
             url = checkUrl,
             title = "Media $timestamp ($quality)",
@@ -556,87 +695,121 @@ fun startDownloadTask(
         galleryState.repository.mediaDao.insertVideoDownload(entity)
 
         try {
-            val contentValues = android.content.ContentValues().apply {
-                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                put(android.provider.MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000)
-                put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
+            val request = Request.Builder()
+                .url(url)
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                .build()
 
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    val relativePath = if (mimeType.startsWith("video/")) "Movies/Gallery" else "Pictures/Gallery"
-                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                    put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw Exception("Download failed: ${response.code}")
                 }
-            }
 
-            val collection = if (mimeType.startsWith("video/")) {
-                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            } else {
-                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            }
+                val responseBody = response.body ?: throw Exception("Response body is null")
+                val (extension, mimeType) = detectMediaType(url, response.header("Content-Type"))
+                val filename = "X_Media_$timestamp.$extension"
 
-            val resolver = context.contentResolver
-            val uri = resolver.insert(collection, contentValues) ?: throw Exception("Failed to create MediaStore entry")
+                Log.i("VideoDownloader", "Detected Extension: $extension")
+                Log.i("VideoDownloader", "Detected MIME Type: $mimeType")
 
-            resolver.openOutputStream(uri)?.use { outputStream ->
-                val request = Request.Builder()
-                    .url(url)
-                    .header(
-                        "User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    )
-                    .build()
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000)
+                    put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
+                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
 
-                okHttpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        response.body?.byteStream()?.use { input ->
-                            input.copyTo(outputStream)
-                        } ?: throw Exception("Response body is null")
-                        outputStream.flush()
-                    } else {
-                        throw Exception("Download failed: ${response.code}")
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        val relativePath = if (mimeType.startsWith("video/")) "Movies/Gallery" else "Pictures/Gallery"
+                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                        put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
                     }
                 }
-            } ?: throw Exception("Failed to open output stream")
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                val updateValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                val collection = if (mimeType.startsWith("video/")) {
+                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                } else {
+                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                 }
-                resolver.update(uri, updateValues, null, null)
-            }
 
-            val actualPath = try {
-                val cursor = resolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)
-                cursor?.use { if (it.moveToFirst()) it.getString(0) else uri.toString() } ?: uri.toString()
-            } catch (e: Exception) {
-                uri.toString()
-            }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(collection, contentValues) ?: throw Exception("Failed to create MediaStore entry")
 
-            Log.i("VideoDownloader", "DOWNLOAD COMPLETE")
-            Log.i("VideoDownloader", "Saved Path: $actualPath")
-            Log.i("VideoDownloader", "========================================")
+                resolver.openOutputStream(uri)?.use { outputStream ->
+                    responseBody.byteStream().use { input ->
+                        input.copyTo(outputStream)
+                    }
+                    outputStream.flush()
+                } ?: throw Exception("Failed to open output stream")
 
-            if (!actualPath.startsWith("content://")) {
-                MediaScannerConnection.scanFile(context, arrayOf(actualPath), arrayOf(mimeType)) { _, scannedUri ->
-                    Log.d("VideoDownloader", "Scan finished for $scannedUri")
-                    scope.launch { galleryState.refresh() }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val updateValues = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                        put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
+                        put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
+                    }
+                    resolver.update(uri, updateValues, null, null)
                 }
-            } else {
-                galleryState.refresh()
-            }
 
-            galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "COMPLETED", savePath = actualPath))
+                val actualPath = try {
+                    val cursor = resolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)
+                    cursor?.use { if (it.moveToFirst()) it.getString(0) else uri.toString() } ?: uri.toString()
+                } catch (e: Exception) {
+                    uri.toString()
+                }
 
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "ダウンロード完了: $extension", Toast.LENGTH_SHORT).show()
+                Log.i("VideoDownloader", "DOWNLOAD COMPLETE")
+                Log.i("VideoDownloader", "Saved Path: $actualPath")
+                Log.i("VideoDownloader", "========================================")
+
+                if (!actualPath.startsWith("content://")) {
+                    MediaScannerConnection.scanFile(context, arrayOf(actualPath), arrayOf(mimeType)) { _, scannedUri ->
+                        Log.d("VideoDownloader", "Scan finished for $scannedUri")
+                        scope.launch { galleryState.refresh() }
+                    }
+                } else {
+                    galleryState.refresh()
+                }
+
+                galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "COMPLETED", savePath = actualPath))
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Download complete: $extension", Toast.LENGTH_SHORT).show()
+                }
             }
         } catch (e: Exception) {
             Log.e("VideoDownloader", "Task failed", e)
             galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "FAILED"))
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "失敗: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
+}
+
+private fun buildDownloadMediaData(context: Context, download: VideoDownloadEntity): MediaData? {
+    val path = download.savePath
+    if (path.isBlank() || path == "Pending...") return null
+    val uri = Uri.parse(path)
+    val resolverMimeType = runCatching {
+        if (path.startsWith("content://")) context.contentResolver.getType(uri) else null
+    }.getOrNull()
+    val mimeType = resolverMimeType ?: when {
+        path.contains(".gif", ignoreCase = true) -> "image/gif"
+        path.contains(".webp", ignoreCase = true) -> "image/webp"
+        path.contains(".jpg", ignoreCase = true) || path.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
+        path.contains(".png", ignoreCase = true) -> "image/png"
+        else -> "video/*"
+    }
+    val viewerUri = if (path.contains("://")) path else "file://$path"
+    return MediaData(
+        uri = viewerUri,
+        dateAdded = download.downloadDate,
+        mimeType = mimeType,
+        fileName = download.title,
+        folderName = "Downloads"
+    )
 }

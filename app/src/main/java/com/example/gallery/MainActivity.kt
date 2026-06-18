@@ -103,14 +103,11 @@ fun AppNavigation(
         }
     }
 
-    // 通知権限の要求 (Android 13+)
     val notificationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted: Boolean ->
-        // 権限結果の処理
     }
 
-    // ストレージ権限の要求
     val storagePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -124,7 +121,6 @@ fun AppNavigation(
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        // ストレージ権限のチェックと要求
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
@@ -146,13 +142,10 @@ fun AppNavigation(
         }
     }
 
-    // アプリが前面に戻ったときにファイルの状態を同期
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                // cleanupDeletedFiles は repository.getAllMedia 内で一括処理されるため、
-                // ここでは refreshTrigger を引くだけにする
                 galleryState.refresh()
             }
         }
@@ -160,18 +153,16 @@ fun AppNavigation(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // サイドバーが開いているときに戻るボタンで閉じる
     BackHandler(drawerState.isOpen) {
         scope.launch { drawerState.close() }
     }
 
     val refreshTrigger = galleryState.refreshTrigger
     LaunchedEffect(refreshTrigger) {
-        // 起動時も即座にサムネイル生成を開始（UI準備は十分）
         ThumbnailGenerationService.startGenerating(
             context,
             galleryState.repository,
-            force = refreshTrigger > 0
+            force = false
         )
     }
 
@@ -179,7 +170,6 @@ fun AppNavigation(
         galleryState.repository.mediaDao.cleanupAgeRatingTags()
     }
 
-    // システムバーの設定
     val window = (context as? android.app.Activity)?.window
     fun setupSystemBars(isViewerVisible: Boolean, currentRoute: String?) {
         if (window != null) {
@@ -193,17 +183,14 @@ fun AppNavigation(
                                    currentRoute?.startsWith("analysis") == true
 
             if (isFullScreenRoute) {
-                // 一括編集、フォルダ選択、分析画面ではすべて非表示
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
                 return
             }
 
             if (!isViewerVisible) {
-                // ビュワー以外の通常画面では両方表示
                 insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
                 insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
             } else {
-                // ビュワー表示中はすべて非表示にする
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
             }
@@ -227,7 +214,7 @@ fun AppNavigation(
             ) {
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "ギャラリーメニュー",
+                    "\u30ae\u30e3\u30e9\u30ea\u30fc\u30e1\u30cb\u30e5\u30fc",
                     modifier = Modifier.padding(16.dp),
                     fontSize = 20.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
@@ -235,7 +222,7 @@ fun AppNavigation(
                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
 
                 NavigationDrawerItem(
-                    label = { Text("ホーム") },
+                    label = { Text("\u30db\u30fc\u30e0") },
                     selected = navController.currentBackStackEntryAsState().value?.destination?.route == "home",
                     onClick = {
                         scope.launch { drawerState.close() }
@@ -256,14 +243,14 @@ fun AppNavigation(
                 )
 
                 Text(
-                    "フォルダ",
+                    "\u30d5\u30a9\u30eb\u30c0",
                     modifier = Modifier.padding(16.dp, 8.dp),
                     fontSize = 12.sp,
                     color = Color.Gray
                 )
 
                 NavigationDrawerItem(
-                    label = { Text("　フォルダ別") },
+                    label = { Text("\u30d5\u30a9\u30eb\u30c0\u5225") },
                     selected = galleryState.galleryViewMode == GalleryViewMode.FOLDER && navController.currentBackStackEntryAsState().value?.destination?.route == "folders",
                     onClick = {
                         scope.launch { drawerState.close() }
@@ -284,7 +271,7 @@ fun AppNavigation(
                     )
                 )
                 NavigationDrawerItem(
-                    label = { Text("　タグ別") },
+                    label = { Text("\u30bf\u30b0\u5225") },
                     selected = galleryState.galleryViewMode == GalleryViewMode.MYLIST && navController.currentBackStackEntryAsState().value?.destination?.route == "mylist",
                     onClick = {
                         scope.launch { drawerState.close() }
@@ -311,7 +298,7 @@ fun AppNavigation(
                 )
 
                 NavigationDrawerItem(
-                    label = { Text("本") },
+                    label = { Text("\u672c") },
                     selected = navController.currentBackStackEntryAsState().value?.destination?.route == "books",
                     onClick = {
                         scope.launch { drawerState.close() }
@@ -325,7 +312,7 @@ fun AppNavigation(
                     )
                 )
                 NavigationDrawerItem(
-                    label = { Text("ゴミ箱") },
+                    label = { Text("\u30b4\u30df\u7bb1") },
                     selected = navController.currentBackStackEntryAsState().value?.destination?.route == "trash",
                     onClick = {
                         scope.launch { drawerState.close() }
@@ -346,7 +333,7 @@ fun AppNavigation(
                 )
 
                 NavigationDrawerItem(
-                    label = { Text("動画DL (X/Twitter)") },
+                    label = { Text("\u52d5\u753bDL (X/Twitter)") },
                     selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
                     onClick = {
                         scope.launch { drawerState.close() }
@@ -360,18 +347,32 @@ fun AppNavigation(
                     )
                 )
 
+                NavigationDrawerItem(
+                    label = { Text("\u304a\u6c17\u306b\u5165\u308a\u30af\u30ea\u30a8\u30a4\u30bf\u30fc") },
+                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_artists",
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("favorite_artists")
+                    },
+                    icon = { Icon(Icons.Default.Favorite, null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
+                )
+
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 8.dp),
                     color = Color.Gray.copy(alpha = 0.3f)
                 )
 
                 NavigationDrawerItem(
-                    label = { Text(if (galleryState.isMeasureModeActive) "計測モード停止中..." else "計測モード開始") },
+                    label = { Text(if (galleryState.isMeasureModeActive) "Measure mode running..." else "Start measure mode") },
                     selected = galleryState.isMeasureModeActive,
                     onClick = {
                         galleryState.isMeasureModeActive = !galleryState.isMeasureModeActive
                         if (!galleryState.isMeasureModeActive) {
-                            // 計測停止時に何か処理が必要ならここ
                         }
                     },
                     icon = { 
@@ -392,7 +393,7 @@ fun AppNavigation(
                 )
 
                 NavigationDrawerItem(
-                    label = { Text("おすすめ") },
+                    label = { Text("Recommendations") },
                     selected = navController.currentBackStackEntryAsState().value?.destination?.route == "recommendations",
                     onClick = {
                         scope.launch { drawerState.close() }
@@ -413,8 +414,6 @@ fun AppNavigation(
         gesturesEnabled = isBottomBarVisible && !galleryState.isSelectionMode && !galleryState.isZooming
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // エッジスワイプを補助するためのエリア（左端 25dp）
-            // ギャラリー内のズーム操作との衝突を避けるため、ボトムバーが表示されている（＝ビュワー等でない）時のみ有効
             val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
             val currentRouteForDrawer = navBackStackEntryForDrawer?.destination?.route
             val isGalleryGridVisible =
@@ -443,7 +442,6 @@ fun AppNavigation(
                                                 change.position.x - change.previousPosition.x
                                             totalDrag += dragAmount
 
-                                            // 右スワイプを検知
                                             if (totalDrag > 40f && !isOpening) {
                                                 isOpening = true
                                                 scope.launch { drawerState.open() }
@@ -469,7 +467,6 @@ fun AppNavigation(
             ) {
                 composable("home") {
                     isBottomBarVisible = true
-                    // ホームに戻ったときにハイライトをリセット
                     LaunchedEffect(Unit) {
                         galleryState.lastViewedUri = null
                     }
@@ -559,14 +556,12 @@ fun AppNavigation(
                         analysisType = analysisType,
                         periodDays = periodDays,
                         onComplete = {
-                            // 完了時もマイリスト画面へ
                             navController.navigate("mylist") {
                                 popUpTo("home") { inclusive = false }
                                 launchSingleTop = true
                             }
                         },
                         onCancel = {
-                            // 中断時はマイリスト画面へ
                             navController.navigate("mylist") {
                                 popUpTo("home") { inclusive = false }
                                 launchSingleTop = true
@@ -580,7 +575,6 @@ fun AppNavigation(
                         isBottomBarVisible = false
                         onDispose { }
                     }
-                    // Pickerから戻ってきたフォルダ名を取得
                     val selectedFolder = it.savedStateHandle.get<String>("selected_folder")
                     if (selectedFolder != null) {
                         galleryState.selectedFolderForMove = selectedFolder
@@ -604,7 +598,6 @@ fun AppNavigation(
                     FolderPickerScreen(
                         galleryState = galleryState,
                         onFolderSelected = { folder ->
-                            // 戻り先に値を渡す
                             navController.previousBackStackEntry?.savedStateHandle?.set(
                                 "selected_folder",
                                 folder
@@ -650,6 +643,22 @@ fun AppNavigation(
                         onInitialUrlConsumed = onSharedXUrlConsumed
                     )
                 }
+                composable("favorite_artists") {
+                    isBottomBarVisible = true
+                    FavoriteArtistsScreen(
+                        onMenuClick = { scope.launch { drawerState.open() } },
+                        onNavigateHome = {
+                            galleryState.lastViewedUri = null
+                            navController.navigate("home") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
                 composable("recommendations") {
                     isBottomBarVisible = true
                     RecommendationScreen(
@@ -661,7 +670,6 @@ fun AppNavigation(
                 }
             }
 
-            // グローバルプログレス表示
             GlobalProgressOverlay()
 
             val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -682,9 +690,7 @@ fun AppNavigation(
                         galleryState = galleryState,
                         onIconClick = { route ->
                             if (currentRoute == route) {
-                                // 現在表示中の画面に対して「トップに戻る（リセット）」を指示
                                 navController.navigate(route) {
-                                    // そのルートまで戻り、かつそのルート自体も再生成することで状態を初期化
                                     popUpTo(route) { inclusive = true }
                                 }
                             }

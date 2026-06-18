@@ -8,7 +8,7 @@ import android.util.Log
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import com.example.gallery.data.local.entity.MediaMetadataEntity
+import ai.onnxruntime.TensorInfo
 import com.example.gallery.data.local.entity.TagEntity
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.repository.MediaRepository
@@ -16,6 +16,8 @@ import com.example.gallery.util.ModelDownloader
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.service.TagTranslationService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
 import java.util.Collections
@@ -27,10 +29,15 @@ class AiTaggingService(
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
     private var tags: List<String> = emptyList()
+    private var inputName: String = "input"
+    private var tensorShape: LongArray = longArrayOf(1, INPUT_SIZE.toLong(), INPUT_SIZE.toLong(), 3)
+    private var isNHWC: Boolean = true
+    private val mutex = Mutex()
     private val threshold = 0.60f // 60%以上に設定
     
     // バッファの再利用
-    private val imgDataBuffer = FloatBuffer.allocate(1 * 448 * 448 * 3)
+    private val imgDataBuffer = FloatBuffer.allocate(1 * INPUT_SIZE * INPUT_SIZE * 3)
+    private val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
 
     init {
         // 起動時の初期化を停止。必要時に ensureInitialized() を呼ぶ
@@ -52,16 +59,23 @@ class AiTaggingService(
                     ortEnv = OrtEnvironment.getEnvironment()
                 }
                 
+                val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
                 val options = OrtSession.SessionOptions().apply {
                     addConfigEntry("session.load_model_format", "ONNX")
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+                    setInterOpNumThreads(1)
+                    setIntraOpNumThreads(threadCount)
+                    setMemoryPatternOptimization(true)
                     try {
-                        // ONNX Runtime Android では NNAPI が不安定な場合があるため、一旦無効化してCPUで確実性を優先
-                        // addNnapi() 
+                        addXnnpack(mapOf("intra_op_num_threads" to threadCount.toString()))
+                        Log.d("AiTaggingService", "XNNPACK enabled for tagger")
                     } catch (e: Exception) {
-                        Log.w("AiTaggingService", "NNAPI init failed", e)
+                        Log.w("AiTaggingService", "XNNPACK init failed; falling back to default CPU", e)
                     }
                 }
                 ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
+                cacheInputMetadata()
                 Log.d("AiTaggingService", "ONNX session created. Input names: ${ortSession?.inputNames}")
                 
                 tags = tagsFile.readLines()
@@ -80,114 +94,123 @@ class AiTaggingService(
         }
     }
 
+    private fun cacheInputMetadata() {
+        val session = ortSession ?: return
+        inputName = session.inputNames.firstOrNull() ?: "input"
+        val shape = session.inputInfo[inputName]?.info
+            ?.let { it as? TensorInfo }
+            ?.shape
+        isNHWC = shape != null && shape.size == 4 && (shape[3] == 3L || shape[3] == -1L)
+        tensorShape = shape?.let { inputShape ->
+            LongArray(inputShape.size) { index ->
+                if (inputShape[index] == -1L) 1L else inputShape[index]
+            }
+        } ?: longArrayOf(1, INPUT_SIZE.toLong(), INPUT_SIZE.toLong(), 3)
+    }
+
     suspend fun analyzeSingle(media: MediaData): List<String> = withContext(Dispatchers.IO) {
         if (ortSession == null) {
             ensureInitialized()
         }
-        
+
         if (media.isVideo || ortSession == null || tags.isEmpty()) {
             Log.d("AiTaggingService", "Skipping analysis for ${media.uri}: isVideo=${media.isVideo}, sessionNull=${ortSession == null}, tagsEmpty=${tags.isEmpty()}")
             return@withContext emptyList()
         }
 
-        try {
-            val bitmap = decodeBitmap(media.uri) ?: return@withContext emptyList()
-            val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 448, 448, true)
-            
-            Log.d("AiTaggingService", "Running inference for ${media.uri}")
-            val scores = runInference(resizedBitmap)
-            
-            if (scores.isEmpty()) {
-                Log.w("AiTaggingService", "No scores returned for ${media.uri}")
-                return@withContext emptyList()
-            }
+        mutex.withLock {
+            var bitmap: Bitmap? = null
+            var resizedBitmap: Bitmap? = null
 
-            val detectedTags = mutableMapOf<String, Float>()
-            var ageRating = "SFW"
+            try {
+                val decodedBitmap = decodeBitmap(media.uri) ?: return@withLock emptyList()
+                bitmap = decodedBitmap
+                resizedBitmap = if (decodedBitmap.width == INPUT_SIZE && decodedBitmap.height == INPUT_SIZE) {
+                    decodedBitmap
+                } else {
+                    Bitmap.createScaledBitmap(decodedBitmap, INPUT_SIZE, INPUT_SIZE, false)
+                }
 
-            val ratingScores = mutableMapOf<String, Float>()
-            val ratingMap = mapOf(
-                "rating:general" to "SFW",
-                "rating:sensitive" to "SFW",
-                "rating:questionable" to "R15",
-                "rating:explicit" to "R18"
-            )
+                val scores = runInference(resizedBitmap)
 
-            scores.forEachIndexed { index, score ->
-                if (score >= 0.05f) { // 判定のために少し低めから見る
-                    val tagName = tags.getOrNull(index) ?: return@forEachIndexed
-                    
-                    if (ratingMap.containsKey(tagName)) {
-                        ratingScores[tagName] = score
-                    }
+                if (scores.isEmpty()) {
+                    Log.w("AiTaggingService", "No scores returned for ${media.uri}")
+                    return@withLock emptyList()
+                }
 
-                    if (score >= threshold && !ratingMap.containsKey(tagName)) {
-                        val cleanTagName = tagName // アンダースコアを含んだまま比較する (AppConstantsと合わせる)
-                        if (AppConstants.R18Keywords.any { cleanTagName.contains(it, ignoreCase = true) }) {
-                            ageRating = "R18"
-                        } else if (ageRating != "R18" && AppConstants.R15Keywords.any { cleanTagName.contains(it, ignoreCase = true) }) {
-                            ageRating = "R15"
+                val detectedTags = ArrayList<Pair<String, Float>>(MAX_SAVED_TAGS * 2)
+                var ageRating = "SFW"
+
+                val ratingScores = mutableMapOf<String, Float>()
+
+                scores.forEachIndexed { index, score ->
+                    if (score >= 0.05f) {
+                        val tagName = tags.getOrNull(index) ?: return@forEachIndexed
+
+                        if (RATING_MAP.containsKey(tagName)) {
+                            ratingScores[tagName] = score
                         }
 
-                        detectedTags[tagName] = score
+                        if (score >= threshold && !RATING_MAP.containsKey(tagName)) {
+                            if (AppConstants.R18Keywords.any { tagName.contains(it, ignoreCase = true) }) {
+                                ageRating = "R18"
+                            } else if (ageRating != "R18" && AppConstants.R15Keywords.any { tagName.contains(it, ignoreCase = true) }) {
+                                ageRating = "R15"
+                            }
+
+                            detectedTags.add(tagName to score)
+                        }
                     }
                 }
-            }
 
-            val maxRatingTag = ratingScores.maxByOrNull { it.value }?.key
-            if (maxRatingTag != null && ratingScores[maxRatingTag]!! > 0.3f) {
-                val modelRating = ratingMap[maxRatingTag]!!
-                // レベルの格上げロジック: R18 > R15 > SFW
-                when (modelRating) {
-                    "R18" -> ageRating = "R18"
-                    "R15" -> if (ageRating != "R18") ageRating = "R15"
-                    "SFW" -> { /* キーワード判定でR15/R18になっていればそれを優先 */ }
+                val maxRatingTag = ratingScores.maxByOrNull { it.value }?.key
+                if (maxRatingTag != null && ratingScores[maxRatingTag]!! > 0.3f) {
+                    when (RATING_MAP[maxRatingTag]!!) {
+                        "R18" -> ageRating = "R18"
+                        "R15" -> if (ageRating != "R18") ageRating = "R15"
+                        "SFW" -> Unit
+                    }
                 }
-            }
 
-            Log.d("AiTaggingService", "Detected ${detectedTags.size} tags for ${media.uri}, ageRating=$ageRating")
-            detectedTags.forEach { (tagName, score) ->
-                repository.saveTag(TagEntity(media.uri, tagName, score))
-            }
+                val savedTags = detectedTags
+                    .sortedByDescending { it.second }
+                    .take(MAX_SAVED_TAGS)
+                    .map { (tagName, score) -> TagEntity(media.uri, tagName, score) }
 
-            repository.updateAiAnalysisResult(
-                uri = media.uri,
-                ageRating = ageRating,
-                isAiAnalyzed = true,
-                folderName = media.folderName
-            )
-            resizedBitmap.recycle()
-            if (bitmap != resizedBitmap) bitmap.recycle()
-            
-            // 検出されたタグ（翻訳済み）をリストにして返す
-            return@withContext detectedTags.keys.map { TagTranslationService.translate(it) }
-        } catch (e: Exception) {
-            Log.e("AiTaggingService", "Error in SmilingWolf analysis: ${media.uri}", e)
-            return@withContext emptyList()
+                repository.saveAiAnalysisResult(
+                    uri = media.uri,
+                    ageRating = ageRating,
+                    isAiAnalyzed = true,
+                    folderName = media.folderName,
+                    tags = savedTags
+                )
+
+                Log.d("AiTaggingService", "Detected ${detectedTags.size} tags, saved ${savedTags.size} for ${media.uri}, ageRating=$ageRating")
+                savedTags.take(3).map { TagTranslationService.translate(it.tag) }
+            } catch (e: Exception) {
+                Log.e("AiTaggingService", "Error in SmilingWolf analysis: ${media.uri}", e)
+                emptyList()
+            } finally {
+                resizedBitmap?.recycle()
+                if (bitmap != null && bitmap !== resizedBitmap) bitmap.recycle()
+            }
         }
     }
 
     private fun runInference(bitmap: Bitmap): FloatArray {
         imgDataBuffer.rewind()
 
-        val pixels = IntArray(448 * 448)
-        bitmap.getPixels(pixels, 0, 448, 0, 0, 448, 448)
+        bitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
 
         // SmilingWolf WD Tagger v3 ONNX (HuggingFace)
-        val inputName = ortSession?.inputNames?.firstOrNull() ?: "input"
-        val inputInfo = ortSession?.inputInfo?.get(inputName)
-        val shape = inputInfo?.info?.let { (it as? ai.onnxruntime.TensorInfo)?.shape }
+        // Input metadata is cached at session creation; avoid querying ONNX metadata per image.
         
-        Log.d("AiTaggingService", "Inference: input=$inputName, targetShape=${shape?.contentToString()}")
-
         // WD Tagger v3 ViT usually expects [1, 448, 448, 3] (NHWC)
         // RGB values 0.0 - 255.0
         // 動的軸 (-1) を考慮して判定
-        val isNHWC = shape != null && shape.size == 4 && (shape[3] == 3L || shape[3] == -1L)
-
         if (isNHWC) {
             // NHWC
-            for (i in 0 until 448 * 448) {
+            for (i in 0 until INPUT_PIXEL_COUNT) {
                 val pixel = pixels[i]
                 imgDataBuffer.put((pixel shr 16 and 0xFF).toFloat()) // R
                 imgDataBuffer.put((pixel shr 8 and 0xFF).toFloat())  // G
@@ -195,24 +218,31 @@ class AiTaggingService(
             }
         } else {
             // NCHW [1, 3, 448, 448]
-            for (i in 0 until 448 * 448) imgDataBuffer.put((pixels[i] shr 16 and 0xFF).toFloat()) // R
-            for (i in 0 until 448 * 448) imgDataBuffer.put((pixels[i] shr 8 and 0xFF).toFloat())  // G
-            for (i in 0 until 448 * 448) imgDataBuffer.put((pixels[i] and 0xFF).toFloat())       // B
+            for (i in 0 until INPUT_PIXEL_COUNT) imgDataBuffer.put((pixels[i] shr 16 and 0xFF).toFloat()) // R
+            for (i in 0 until INPUT_PIXEL_COUNT) imgDataBuffer.put((pixels[i] shr 8 and 0xFF).toFloat())  // G
+            for (i in 0 until INPUT_PIXEL_COUNT) imgDataBuffer.put((pixels[i] and 0xFF).toFloat())       // B
         }
         
         imgDataBuffer.rewind()
         // 実際の入力テンソルの形状を決定（動的軸 -1 を 1 に置き換える）
-        val tensorShape = shape?.let { s ->
-            LongArray(s.size) { i -> if (s[i] == -1L) 1L else s[i] }
-        } ?: longArrayOf(1, 448, 448, 3)
-        
         return try {
             val inputTensor = OnnxTensor.createTensor(ortEnv, imgDataBuffer, tensorShape)
             val output = ortSession?.run(Collections.singletonMap(inputName, inputTensor))
-            val result = output?.get(0)?.value as? Array<FloatArray>
+            val result = output?.get(0)?.value
             inputTensor.close()
             output?.close()
-            result?.get(0) ?: FloatArray(0)
+            when (result) {
+                is Array<*> -> {
+                    val first = result.firstOrNull()
+                    when (first) {
+                        is FloatArray -> first
+                        is Array<*> -> first.firstOrNull() as? FloatArray ?: FloatArray(0)
+                        else -> FloatArray(0)
+                    }
+                }
+                is FloatArray -> result
+                else -> FloatArray(0)
+            }
         } catch (e: Exception) {
             Log.e("AiTaggingService", "Inference run failed", e)
             FloatArray(0)
@@ -234,10 +264,10 @@ class AiTaggingService(
 
             // WD Tagger v3 は 448x448 なので、それに近いサイズまで縮小してデコード
             var inSampleSize = 1
-            if (options.outHeight > 448 || options.outWidth > 448) {
+            if (options.outHeight > INPUT_SIZE || options.outWidth > INPUT_SIZE) {
                 val halfHeight = options.outHeight / 2
                 val halfWidth = options.outWidth / 2
-                while (halfHeight / inSampleSize >= 448 && halfWidth / inSampleSize >= 448) {
+                while (halfHeight / inSampleSize >= INPUT_SIZE && halfWidth / inSampleSize >= INPUT_SIZE) {
                     inSampleSize *= 2
                 }
             }
@@ -245,12 +275,24 @@ class AiTaggingService(
             // 2. 実際にデコード
             val decodeOptions = BitmapFactory.Options().apply {
                 this.inSampleSize = inSampleSize
-                inPreferredConfig = Bitmap.Config.ARGB_8888
+                inPreferredConfig = Bitmap.Config.RGB_565
             }
             context.contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, decodeOptions)
             }
         } catch (_: Exception) { null }
+    }
+
+    companion object {
+        private const val INPUT_SIZE = 448
+        private const val INPUT_PIXEL_COUNT = INPUT_SIZE * INPUT_SIZE
+        private const val MAX_SAVED_TAGS = 40
+        private val RATING_MAP = mapOf(
+            "rating:general" to "SFW",
+            "rating:sensitive" to "SFW",
+            "rating:questionable" to "R15",
+            "rating:explicit" to "R18"
+        )
     }
 
     fun close() {

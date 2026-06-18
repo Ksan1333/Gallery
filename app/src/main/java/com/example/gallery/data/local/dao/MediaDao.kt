@@ -40,8 +40,37 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTag(tag: TagEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertTags(tags: List<TagEntity>)
+
     @Query("DELETE FROM media_tags WHERE uri = :uri")
     suspend fun deleteTagsForMedia(uri: String)
+
+    @Transaction
+    suspend fun saveAiAnalysisResult(
+        uri: String,
+        ageRating: String,
+        isAiAnalyzed: Boolean,
+        folderName: String,
+        tags: List<TagEntity>
+    ) {
+        val current = getMetadata(uri)
+        if (current == null) {
+            insertMetadata(
+                MediaMetadataEntity(
+                    uri = uri,
+                    ageRating = ageRating,
+                    isAiAnalyzed = isAiAnalyzed,
+                    folderName = folderName
+                )
+            )
+        } else {
+            updateAiAnalysisResult(uri, ageRating, isAiAnalyzed)
+        }
+        if (tags.isNotEmpty()) {
+            insertTags(tags)
+        }
+    }
 
     @Query("DELETE FROM media_tags WHERE tag IN ('R15', 'R18', 'SFW')")
     suspend fun cleanupAgeRatingTags()

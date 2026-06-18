@@ -208,6 +208,7 @@ class MediaRepository(
                 MediaStore.MediaColumns._ID,
                 MediaStore.MediaColumns.DATA,
                 MediaStore.MediaColumns.DATE_ADDED,
+                MediaStore.MediaColumns.DATE_TAKEN,
                 MediaStore.MediaColumns.MIME_TYPE,
                 MediaStore.MediaColumns.DURATION,
                 MediaStore.MediaColumns.WIDTH,
@@ -247,6 +248,7 @@ class MediaRepository(
                             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                             val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                            val dateTakenColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
                             val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
                             val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
                             val widthColumn = cursor.getColumnIndex(MediaStore.MediaColumns.WIDTH)
@@ -267,7 +269,9 @@ class MediaRepository(
 
                                 val existing = existingMetadata[contentUri]
                                 
-                                val date = cursor.getLong(dateColumn) * 1000
+                                val dateTaken = if (dateTakenColumn != -1) cursor.getLong(dateTakenColumn) else 0L
+                                val dateAdded = cursor.getLong(dateColumn) * 1000
+                                val date = if (dateTaken > 0L) dateTaken else dateAdded
                                 val mime = cursor.getString(mimeColumn)
                                 val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
                                 val width = if (widthColumn != -1) cursor.getInt(widthColumn) else 0
@@ -478,6 +482,23 @@ class MediaRepository(
 
     suspend fun saveTag(tag: TagEntity) {
         mediaDao.insertTag(tag)
+    }
+
+    suspend fun saveTags(tags: List<TagEntity>) {
+        if (tags.isNotEmpty()) {
+            mediaDao.insertTags(tags)
+        }
+    }
+
+    suspend fun saveAiAnalysisResult(
+        uri: String,
+        ageRating: String,
+        isAiAnalyzed: Boolean,
+        folderName: String?,
+        tags: List<TagEntity>
+    ) {
+        val finalFolder = folderName ?: getAllMedia().find { it.uri == uri }?.folderName ?: ""
+        mediaDao.saveAiAnalysisResult(uri, ageRating, isAiAnalyzed, finalFolder, tags)
     }
 
     suspend fun moveMediaToFolder(uris: List<String>, targetFolder: String): Boolean {

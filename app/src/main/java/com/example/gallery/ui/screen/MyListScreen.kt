@@ -272,8 +272,8 @@ fun MyListScreen(
         }
         
         val estimatedMinutes = remember(filteredList.size) {
-            // 1枚あたり約0.5秒と仮定 (機種により変動)
-            val totalSeconds = filteredList.size * 0.5
+            // 1枚あたり約3秒と仮定 (機種により変動)
+            val totalSeconds = filteredList.size * 3.0
             (totalSeconds / 60).toInt().coerceAtLeast(1)
         }
 

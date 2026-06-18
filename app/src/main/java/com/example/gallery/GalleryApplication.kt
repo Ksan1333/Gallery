@@ -12,6 +12,8 @@ import coil.decode.ImageDecoderDecoder
 import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.security.Security
@@ -22,7 +24,10 @@ class GalleryApplication : Application(), ImageLoaderFactory {
     lateinit var galleryState: GalleryState
         private set
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun newImageLoader(): ImageLoader {
+        val imageDispatcher = Dispatchers.IO.limitedParallelism(2)
+
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
@@ -44,7 +49,8 @@ class GalleryApplication : Application(), ImageLoaderFactory {
                 add(VideoFrameDecoder.Factory())
             }
             .allowRgb565(true) // デコード速度を向上させメモリ消費を半分に
-            .interceptorDispatcher(kotlinx.coroutines.Dispatchers.IO) // IOスレッドで実行
+            .dispatcher(imageDispatcher)
+            .interceptorDispatcher(imageDispatcher) // IOスレッドで実行
             .allowHardware(true) // グリッド表示を高速化（ビューワーは個別設定可能）
             .crossfade(true)
             .build()

@@ -59,6 +59,7 @@ import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -306,9 +307,12 @@ fun GalleryGridView(
         val startTime = System.currentTimeMillis()
         withContext(Dispatchers.Default) {
             val is28 = columnOptions[currentColumnIndex] == 28
-            val denseYearLimit = columnOptions.first() * 6
-            val result = ArrayList<GridItem>(sortedList.size + 200)
-            val mediaOnly = ArrayList<MediaData>(sortedList.size)
+            val isDenseYear = is28 && galleryState.groupingMode == GroupingMode.YEAR
+            val denseYearLimit = 6
+            val resultCapacity = if (isDenseYear) minOf(sortedList.size + 200, 2048) else sortedList.size + 200
+            val mediaCapacity = if (isDenseYear) minOf(sortedList.size, 1024) else sortedList.size
+            val result = ArrayList<GridItem>(resultCapacity)
+            val mediaOnly = ArrayList<MediaData>(mediaCapacity)
             
             if (galleryState.groupingMode == GroupingMode.NONE) {
                 for (idx in sortedList.indices) {
@@ -355,6 +359,10 @@ fun GalleryGridView(
                             currentGroupCount = 0
                         }
                         
+                        if (isDenseYear && currentGroupCount >= denseYearLimit) {
+                            continue
+                        }
+
                         val label = when { 
                             media.isGif -> "GIF"
                             media.isVideo -> formatDuration(media.duration)
@@ -362,7 +370,7 @@ fun GalleryGridView(
                         }
                         val gridMedia = GridItem.Media(media, label, mediaIdx)
                         
-                        if (is28 && galleryState.groupingMode == GroupingMode.YEAR) {
+                        if (isDenseYear) {
                             if (currentGroupCount < denseYearLimit) { 
                                 result.add(gridMedia)
                                 mediaOnly.add(media)
@@ -418,40 +426,43 @@ fun GalleryGridView(
         }
     }
 
-    // --- プレロード (先読み) ---
-    LaunchedEffect(gridState, flatGridItems, pagingItems, thumbSize) {
+    // --- Prefetch thumbnails near the current viewport, one request at a time. ---
+    LaunchedEffect(gridState, flatGridItems, pagingItems, thumbSize, maxLineSpan) {
         snapshotFlow { gridState.firstVisibleItemIndex }
-            .debounce(200) // スクロール中のプリロードリクエストを削減（120ms → 200ms）
-            .collect { firstIndex ->
-                if (maxLineSpan >= 28) return@collect
+            .debounce(200)
+            .collectLatest { firstIndex ->
+                if (maxLineSpan >= 28) return@collectLatest
                 val totalItems = pagingItems?.itemCount ?: flatGridItems.size
-                if (totalItems == 0) return@collect
-                
+                if (totalItems == 0) return@collectLatest
+
                 val visibleCount = gridState.layoutInfo.visibleItemsInfo.size
-                // 前後両方向をプレロード（特にスクロール方向を重視）
                 val preloadStart = (firstIndex - maxLineSpan).coerceAtLeast(0)
-                val preloadEnd = (firstIndex + visibleCount + (maxLineSpan * 6)).coerceAtMost(totalItems - 1)
-                
+                val preloadEnd = (firstIndex + visibleCount + (maxLineSpan * 2)).coerceAtMost(totalItems - 1)
+                val preloadIndices = (preloadStart..preloadEnd)
+                    .sortedBy { kotlin.math.abs(it - firstIndex) }
+                    .take((visibleCount + maxLineSpan * 2).coerceAtLeast(maxLineSpan))
+                val preloadRequests = preloadIndices.mapNotNull { i ->
+                    val item = if (pagingItems != null) {
+                        pagingItems.peek(i)
+                    } else {
+                        flatGridItems.getOrNull(i)
+                    }
+
+                    if (item !is GridItem.Media) return@mapNotNull null
+
+                    ImageRequest.Builder(context)
+                        .data(item.data.uri)
+                        .size(thumbSize)
+                        .precision(coil.size.Precision.INEXACT)
+                        .bitmapConfig(Bitmap.Config.RGB_565)
+                        .placeholderMemoryCacheKey(item.data.uri)
+                        .build()
+                }
+
                 withContext(Dispatchers.IO) {
-                    for (i in preloadStart..preloadEnd) {
-                        val item = if (pagingItems != null) {
-                            // PagingItemsの場合はpeekを使用して、不必要なロードをトリガーせずにキャッシュにあるか確認
-                            pagingItems.peek(i)
-                        } else {
-                            flatGridItems.getOrNull(i)
-                        }
-                        
-                        if (item is GridItem.Media) {
-                            val request = ImageRequest.Builder(context)
-                                .data(item.data.uri)
-                                .size(thumbSize)
-                                .precision(coil.size.Precision.INEXACT)
-                                .bitmapConfig(Bitmap.Config.RGB_565)
-                                .placeholderMemoryCacheKey(item.data.uri)
-                                .build()
-                            // enqueueはすでにキャッシュにある場合は何もしないので安全
-                            context.imageLoader.enqueue(request)
-                        }
+                    for (request in preloadRequests) {
+                        context.imageLoader.execute(request)
+                        delay(16)
                     }
                 }
             }

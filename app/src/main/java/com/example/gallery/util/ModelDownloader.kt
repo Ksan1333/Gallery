@@ -28,10 +28,10 @@ object ModelDownloader {
 
     // 2. SmilingWolf WD Tagger Model & Tags
     // モバイル向けに最適化されたONNXモデル
-    private const val DANBOORU_MODEL_URL = "https://huggingface.co/SmilingWolf/wd-vit-tagger-v3/resolve/main/model.onnx"
-    private const val DANBOORU_MODEL_FILENAME = "model.onnx"
-    private const val DANBOORU_TAGS_URL = "https://huggingface.co/SmilingWolf/wd-vit-tagger-v3/resolve/main/selected_tags.csv"
-    private const val DANBOORU_TAGS_FILENAME = "selected_tags.csv"
+    private const val DANBOORU_MODEL_URL = "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/model.onnx"
+    private const val DANBOORU_MODEL_FILENAME = "tagger_fast_moat_v2.onnx"
+    private const val DANBOORU_TAGS_URL = "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/selected_tags.csv"
+    private const val DANBOORU_TAGS_FILENAME = "selected_tags_moat_v2.csv"
 
     fun getVectorModelFile(context: Context): File = File(context.filesDir, VECTOR_MODEL_FILENAME)
     fun getDanbooruModelFile(context: Context): File = File(context.filesDir, DANBOORU_MODEL_FILENAME)
@@ -42,7 +42,7 @@ object ModelDownloader {
     }
 
     fun isTaggerModelValid(context: Context): Boolean {
-        return getDanbooruModelFile(context).let { it.exists() && it.length() > 50_000_000L } &&
+        return getDanbooruModelFile(context).let { it.exists() && it.length() > 250_000_000L } &&
                getDanbooruTagsFile(context).let { it.exists() && it.length() > 5_000L }
     }
 
@@ -53,7 +53,7 @@ object ModelDownloader {
     suspend fun downloadAllModels(context: Context, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         val tasks = listOf(
             DownloadTask(VECTOR_MODEL_URL, getVectorModelFile(context), 0.2f, 1_000_000L), // 小さいモデル
-            DownloadTask(DANBOORU_MODEL_URL, getDanbooruModelFile(context), 0.7f, 100_000_000L), // 大きなモデル (ViT v3)
+            DownloadTask(DANBOORU_MODEL_URL, getDanbooruModelFile(context), 0.7f, 250_000_000L),
             DownloadTask(DANBOORU_TAGS_URL, getDanbooruTagsFile(context), 0.1f, 10_000L) // CSV
         )
 

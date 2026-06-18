@@ -141,8 +141,11 @@ class AnalysisService : Service() {
                         ": " + resultTags.take(3).joinToString(", ") + (if (resultTags.size > 3) "..." else "")
                     } else ""
 
-                    GlobalOperationService.updateProgress(currentProgress, "$fileName (${index + 1} / ${targetList.size})$tagSummary", opId)
-                    updateNotification("$fileName (${index + 1} / ${targetList.size})$tagSummary", currentProgress)
+                    val progressText = "$fileName (${index + 1} / ${targetList.size})$tagSummary"
+                    GlobalOperationService.updateProgress(currentProgress, progressText, opId)
+                    if (index == 0 || index == targetList.lastIndex || (index + 1) % 5 == 0) {
+                        updateNotification(progressText, currentProgress)
+                    }
                 }
                 galleryState.refresh()
             } catch (e: Exception) {
