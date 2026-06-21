@@ -34,7 +34,7 @@
             android:name="com.example.gallery.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.Gallery"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize">
             <intent-filter>
@@ -65,6 +65,16 @@
                     android:scheme="https" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <service
             android:name=".service.AnalysisService"

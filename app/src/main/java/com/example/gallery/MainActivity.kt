@@ -640,7 +640,10 @@ fun AppNavigation(
                             }
                         },
                         initialUrl = sharedXUrl,
-                        onInitialUrlConsumed = onSharedXUrlConsumed
+                        onInitialUrlConsumed = onSharedXUrlConsumed,
+                        onViewerVisibleChanged = { isVisible ->
+                            isBottomBarVisible = !isVisible
+                        }
                     )
                 }
                 composable("favorite_artists") {

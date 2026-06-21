@@ -53,6 +53,7 @@ object ThumbnailGenerationService {
                     val thumbnailFileExists = ThumbnailUtils.getThumbnailFile(context, media.uri).exists()
                     !sessionAttemptedUris.contains(media.uri) &&
                         metadata?.hasThumbnail != true &&
+                        metadata?.startupThumbnailAttempted != true &&
                         !thumbnailFileExists
                 }
 
@@ -60,6 +61,7 @@ object ThumbnailGenerationService {
                     allMedia.filter { media ->
                         !media.isVideo &&
                             !sessionAttemptedUris.contains("${media.uri}_vector") &&
+                            allMetadata[media.uri]?.startupVectorAttempted != true &&
                             allMetadata[media.uri]?.hasFeatureVector != true
                     }
                 } else {
@@ -86,6 +88,7 @@ object ThumbnailGenerationService {
                 var completedTasks = 0
                 thumbTargets.forEachIndexed { index, media ->
                     if (!isActive) return@launch
+                    repository.mediaDao.updateStartupThumbnailAttempted(media.uri, true)
                     ThumbnailUtils.generateThumbnailIfMissing(context, media.uri)
                     repository.mediaDao.updateHasThumbnail(media.uri, true)
                     sessionAttemptedUris.add(media.uri)
@@ -102,6 +105,7 @@ object ThumbnailGenerationService {
                     repository.galleryState?.vectorSearchService?.ensureInitialized()
                     vectorTargets.forEachIndexed { index, media ->
                         if (!isActive) return@launch
+                        repository.mediaDao.updateStartupVectorAttempted(media.uri, true)
                         repository.galleryState?.vectorSearchService?.analyzeSingle(media)
                         sessionAttemptedUris.add("${media.uri}_vector")
                         completedTasks++

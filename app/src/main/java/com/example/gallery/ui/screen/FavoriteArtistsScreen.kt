@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,19 +23,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -71,6 +74,12 @@ private const val CREATOR_LIST_KEY = "artists"
 private const val CUSTOM_SITE_KEY = "custom_sites"
 
 private val defaultPlatforms = listOf("X", "pixiv", "Support")
+private val creatorBackground = Color(0xFF11100F)
+private val creatorCard = Color(0xFF1D1A18)
+private val creatorInk = Color(0xFFF4EFE8)
+private val creatorMuted = Color(0xFFB8ADA2)
+private val creatorAccent = Color(0xFFD28A5E)
+private val creatorField = Color(0xFF28231F)
 
 private data class FavoriteCreator(
     val name: String,
@@ -90,193 +99,343 @@ fun FavoriteArtistsScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(CREATOR_PREFS, Context.MODE_PRIVATE) }
-    var creators by remember { mutableStateOf(loadCreators(prefs)) }
+    var creators by remember { mutableStateOf(loadCreators(prefs).ifEmpty { listOf(emptyCreator()) }) }
     var customSites by remember { mutableStateOf(loadCustomSites(prefs)) }
-    val platforms = remember(customSites) { defaultPlatforms + customSites }
-
-    var creatorName by remember { mutableStateOf("") }
-    var selectedPlatform by remember { mutableStateOf(defaultPlatforms.first()) }
-    var urlInput by remember { mutableStateOf("") }
-    var linkDrafts by remember { mutableStateOf<List<CreatorLink>>(emptyList()) }
     var customSiteInput by remember { mutableStateOf("") }
-    var webSearch by remember { mutableStateOf<WebSearchRequest?>(null) }
+    var pendingDeleteCreatorIndex by remember { mutableStateOf<Int?>(null) }
+    var pendingSearch by remember { mutableStateOf<SearchTarget?>(null) }
+    var activeWebSearch by remember { mutableStateOf<SearchTarget?>(null) }
+    var isEditMode by remember { mutableStateOf(false) }
+    val platforms = remember(customSites) { (defaultPlatforms + customSites).distinct() }
 
     fun persistCreators(next: List<FavoriteCreator>) {
         creators = next
-        saveCreators(prefs, next)
+        saveCreators(prefs, next.filter { creator ->
+            creator.name.isNotBlank() || creator.links.any { it.url.isNotBlank() }
+        })
     }
 
     fun persistCustomSites(next: List<String>) {
-        customSites = next.distinct().filter { it.isNotBlank() }
+        customSites = next.map { it.trim() }.filter { it.isNotBlank() && it !in defaultPlatforms }.distinct()
         saveCustomSites(prefs, customSites)
-    }
-
-    fun clearForm() {
-        creatorName = ""
-        selectedPlatform = defaultPlatforms.first()
-        urlInput = ""
-        linkDrafts = emptyList()
     }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("お気に入りクリエイター", color = Color.White) },
+                title = { Text("Creators", color = creatorInk) },
                 navigationIcon = {
                     IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = creatorInk)
                     }
                 },
                 actions = {
-                    IconButton(onClick = onNavigateHome) {
-                        Icon(Icons.Default.Home, contentDescription = "Home", tint = Color.White)
+                    IconButton(onClick = { isEditMode = !isEditMode }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Toggle edit", tint = if (isEditMode) creatorAccent else creatorInk)
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Black)
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = creatorBackground)
             )
         },
-        containerColor = Color.Black
+        containerColor = creatorBackground
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(Color.Black),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF181818)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+        if (isEditMode) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(creatorBackground),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                itemsIndexed(creators, key = { index, _ -> index }) { creatorIndex, creator ->
+                    CreatorEditCard(
+                        creator = creator,
+                        platforms = platforms,
+                        onCreatorChange = { updated ->
+                            persistCreators(creators.toMutableList().also { it[creatorIndex] = updated })
+                        },
+                        onDeleteCreator = {
+                            pendingDeleteCreatorIndex = creatorIndex
+                        },
+                        onSearchRequested = { linkIndex, target ->
+                            pendingSearch = SearchTarget(
+                                creatorIndex = creatorIndex,
+                                linkIndex = linkIndex,
+                                platform = target.platform,
+                                creatorName = target.creatorName,
+                                initialUrl = target.initialUrl
+                            )
+                        }
+                    )
+                }
+
+                item {
+                    Button(
+                        onClick = { persistCreators(creators + emptyCreator()) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = creatorAccent)
                     ) {
-                        Text("クリエイターを追加", color = Color.White, fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = creatorName,
-                            onValueChange = { creatorName = it },
-                            label = { Text("名前") },
-                            singleLine = true,
-                            colors = creatorTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add creator tab")
+                    }
+                }
 
-                        CreatorLinkEditor(
-                            platforms = platforms,
-                            selectedPlatform = selectedPlatform,
-                            onPlatformSelected = {
-                                selectedPlatform = it
-                                urlInput = linkDrafts.firstOrNull { link -> link.platform == it }?.url.orEmpty()
-                            },
-                            url = urlInput,
-                            onUrlChange = { urlInput = it },
-                            onAccess = {
-                                if (urlInput.isBlank()) {
-                                    webSearch = WebSearchRequest(
-                                        initialUrl = buildPlatformSearchUrl(selectedPlatform, creatorName),
-                                        platform = selectedPlatform
-                                    )
-                                } else {
-                                    openUrl(context, urlInput)
-                                }
-                            }
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                enabled = selectedPlatform.isNotBlank() && urlInput.isNotBlank(),
-                                onClick = {
-                                    linkDrafts = (linkDrafts.filterNot { it.platform == selectedPlatform } +
-                                        CreatorLink(selectedPlatform, urlInput.trim()))
-                                }
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null)
-                                Spacer(Modifier.width(6.dp))
-                                Text("リンク追加")
-                            }
-                            TextButton(onClick = { clearForm() }) {
-                                Text("クリア", color = Color.Gray)
-                            }
-                        }
-
-                        linkDrafts.forEach { link ->
-                            CreatorLinkRow(
-                                link = link,
-                                onOpen = { openUrl(context, link.url) },
-                                onDelete = { linkDrafts = linkDrafts.filterNot { it == link } }
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = creatorCard),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Button(
-                                enabled = creatorName.isNotBlank(),
-                                onClick = {
-                                    val finalLinks = mergeDraftLink(linkDrafts, selectedPlatform, urlInput)
-                                    persistCreators(
-                                        creators + FavoriteCreator(
-                                            name = creatorName.trim(),
-                                            links = finalLinks
-                                        )
-                                    )
-                                    clearForm()
+                            Text("User sites", color = creatorInk, fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    value = customSiteInput,
+                                    onValueChange = { customSiteInput = it },
+                                    label = { Text("Site name") },
+                                    singleLine = true,
+                                    colors = creatorTextFieldColors(),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    enabled = customSiteInput.isNotBlank(),
+                                    onClick = {
+                                        persistCustomSites(customSites + customSiteInput)
+                                        customSiteInput = ""
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add site", tint = creatorAccent)
                                 }
-                            ) {
-                                Icon(Icons.Default.Save, contentDescription = null)
-                                Spacer(Modifier.width(6.dp))
-                                Text("保存")
-                            }
-                        }
-
-                        Spacer(Modifier.height(4.dp))
-                        Text("サイトを追加", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = customSiteInput,
-                                onValueChange = { customSiteInput = it },
-                                label = { Text("サイト名") },
-                                singleLine = true,
-                                colors = creatorTextFieldColors(),
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                enabled = customSiteInput.isNotBlank(),
-                                onClick = {
-                                    persistCustomSites(customSites + customSiteInput.trim())
-                                    selectedPlatform = customSiteInput.trim()
-                                    customSiteInput = ""
-                                }
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = "Add site", tint = Color.White)
                             }
                         }
                     }
                 }
             }
+        } else {
+            CreatorDisplayScreen(
+                creators = creators,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(creatorBackground)
+            )
+        }
+    }
 
-            items(creators, key = { it.name + it.links.joinToString { link -> link.platform + link.url } }) { creator ->
-                FavoriteCreatorCard(
-                    creator = creator,
-                    onDelete = { persistCreators(creators.filterNot { it == creator }) }
+    pendingDeleteCreatorIndex?.let { index ->
+        ConfirmDeleteDialog(
+            title = "Creator tabを削除",
+            text = "このCreator tabと中のリンクを削除します。",
+            onConfirm = {
+                val next = creators.toMutableList().also { it.removeAt(index) }
+                persistCreators(next.ifEmpty { listOf(emptyCreator()) })
+                pendingDeleteCreatorIndex = null
+            },
+            onDismiss = { pendingDeleteCreatorIndex = null }
+        )
+    }
+
+    pendingSearch?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingSearch = null },
+            containerColor = creatorCard,
+            title = { Text("Googleで検索してURLを入力", color = creatorInk) },
+            text = {
+                Text(
+                    "URLが空なのでWebViewでGoogle検索を開きます。最初に開いたページのURLをこのリンク欄へ自動入力します。URLが入っている場合は外部ブラウザで開きます。",
+                    color = creatorMuted
                 )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        activeWebSearch = target
+                        pendingSearch = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = creatorAccent)
+                ) { Text("検索を開く") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSearch = null }) { Text("Cancel", color = creatorMuted) }
+            }
+        )
+    }
+
+    activeWebSearch?.let { target ->
+        CreatorSearchDialog(
+            request = target,
+            onDismiss = { activeWebSearch = null },
+            onUrlPicked = { pickedUrl ->
+                val updatedCreators = creators.toMutableList()
+                val creator = updatedCreators.getOrNull(target.creatorIndex)
+                val links = creator?.links?.toMutableList()
+                if (creator != null && links != null && target.linkIndex in links.indices) {
+                    links[target.linkIndex] = links[target.linkIndex].copy(url = pickedUrl)
+                    updatedCreators[target.creatorIndex] = creator.copy(links = links)
+                    persistCreators(updatedCreators)
+                }
+                activeWebSearch = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun CreatorDisplayScreen(
+    creators: List<FavoriteCreator>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        itemsIndexed(creators.filter { it.name.isNotBlank() || it.links.any { link -> link.url.isNotBlank() } }) { _, creator ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = creatorCard),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = creator.name.ifBlank { "Untitled creator" },
+                        color = creatorInk,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    creator.links.filter { it.url.isNotBlank() }.forEach { link ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openUrl(context, link.url) },
+                            color = creatorField,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFF4B4038))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = link.platform,
+                                    color = creatorAccent,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.width(80.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = link.url,
+                                    color = creatorMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = creatorAccent)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreatorEditCard(
+    creator: FavoriteCreator,
+    platforms: List<String>,
+    onCreatorChange: (FavoriteCreator) -> Unit,
+    onDeleteCreator: () -> Unit,
+    onSearchRequested: (Int, SearchTarget) -> Unit
+) {
+    val context = LocalContext.current
+    var pendingDeleteLinkIndex by remember { mutableStateOf<Int?>(null) }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = creatorCard),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Creator tab", color = creatorInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onDeleteCreator) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete creator", tint = creatorMuted)
+                }
+            }
+
+            OutlinedTextField(
+                value = creator.name,
+                onValueChange = { onCreatorChange(creator.copy(name = it)) },
+                label = { Text("Creator name") },
+                singleLine = true,
+                colors = creatorTextFieldColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            creator.links.forEachIndexed { linkIndex, link ->
+                CreatorLinkEditor(
+                    platforms = platforms,
+                    link = link,
+                    creatorName = creator.name,
+                    onLinkChange = { updated ->
+                        onCreatorChange(creator.copy(links = creator.links.toMutableList().also { it[linkIndex] = updated }))
+                    },
+                    onDelete = {
+                        pendingDeleteLinkIndex = linkIndex
+                    },
+                    onAccess = {
+                        if (link.url.isBlank()) {
+                            onSearchRequested(
+                                linkIndex,
+                                SearchTarget(
+                                    creatorIndex = -1,
+                                    linkIndex = linkIndex,
+                                    platform = link.platform,
+                                    creatorName = creator.name,
+                                    initialUrl = buildPlatformSearchUrl(link.platform, creator.name)
+                                )
+                            )
+                        } else {
+                            openUrl(context, link.url)
+                        }
+                    }
+                )
+            }
+
+            TextButton(
+                onClick = { onCreatorChange(creator.copy(links = creator.links + emptyLink(platforms))) }
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Add link")
             }
         }
     }
 
-    webSearch?.let { request ->
-        CreatorSearchDialog(
-            request = request,
-            onDismiss = { webSearch = null },
-            onUrlPicked = { pickedUrl ->
-                selectedPlatform = request.platform
-                urlInput = pickedUrl
-                webSearch = null
-            }
+    pendingDeleteLinkIndex?.let { index ->
+        ConfirmDeleteDialog(
+            title = "リンクを削除",
+            text = "このリンク欄を削除します。",
+            onConfirm = {
+                val next = creator.links.toMutableList().also { it.removeAt(index) }
+                onCreatorChange(creator.copy(links = next.ifEmpty { listOf(emptyLink(platforms)) }))
+                pendingDeleteLinkIndex = null
+            },
+            onDismiss = { pendingDeleteLinkIndex = null }
         )
     }
 }
@@ -284,30 +443,33 @@ fun FavoriteArtistsScreen(
 @Composable
 private fun CreatorLinkEditor(
     platforms: List<String>,
-    selectedPlatform: String,
-    onPlatformSelected: (String) -> Unit,
-    url: String,
-    onUrlChange: (String) -> Unit,
+    link: CreatorLink,
+    creatorName: String,
+    onLinkChange: (CreatorLink) -> Unit,
+    onDelete: () -> Unit,
     onAccess: () -> Unit
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         PlatformDropdown(
             platforms = platforms,
-            selectedPlatform = selectedPlatform,
-            onPlatformSelected = onPlatformSelected,
-            modifier = Modifier.width(118.dp)
+            selectedPlatform = link.platform.ifBlank { platforms.firstOrNull().orEmpty() },
+            onPlatformSelected = { onLinkChange(link.copy(platform = it)) },
+            modifier = Modifier.width(122.dp)
         )
         Spacer(Modifier.width(8.dp))
         OutlinedTextField(
-            value = url,
-            onValueChange = onUrlChange,
+            value = link.url,
+            onValueChange = { onLinkChange(link.copy(url = it)) },
             label = { Text("URL") },
             singleLine = true,
             colors = creatorTextFieldColors(),
             modifier = Modifier.weight(1f)
         )
         IconButton(onClick = onAccess) {
-            Icon(Icons.Default.OpenInBrowser, contentDescription = "Open or search", tint = Color.White)
+            Icon(Icons.Default.OpenInBrowser, contentDescription = if (link.url.isBlank()) "Search $creatorName" else "Open URL", tint = creatorAccent)
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Default.Delete, contentDescription = "Delete link", tint = creatorMuted)
         }
     }
 }
@@ -325,17 +487,24 @@ private fun PlatformDropdown(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = true },
-            color = Color(0xFF101010),
+            color = creatorField,
             shape = RoundedCornerShape(6.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray)
+            border = BorderStroke(1.dp, Color.Gray)
         ) {
-            Text(
-                text = selectedPlatform,
-                color = Color.White,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 16.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 16.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = selectedPlatform,
+                    color = creatorInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                    fontSize = 13.sp
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = creatorAccent)
+            }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             platforms.forEach { platform ->
@@ -352,71 +521,52 @@ private fun PlatformDropdown(
 }
 
 @Composable
-private fun FavoriteCreatorCard(
-    creator: FavoriteCreator,
-    onDelete: () -> Unit
-) {
-    val context = LocalContext.current
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF151515)),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    creator.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.LightGray)
-                }
-            }
-            creator.links.forEach { link ->
-                CreatorLinkRow(
-                    link = link,
-                    onOpen = { openUrl(context, link.url) },
-                    onDelete = null
-                )
-            }
-        }
-    }
-}
+private fun creatorTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = creatorInk,
+    unfocusedTextColor = creatorInk,
+    focusedLabelColor = creatorAccent,
+    unfocusedLabelColor = creatorMuted,
+    cursorColor = creatorAccent,
+    focusedBorderColor = creatorAccent,
+    unfocusedBorderColor = Color(0xFF6B5A4D),
+    focusedContainerColor = creatorField,
+    unfocusedContainerColor = creatorField
+)
 
 @Composable
-private fun CreatorLinkRow(
-    link: CreatorLink,
-    onOpen: () -> Unit,
-    onDelete: (() -> Unit)?
+private fun ConfirmDeleteDialog(
+    title: String,
+    text: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpen() }
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(link.platform, color = Color.Cyan, modifier = Modifier.width(76.dp), fontSize = 12.sp)
-        Text(link.url, color = Color.LightGray, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        if (onDelete != null) {
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete link", tint = Color.Gray)
-            }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = creatorCard,
+        title = { Text(title, color = creatorInk) },
+        text = { Text(text, color = creatorMuted) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB5483A))
+            ) { Text("Delete") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = creatorMuted) }
         }
-    }
+    )
 }
 
 @Composable
 private fun CreatorSearchDialog(
-    request: WebSearchRequest,
+    request: SearchTarget,
     onDismiss: () -> Unit,
     onUrlPicked: (String) -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = Color.Black,
+            color = creatorCard,
             shape = RoundedCornerShape(8.dp)
         ) {
             Column {
@@ -427,14 +577,12 @@ private fun CreatorSearchDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "${request.platform} 検索",
-                        color = Color.White,
+                        "${request.platform} search",
+                        color = creatorInk,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = onDismiss) {
-                        Text("閉じる", color = Color.LightGray)
-                    }
+                    TextButton(onClick = onDismiss) { Text("Close", color = creatorMuted) }
                 }
                 AndroidView(
                     modifier = Modifier
@@ -449,23 +597,15 @@ private fun CreatorSearchDialog(
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             webViewClient = object : WebViewClient() {
-                                private var initialPageFinished = false
-
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    super.onPageStarted(view, url, favicon)
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    initialPageFinished = true
-                                    super.onPageFinished(view, url)
-                                }
-
-                                override fun shouldOverrideUrlLoading(view: WebView?, webRequest: WebResourceRequest?): Boolean {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    webRequest: WebResourceRequest?
+                                ): Boolean {
                                     val targetUrl = webRequest?.url?.toString().orEmpty()
                                     if (
-                                        initialPageFinished &&
                                         webRequest?.isForMainFrame == true &&
-                                        shouldCapturePickedUrl(searchRequest = request, url = targetUrl)
+                                        targetUrl.isNotBlank() &&
+                                        targetUrl != request.initialUrl
                                     ) {
                                         onUrlPicked(targetUrl)
                                         return true
@@ -475,11 +615,6 @@ private fun CreatorSearchDialog(
                             }
                             loadUrl(request.initialUrl)
                         }
-                    },
-                    update = { webView ->
-                        if (webView.url != request.initialUrl) {
-                            webView.loadUrl(request.initialUrl)
-                        }
                     }
                 )
             }
@@ -487,49 +622,22 @@ private fun CreatorSearchDialog(
     }
 }
 
-@Composable
-private fun creatorTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
-    focusedLabelColor = Color.Cyan,
-    unfocusedLabelColor = Color.LightGray,
-    cursorColor = Color.Cyan,
-    focusedBorderColor = Color.Cyan,
-    unfocusedBorderColor = Color.Gray,
-    focusedContainerColor = Color(0xFF101010),
-    unfocusedContainerColor = Color(0xFF101010)
+private data class SearchTarget(
+    val creatorIndex: Int,
+    val linkIndex: Int,
+    val platform: String,
+    val creatorName: String,
+    val initialUrl: String
 )
 
-private data class WebSearchRequest(
-    val initialUrl: String,
-    val platform: String
-)
+private fun emptyCreator(): FavoriteCreator = FavoriteCreator("", listOf(CreatorLink("X", "")))
 
-private fun mergeDraftLink(links: List<CreatorLink>, platform: String, url: String): List<CreatorLink> {
-    if (url.isBlank()) return links
-    return links.filterNot { it.platform == platform } + CreatorLink(platform, url.trim())
-}
+private fun emptyLink(platforms: List<String>): CreatorLink = CreatorLink(platforms.firstOrNull() ?: "X", "")
 
 private fun buildPlatformSearchUrl(platform: String, creatorName: String): String {
     val encodedName = URLEncoder.encode(creatorName.trim(), "UTF-8")
     val encodedPlatform = URLEncoder.encode(platform, "UTF-8")
-    return when (platform) {
-        "X" -> "https://x.com/search?q=$encodedName&src=typed_query&f=user"
-        "pixiv" -> "https://www.pixiv.net/search_user.php?s_mode=s_usr&nick=$encodedName"
-        "Support" -> "https://www.google.com/search?q=$encodedName+FANBOX+Fantia+Ci-en+Patreon"
-        else -> "https://www.google.com/search?q=$encodedName+$encodedPlatform"
-    }
-}
-
-private fun shouldCapturePickedUrl(searchRequest: WebSearchRequest, url: String): Boolean {
-    if (!url.startsWith("http")) return false
-    val lower = url.lowercase()
-    return when (searchRequest.platform) {
-        "X" -> (lower.contains("x.com/") || lower.contains("twitter.com/")) && !lower.contains("/search")
-        "pixiv" -> lower.contains("pixiv.net/") && !lower.contains("search_user.php")
-        "Support" -> !lower.contains("google.") || !lower.contains("/search")
-        else -> !lower.contains("google.") || !lower.contains("/search")
-    }
+    return "https://www.google.com/search?q=$encodedName+$encodedPlatform"
 }
 
 private fun openUrl(context: Context, url: String) {
@@ -560,9 +668,9 @@ private fun loadCreators(prefs: android.content.SharedPreferences): List<Favorit
 
             FavoriteCreator(
                 name = item.optString("name"),
-                links = links.filter { it.platform.isNotBlank() && it.url.isNotBlank() }
+                links = links.filter { it.platform.isNotBlank() }.ifEmpty { listOf(CreatorLink("X", "")) }
             )
-        }.filter { it.name.isNotBlank() }
+        }
     }.getOrDefault(emptyList())
 }
 
@@ -570,18 +678,22 @@ private fun saveCreators(prefs: android.content.SharedPreferences, creators: Lis
     val array = JSONArray()
     creators.forEach { creator ->
         val links = JSONArray()
-        creator.links.forEach { link ->
-            links.put(
+        creator.links
+            .filter { it.platform.isNotBlank() && it.url.isNotBlank() }
+            .forEach { link ->
+                links.put(
+                    JSONObject()
+                        .put("platform", link.platform)
+                        .put("url", link.url)
+                )
+            }
+        if (creator.name.isNotBlank() || links.length() > 0) {
+            array.put(
                 JSONObject()
-                    .put("platform", link.platform)
-                    .put("url", link.url)
+                    .put("name", creator.name)
+                    .put("links", links)
             )
         }
-        array.put(
-            JSONObject()
-                .put("name", creator.name)
-                .put("links", links)
-        )
     }
     prefs.edit().putString(CREATOR_LIST_KEY, array.toString()).apply()
 }

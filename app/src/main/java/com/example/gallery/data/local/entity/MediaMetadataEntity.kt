@@ -15,12 +15,14 @@ data class MediaMetadataEntity(
     val fileName: String = "",
     val folderName: String = "",
     val isFavorite: Boolean = false,
-    val ageRating: String = "SFW", // "SFW", "R15", "R18"
+    val ageRating: String = "SFW",
     val isAiAnalyzed: Boolean = false,
-    val featureVector: FloatArray? = null, // TensorFlow Lite embedding
+    val featureVector: FloatArray? = null,
     val isDeleted: Boolean = false,
     val deletedDate: Long? = null,
-    val hasThumbnail: Boolean = false  // サムネイル生成済みフラグ
+    val hasThumbnail: Boolean = false,
+    val startupThumbnailAttempted: Boolean = false,
+    val startupVectorAttempted: Boolean = false
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -45,6 +47,8 @@ data class MediaMetadataEntity(
         if (isDeleted != other.isDeleted) return false
         if (deletedDate != other.deletedDate) return false
         if (hasThumbnail != other.hasThumbnail) return false
+        if (startupThumbnailAttempted != other.startupThumbnailAttempted) return false
+        if (startupVectorAttempted != other.startupVectorAttempted) return false
         return true
     }
 
@@ -65,6 +69,8 @@ data class MediaMetadataEntity(
         result = 31 * result + isDeleted.hashCode()
         result = 31 * result + (deletedDate?.hashCode() ?: 0)
         result = 31 * result + hasThumbnail.hashCode()
+        result = 31 * result + startupThumbnailAttempted.hashCode()
+        result = 31 * result + startupVectorAttempted.hashCode()
         return result
     }
 }
@@ -85,5 +91,7 @@ data class MediaMetadataSummary(
     val isDeleted: Boolean,
     val deletedDate: Long?,
     val hasFeatureVector: Boolean,
-    val hasThumbnail: Boolean = false
+    val hasThumbnail: Boolean = false,
+    val startupThumbnailAttempted: Boolean = false,
+    val startupVectorAttempted: Boolean = false
 )

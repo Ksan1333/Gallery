@@ -16,7 +16,7 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata WHERE uri = :uri")
     fun getMetadataFlow(uri: String): Flow<MediaMetadataEntity?>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail FROM media_metadata WHERE uri = :uri")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata WHERE uri = :uri")
     fun getMetadataSummaryFlow(uri: String): Flow<MediaMetadataSummary?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -114,16 +114,16 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata")
     fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail FROM media_metadata")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata")
     suspend fun getAllMetadataSummary(): List<MediaMetadataSummary>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail FROM media_metadata")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata")
     fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
 
     @Query("SELECT * FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
     fun getDeletedMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
     fun getDeletedMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
 
     @Query("SELECT * FROM media_metadata WHERE ageRating = :ageRating AND featureVector IS NOT NULL")
@@ -157,13 +157,19 @@ interface MediaDao {
     suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean)
 
     @Query("UPDATE media_metadata SET featureVector = :featureVector WHERE uri = :uri")
-    suspend fun updateFeatureVector(uri: String, featureVector: FloatArray?)
+    suspend fun updateFeatureVector(uri: String, featureVector: ByteArray?)
 
     @Query("UPDATE media_metadata SET hasThumbnail = :hasThumbnail WHERE uri = :uri")
     suspend fun updateHasThumbnail(uri: String, hasThumbnail: Boolean)
 
     @Query("UPDATE media_metadata SET hasThumbnail = :hasThumbnail WHERE uri IN (:uris)")
     suspend fun bulkUpdateHasThumbnail(uris: List<String>, hasThumbnail: Boolean)
+
+    @Query("UPDATE media_metadata SET startupThumbnailAttempted = :attempted WHERE uri = :uri")
+    suspend fun updateStartupThumbnailAttempted(uri: String, attempted: Boolean)
+
+    @Query("UPDATE media_metadata SET startupVectorAttempted = :attempted WHERE uri = :uri")
+    suspend fun updateStartupVectorAttempted(uri: String, attempted: Boolean)
 
     // 計測データ用
     @Query("SELECT * FROM measure_stats WHERE uri = :uri")
@@ -223,7 +229,7 @@ interface MediaDao {
 
     // Paging Support with Filtering
     @Query("""
-        SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail 
+        SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted 
         FROM media_metadata 
         WHERE isDeleted = 0 
         AND (:mediaType = 'ALL' 

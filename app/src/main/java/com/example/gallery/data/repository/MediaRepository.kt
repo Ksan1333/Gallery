@@ -6,10 +6,12 @@ import android.content.Context
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import java.io.File
 import com.example.gallery.data.local.dao.MediaDao
+import com.example.gallery.data.local.Converters
 import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.MediaMetadataSummary
 import com.example.gallery.data.local.entity.TagEntity
@@ -200,22 +202,47 @@ class MediaRepository(
         GlobalOperationService.updateProgress(0f, "準備中...", id = opId)
         
         try {
-            val existingMetadata = mediaDao.getAllMetadataSummary().associateBy { it.uri }
+            val existingFullMetadata = mediaDao.getAllMetadata().associateBy { it.uri }
+            val existingMetadata = existingFullMetadata.mapValues { (_, entity) ->
+                com.example.gallery.data.local.entity.MediaMetadataSummary(
+                    uri = entity.uri,
+                    dateAdded = entity.dateAdded,
+                    mimeType = entity.mimeType,
+                    duration = entity.duration,
+                    width = entity.width,
+                    height = entity.height,
+                    fileSize = entity.fileSize,
+                    fileName = entity.fileName,
+                    isFavorite = entity.isFavorite,
+                    ageRating = entity.ageRating,
+                    isAiAnalyzed = entity.isAiAnalyzed,
+                    folderName = entity.folderName,
+                    isDeleted = entity.isDeleted,
+                    deletedDate = entity.deletedDate,
+                    hasFeatureVector = entity.featureVector != null,
+                    hasThumbnail = entity.hasThumbnail,
+                    startupThumbnailAttempted = entity.startupThumbnailAttempted,
+                    startupVectorAttempted = entity.startupVectorAttempted
+                )
+            }
             val foundUris = HashSet<String>(10000)
             val newEntities = mutableListOf<MediaMetadataEntity>()
 
-            val projection = arrayOf(
-                MediaStore.MediaColumns._ID,
-                MediaStore.MediaColumns.DATA,
-                MediaStore.MediaColumns.DATE_ADDED,
-                MediaStore.MediaColumns.DATE_TAKEN,
-                MediaStore.MediaColumns.MIME_TYPE,
-                MediaStore.MediaColumns.DURATION,
-                MediaStore.MediaColumns.WIDTH,
-                MediaStore.MediaColumns.HEIGHT,
-                MediaStore.MediaColumns.SIZE,
-                MediaStore.MediaColumns.DISPLAY_NAME
-            )
+            val projection = buildList {
+                add(MediaStore.MediaColumns._ID)
+                add(MediaStore.MediaColumns.DATA)
+                add(MediaStore.MediaColumns.DATE_ADDED)
+                add(MediaStore.MediaColumns.DATE_TAKEN)
+                add(MediaStore.MediaColumns.MIME_TYPE)
+                add(MediaStore.MediaColumns.DURATION)
+                add(MediaStore.MediaColumns.WIDTH)
+                add(MediaStore.MediaColumns.HEIGHT)
+                add(MediaStore.MediaColumns.SIZE)
+                add(MediaStore.MediaColumns.DISPLAY_NAME)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    add(MediaStore.MediaColumns.IS_TRASHED)
+                }
+            }.toTypedArray()
 
             val volumeNames = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.getExternalVolumeNames(context)
@@ -227,7 +254,7 @@ class MediaRepository(
             var totalToProcess = 0
             volumeNames.forEach { vn ->
                 listOf(MediaStore.Images.Media.getContentUri(vn), MediaStore.Video.Media.getContentUri(vn)).forEach { col ->
-                    context.contentResolver.query(col, arrayOf(MediaStore.MediaColumns._ID), null, null, null)?.use { 
+                    queryMediaStore(col, arrayOf(MediaStore.MediaColumns._ID))?.use {
                         totalToProcess += it.count 
                     }
                 }
@@ -244,7 +271,7 @@ class MediaRepository(
 
                 collections.forEach { collection ->
                     try {
-                        context.contentResolver.query(collection, projection, null, null, null)?.use { cursor ->
+                        queryMediaStore(collection, projection)?.use { cursor ->
                             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                             val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
@@ -255,6 +282,11 @@ class MediaRepository(
                             val heightColumn = cursor.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
                             val sizeColumn = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
                             val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                            val trashedColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                cursor.getColumnIndex(MediaStore.MediaColumns.IS_TRASHED)
+                            } else {
+                                -1
+                            }
 
                             while (cursor.moveToNext()) {
                                 processedCount++
@@ -268,6 +300,7 @@ class MediaRepository(
                                 if (!foundUris.add(contentUri)) continue
 
                                 val existing = existingMetadata[contentUri]
+                                val existingEntity = existingFullMetadata[contentUri]
                                 
                                 val dateTaken = if (dateTakenColumn != -1) cursor.getLong(dateTakenColumn) else 0L
                                 val dateAdded = cursor.getLong(dateColumn) * 1000
@@ -279,6 +312,7 @@ class MediaRepository(
                                 val size = if (sizeColumn != -1) cursor.getLong(sizeColumn) else 0L
                                 val name = if (nameColumn != -1) cursor.getString(nameColumn) ?: "" else ""
                                 val path = if (dataColumn != -1) cursor.getString(dataColumn) else null
+                                val isMediaStoreTrashed = trashedColumn != -1 && cursor.getInt(trashedColumn) == 1
                                 
                                 val folderName = if (path != null) {
                                     val lastSeparator = path.lastIndexOf(File.separator)
@@ -289,7 +323,12 @@ class MediaRepository(
                                     } else "Unknown"
                                 } else "Unknown"
 
-                                if (existing == null || existing.dateAdded != date || existing.fileSize != size) {
+                                val nextIsDeleted = existing?.isDeleted == true || isMediaStoreTrashed
+                                if (existing == null ||
+                                    existing.dateAdded != date ||
+                                    existing.fileSize != size ||
+                                    existing.isDeleted != nextIsDeleted
+                                ) {
                                     newEntities.add(MediaMetadataEntity(
                                         uri = contentUri,
                                         dateAdded = date,
@@ -303,8 +342,12 @@ class MediaRepository(
                                         isFavorite = existing?.isFavorite ?: false,
                                         ageRating = existing?.ageRating ?: "SFW",
                                         isAiAnalyzed = existing?.isAiAnalyzed ?: false,
-                                        isDeleted = existing?.isDeleted ?: false,
-                                        deletedDate = existing?.deletedDate
+                                        featureVector = existingEntity?.featureVector,
+                                        isDeleted = nextIsDeleted,
+                                        deletedDate = existing?.deletedDate ?: if (isMediaStoreTrashed) System.currentTimeMillis() else null,
+                                        hasThumbnail = existing?.hasThumbnail ?: false,
+                                        startupThumbnailAttempted = existing?.startupThumbnailAttempted ?: false,
+                                        startupVectorAttempted = existing?.startupVectorAttempted ?: false
                                     ))
                                 }
                             }
@@ -323,7 +366,9 @@ class MediaRepository(
             }
 
             // 削除されたファイルをクリーンアップ
-            val dbUrisToDelete = existingMetadata.keys.filter { it.startsWith("content://media/external/") && !foundUris.contains(it) }
+            val dbUrisToDelete = existingMetadata.keys.filter {
+                it.startsWith("content://media/") && !foundUris.contains(it)
+            }
             if (dbUrisToDelete.isNotEmpty()) {
                 GlobalOperationService.updateProgress(0.95f, "不要なデータを削除中...", id = opId)
                 dbUrisToDelete.chunked(100).forEach { chunk ->
@@ -336,6 +381,20 @@ class MediaRepository(
             cachedMediaList = null
         } finally {
             GlobalOperationService.finishOperation(opId)
+        }
+    }
+
+    private fun queryMediaStore(
+        collection: Uri,
+        projection: Array<String>
+    ): android.database.Cursor? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val queryArgs = Bundle().apply {
+                putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
+            }
+            context.contentResolver.query(collection, projection, queryArgs, null)
+        } else {
+            context.contentResolver.query(collection, projection, null, null, null)
         }
     }
 
@@ -476,7 +535,7 @@ class MediaRepository(
             val finalFolder = folderName ?: getAllMedia().find { it.uri == uri }?.folderName ?: ""
             mediaDao.insertMetadata(MediaMetadataEntity(uri, featureVector = featureVector, folderName = finalFolder))
         } else {
-            mediaDao.updateFeatureVector(uri, featureVector)
+            mediaDao.updateFeatureVector(uri, Converters().fromFloatArray(featureVector))
         }
     }
 

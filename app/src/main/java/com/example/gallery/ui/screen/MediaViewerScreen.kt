@@ -4,6 +4,14 @@ import android.app.Activity
 import android.net.Uri
 import android.os.Build
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
+import android.webkit.WebChromeClient.FileChooserParams
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
@@ -43,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
@@ -59,6 +68,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -99,7 +111,7 @@ import com.example.gallery.service.TagTranslationService
 import com.example.gallery.ui.component.GalleryFloatingActionButton
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import kotlinx.coroutines.Dispatchers
-import org.json.JSONObject
+import java.io.File
 import java.util.Locale
 import java.util.Date
 import java.text.SimpleDateFormat
@@ -117,7 +129,8 @@ fun MediaViewerScreen(
     onNavigateToTag: ((String) -> Unit)? = null,
     onPageSelected: ((Int) -> Unit)? = null,
     showDeleteButton: Boolean = true,
-    isTrashMode: Boolean = false
+    isTrashMode: Boolean = false,
+    keepNavigationBarsHidden: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -240,10 +253,16 @@ fun MediaViewerScreen(
         window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
-    LaunchedEffect(isUiVisible, insetsController) {
+    LaunchedEffect(isUiVisible, insetsController, keepNavigationBarsHidden) {
         insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (!isUiVisible) insetsController?.hide(WindowInsetsCompat.Type.systemBars())
-        else insetsController?.show(WindowInsetsCompat.Type.systemBars())
+        if (!isUiVisible) {
+            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+        } else if (keepNavigationBarsHidden) {
+            insetsController?.show(WindowInsetsCompat.Type.statusBars())
+            insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
+        } else {
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     DisposableEffect(Unit) {
@@ -292,7 +311,20 @@ fun MediaViewerScreen(
         scope.launch { recommendationDragOffset.snapTo(0f) }
     }
 
-    val onToggle = { if (!isRecommendationVisible) isUiVisible = !isUiVisible }
+    var controlInteractionToken by remember { mutableIntStateOf(0) }
+    val onToggle = {
+        if (!isRecommendationVisible) {
+            isUiVisible = !isUiVisible
+            controlInteractionToken++
+        }
+    }
+
+    LaunchedEffect(isUiVisible, controlInteractionToken, pagerState.currentPage, currentMedia?.uri) {
+        if (isUiVisible && currentMedia?.isVideo == true) {
+            delay(2000)
+            isUiVisible = false
+        }
+    }
 
     val density = LocalDensity.current
     val maxRecDrag = with(density) { 360.dp.toPx() } // 600dp -> 360dp (約40%程度)
@@ -319,7 +351,20 @@ fun MediaViewerScreen(
                 if (pagerState.currentPage == page) isCurrentPageZoomed = scale.value > 1.01f
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val viewportWidthPx = with(density) { maxWidth.toPx() }
+                val viewportHeightPx = with(density) { maxHeight.toPx() }
+                fun clampOffset(scaleValue: Float, rawX: Float, rawY: Float, contentSize: Size? = null): Offset {
+                    return clampViewerPanOffset(
+                        scale = scaleValue,
+                        rawOffsetX = rawX,
+                        rawOffsetY = rawY,
+                        viewportWidth = viewportWidthPx,
+                        viewportHeight = viewportHeightPx,
+                        contentSize = contentSize
+                    )
+                }
+
                 if (mediaItem.isVideo) {
                     VideoPlayer(
                         uri = mediaItem.uri, isUiVisible = isUiVisible,
@@ -332,8 +377,13 @@ fun MediaViewerScreen(
                             scope.launch {
                                 val newScale = (scale.value * z).coerceIn(1f, 5f)
                                 scale.snapTo(newScale)
-                                offsetX.snapTo(if (newScale > 1.05f) offsetX.value + p.x * newScale else 0f)
-                                offsetY.snapTo(offsetY.value + p.y * newScale)
+                                val clamped = clampOffset(
+                                    newScale,
+                                    if (newScale > 1.05f) offsetX.value + p.x * newScale else 0f,
+                                    if (newScale > 1.05f) offsetY.value + p.y * newScale else 0f
+                                )
+                                offsetX.snapTo(clamped.x)
+                                offsetY.snapTo(clamped.y)
                             }
                         },
                         onVerticalDrag = { drag ->
@@ -407,8 +457,13 @@ fun MediaViewerScreen(
                             scope.launch {
                                 val newScale = (scale.value * z).coerceIn(1f, 5f)
                                 scale.snapTo(newScale)
-                                offsetX.snapTo(if (newScale > 1.05f) offsetX.value + p.x * newScale else 0f)
-                                offsetY.snapTo(offsetY.value + p.y * newScale)
+                                val clamped = clampOffset(
+                                    newScale,
+                                    if (newScale > 1.05f) offsetX.value + p.x * newScale else 0f,
+                                    if (newScale > 1.05f) offsetY.value + p.y * newScale else 0f
+                                )
+                                offsetX.snapTo(clamped.x)
+                                offsetY.snapTo(clamped.y)
                             }
                         },
                         onVerticalDrag = { drag: Float ->
@@ -461,8 +516,17 @@ fun MediaViewerScreen(
                     )
                 } else {
                     val finalUri = mediaItem.uri
+                    val imagePainter = rememberAsyncImagePainter(
+                        model = ImageRequest.Builder(context).data(finalUri).build(),
+                        imageLoader = imageLoader
+                    )
+                    val fittedImageSize = fitContentInsideViewport(
+                        intrinsicSize = imagePainter.intrinsicSize,
+                        viewportWidth = viewportWidthPx,
+                        viewportHeight = viewportHeightPx
+                    )
                     Image(
-                        painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(finalUri).build(), imageLoader = imageLoader),
+                        painter = imagePainter,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize()
                             .graphicsLayer { scaleX = scale.value; scaleY = scale.value; translationX = offsetX.value; translationY = offsetY.value }
@@ -485,8 +549,14 @@ fun MediaViewerScreen(
                                                     val newScale = (currentScale * zoomChange).coerceIn(1f, 5f)
                                                     scale.snapTo(newScale)
                                                     val panFactor = if (newScale < 1f) 0.5f else 1f
-                                                    offsetX.snapTo(if (newScale > 1.05f) offsetX.value + panChange.x * newScale * panFactor else 0f)
-                                                    offsetY.snapTo(offsetY.value + panChange.y * newScale * panFactor)
+                                                    val clamped = clampOffset(
+                                                        newScale,
+                                                        if (newScale > 1.05f) offsetX.value + panChange.x * newScale * panFactor else 0f,
+                                                        if (newScale > 1.05f) offsetY.value + panChange.y * newScale * panFactor else 0f,
+                                                        fittedImageSize
+                                                    )
+                                                    offsetX.snapTo(clamped.x)
+                                                    offsetY.snapTo(clamped.y)
                                                 }
                                                 event.changes.forEach { if (it.pressed) it.consume() }
                                             }
@@ -730,6 +800,8 @@ fun MediaViewerScreen(
 
                         // 5. 三点ボタン (その他)
                         var showOverflowMenu by remember { mutableStateOf(false) }
+                        var isAscii2dSearching by remember { mutableStateOf(false) }
+                        var ascii2dUploadData by remember { mutableStateOf<Ascii2dUploadData?>(null) }
                         Box {
                             GalleryFloatingActionButton(icon = Icons.Default.MoreVert, tooltipDescription = "その他", size = 36.dp, iconSize = 20.dp, onClick = { showOverflowMenu = true })
                             DropdownMenu(
@@ -753,6 +825,30 @@ fun MediaViewerScreen(
                                 )
 
                                 // 保存 (動画・GIF・コマ送り中のみ活性)
+                                val isAscii2dEnabled = !currentMediaItem.isVideo && !isAscii2dSearching
+                                DropdownMenuItem(
+                                    text = { Text(if (isAscii2dSearching) "ascii2d検索中..." else "ascii2dで検索", color = if (isAscii2dEnabled) Color.White else Color.Gray) },
+                                    leadingIcon = { Icon(Icons.Default.Search, null, tint = if (isAscii2dEnabled) Color.White else Color.Gray) },
+                                    enabled = isAscii2dEnabled,
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        isAscii2dSearching = true
+                                        Toast.makeText(context, "ascii2dで検索中...", Toast.LENGTH_SHORT).show()
+                                        scope.launch {
+                                            val result = withContext(Dispatchers.IO) {
+                                                runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) }
+                                            }
+                                            isAscii2dSearching = false
+                                            result.onSuccess { uploadData ->
+                                                ascii2dUploadData = uploadData
+                                            }.onFailure { error ->
+                                                Log.e("Ascii2dSearch", "Failed to search ascii2d", error)
+                                                Toast.makeText(context, "ascii2d検索に失敗しました: ${error.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                )
+
                                 val isSaveEnabled = currentMediaItem.isVideo || currentMediaItem.isGif
                                 DropdownMenuItem(
                                     text = { Text("フレーム保存", color = if (isSaveEnabled) Color.White else Color.Gray) },
@@ -803,6 +899,12 @@ fun MediaViewerScreen(
                                         }
                                     )
                                 }
+                            }
+                            ascii2dUploadData?.let { uploadData ->
+                                Ascii2dSearchDialog(
+                                    uploadData = uploadData,
+                                    onDismiss = { ascii2dUploadData = null }
+                                )
                             }
                         }
                     }
@@ -1091,6 +1193,324 @@ fun SeekButtonWithPicker(isForward: Boolean, currentInterval: Int, onIntervalSel
 fun MediaInfoRow(label: String, value: String) { Row(modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth()) { Text(text = label, color = Color.Gray, fontSize = 12.sp, modifier = Modifier.width(100.dp)); Text(text = value, color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.weight(1f)) } }
 
 private fun formatFileSize(size: Long): String { if (size <= 0) return "0 B"; val units = arrayOf("B", "KB", "MB", "GB", "TB"); val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt(); return "%.1f %s".format(size / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups]) }
+
+private const val ASCII2D_BASE_URL = "https://ascii2d.net"
+
+private data class Ascii2dUploadData(
+    val fileName: String,
+    val mimeType: String,
+    val filePath: String,
+    val byteCount: Int
+)
+
+private fun prepareAscii2dUploadData(context: android.content.Context, uriString: String): Ascii2dUploadData {
+    val uri = Uri.parse(uriString)
+    val sourceBytes = readImageBytes(context, uri, uriString)
+    val bitmap = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
+    val uploadBytes = if (bitmap != null) encodeBitmapForAscii2d(bitmap) else sourceBytes
+    if (uploadBytes.isEmpty()) {
+        throw IllegalStateException("画像ファイルが空です")
+    }
+
+    val fileName = if (bitmap != null) "gallery_ascii2d.jpg" else "gallery_ascii2d.bin"
+    val mimeType = if (bitmap != null) "image/jpeg" else "application/octet-stream"
+    val uploadFile = File(context.cacheDir, "ascii2d_upload_${System.currentTimeMillis()}_$fileName")
+    uploadFile.writeBytes(uploadBytes)
+    Log.i(
+        "Ascii2dSearch",
+        "Prepared upload data: uri=$uriString, sourceBytes=${sourceBytes.size}, " +
+            "decoded=${bitmap != null}, uploadBytes=${uploadBytes.size}, file=${uploadFile.absolutePath}, mime=$mimeType"
+    )
+
+    return Ascii2dUploadData(
+        fileName = fileName,
+        mimeType = mimeType,
+        filePath = uploadFile.absolutePath,
+        byteCount = uploadBytes.size
+    )
+}
+
+private fun readImageBytes(context: android.content.Context, uri: Uri, uriString: String): ByteArray {
+    val resolverStream = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
+    if (resolverStream != null) {
+        val bytes = resolverStream.use { it.readBytes() }
+        Log.i("Ascii2dSearch", "Read image from ContentResolver: uri=$uriString, bytes=${bytes.size}")
+        return bytes
+    }
+
+    if (uri.scheme == "file" || uri.scheme.isNullOrBlank()) {
+        val file = File(uri.path ?: uriString)
+        val bytes = file.readBytes()
+        Log.i("Ascii2dSearch", "Read image from file: path=${file.absolutePath}, bytes=${bytes.size}")
+        return bytes
+    }
+
+    throw IllegalStateException("画像を開けませんでした")
+}
+
+private fun encodeBitmapForAscii2d(bitmap: Bitmap): ByteArray {
+    val originalWidth = bitmap.width
+    val originalHeight = bitmap.height
+    val maxSide = 1600
+    val largest = maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
+    val scale = (maxSide.toFloat() / largest.toFloat()).coerceAtMost(1f)
+    val width = (bitmap.width * scale).toInt().coerceAtLeast(1)
+    val height = (bitmap.height * scale).toInt().coerceAtLeast(1)
+    val scaled = if (width == bitmap.width && height == bitmap.height) {
+        bitmap
+    } else {
+        Bitmap.createScaledBitmap(bitmap, width, height, true)
+    }
+
+    val flattened = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    Canvas(flattened).apply {
+        drawColor(android.graphics.Color.WHITE)
+        drawBitmap(scaled, 0f, 0f, null)
+    }
+    val output = java.io.ByteArrayOutputStream()
+    flattened.compress(Bitmap.CompressFormat.JPEG, 92, output)
+    if (scaled !== bitmap) scaled.recycle()
+    bitmap.recycle()
+    flattened.recycle()
+    val bytes = output.toByteArray()
+    Log.i(
+        "Ascii2dSearch",
+        "Encoded image for ascii2d: original=${originalWidth}x${originalHeight}, upload=${width}x${height}, jpegBytes=${bytes.size}"
+    )
+    return bytes
+}
+
+@Composable
+private fun Ascii2dSearchDialog(
+    uploadData: Ascii2dUploadData,
+    onDismiss: () -> Unit
+) {
+    var isLoading by remember { mutableStateOf(true) }
+    var hasRequestedFile by remember(uploadData.filePath) { mutableStateOf(false) }
+    var hasProvidedFile by remember(uploadData.filePath) { mutableStateOf(false) }
+
+    DisposableEffect(uploadData.filePath) {
+        onDispose {
+            runCatching { File(uploadData.filePath).delete() }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            AndroidView(
+                factory = { viewContext ->
+                    WebView(viewContext).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.loadsImagesAutomatically = true
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onShowFileChooser(
+                                webView: WebView,
+                                filePathCallback: android.webkit.ValueCallback<Array<Uri>>,
+                                fileChooserParams: FileChooserParams
+                            ): Boolean {
+                                val uploadFile = File(uploadData.filePath)
+                                Log.i(
+                                    "Ascii2dSearch",
+                                    "WebView file chooser requested: exists=${uploadFile.exists()}, " +
+                                        "bytes=${uploadFile.length()}, accept=${fileChooserParams.acceptTypes.joinToString()}, " +
+                                        "mode=${fileChooserParams.mode}"
+                                )
+                                if (!uploadFile.exists() || uploadFile.length() <= 0L) {
+                                    filePathCallback.onReceiveValue(null)
+                                    return true
+                                }
+
+                                val uri = FileProvider.getUriForFile(
+                                    viewContext,
+                                    "${viewContext.packageName}.fileprovider",
+                                    uploadFile
+                                )
+                                filePathCallback.onReceiveValue(arrayOf(uri))
+                                hasProvidedFile = true
+                                Log.i("Ascii2dSearch", "Provided ascii2d upload uri to WebView: $uri")
+                                return true
+                            }
+
+                            override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                                Log.d(
+                                    "Ascii2dSearch",
+                                    "WebView console ${consoleMessage.messageLevel()} " +
+                                        "${consoleMessage.sourceId()}:${consoleMessage.lineNumber()} ${consoleMessage.message()}"
+                                )
+                                return true
+                            }
+                        }
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                                Log.i("Ascii2dSearch", "WebView page started: url=$url")
+                            }
+
+                            override fun onPageFinished(view: WebView, url: String?) {
+                                isLoading = false
+                                Log.i(
+                                    "Ascii2dSearch",
+                                    "WebView page finished: url=$url, hasRequestedFile=$hasRequestedFile, " +
+                                        "hasProvidedFile=$hasProvidedFile, uploadBytes=${uploadData.byteCount}"
+                                )
+                                if (!hasRequestedFile && url?.startsWith(ASCII2D_BASE_URL) == true) {
+                                    hasRequestedFile = true
+                                    Log.i("Ascii2dSearch", "Scheduling ascii2d file chooser request")
+                                    view.postDelayed(
+                                        {
+                                            Log.i("Ascii2dSearch", "Evaluating ascii2d file chooser JavaScript")
+                                            view.evaluateJavascript(
+                                                buildAscii2dFileChooserJavascript(),
+                                                { result ->
+                                                    Log.d("Ascii2dSearch", "File chooser JavaScript evaluation result: $result")
+                                                }
+                                            )
+                                            view.postDelayed(
+                                                {
+                                                    if (!hasProvidedFile) {
+                                                        Log.w(
+                                                            "Ascii2dSearch",
+                                                            "File chooser callback was not received after JavaScript request; " +
+                                                                "ask the user to tap ascii2d file input manually"
+                                                        )
+                                                    }
+                                                },
+                                                3000L
+                                            )
+                                        },
+                                        1800L
+                                    )
+                                }
+                            }
+
+                            override fun onReceivedHttpError(
+                                view: WebView,
+                                request: WebResourceRequest,
+                                errorResponse: WebResourceResponse
+                            ) {
+                                Log.w(
+                                    "Ascii2dSearch",
+                                    "WebView HTTP error: status=${errorResponse.statusCode}, " +
+                                        "reason=${errorResponse.reasonPhrase}, mainFrame=${request.isForMainFrame}, " +
+                                        "url=${request.url}"
+                                )
+                            }
+
+                            override fun onReceivedError(
+                                view: WebView,
+                                request: WebResourceRequest,
+                                error: WebResourceError
+                            ) {
+                                Log.w(
+                                    "Ascii2dSearch",
+                                    "WebView load error: code=${error.errorCode}, description=${error.description}, " +
+                                        "mainFrame=${request.isForMainFrame}, url=${request.url}"
+                                )
+                            }
+                        }
+                        Log.i(
+                            "Ascii2dSearch",
+                            "Opening ascii2d WebView: file=${uploadData.fileName}, mime=${uploadData.mimeType}, " +
+                                "bytes=${uploadData.byteCount}, path=${uploadData.filePath}"
+                        )
+                        loadUrl(ASCII2D_BASE_URL)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = when {
+                        isLoading -> "ascii2dを読み込み中..."
+                        hasProvidedFile -> "画像をセットしました。ascii2dの検索ボタンを押してください"
+                        hasRequestedFile -> "ページ内のファイル選択を押すと、この画像をセットします"
+                        else -> "画像選択を準備中..."
+                    },
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "閉じる", tint = Color.White)
+                }
+            }
+
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+private fun buildAscii2dFileChooserJavascript(): String {
+    return """
+        (function() {
+          function log(message) {
+            console.log('ascii2d file chooser: ' + message);
+          }
+          var form = document.querySelector('form#file_upload');
+          var input = form && form.querySelector('input[type="file"], input[name="file"]');
+          log('form=' + !!form + ', input=' + !!input);
+          if (!form || !input) {
+            console.error('ascii2d file chooser: form or file input not found');
+            return 'missing-input';
+          }
+          input.scrollIntoView({ block: 'center', inline: 'nearest' });
+          input.click();
+          log('file input click requested');
+          return 'file-input-clicked';
+        })();
+    """.trimIndent()
+}
+
+private fun fitContentInsideViewport(
+    intrinsicSize: Size,
+    viewportWidth: Float,
+    viewportHeight: Float
+): Size? {
+    val intrinsicWidth = intrinsicSize.width
+    val intrinsicHeight = intrinsicSize.height
+    if (!intrinsicWidth.isFinite() || !intrinsicHeight.isFinite() || intrinsicWidth <= 0f || intrinsicHeight <= 0f) {
+        return null
+    }
+
+    val fitScale = minOf(viewportWidth / intrinsicWidth, viewportHeight / intrinsicHeight)
+    return Size(intrinsicWidth * fitScale, intrinsicHeight * fitScale)
+}
+
+private fun clampViewerPanOffset(
+    scale: Float,
+    rawOffsetX: Float,
+    rawOffsetY: Float,
+    viewportWidth: Float,
+    viewportHeight: Float,
+    contentSize: Size? = null
+): Offset {
+    if (scale <= 1.05f) return Offset.Zero
+
+    val contentWidth = contentSize?.width?.takeIf { it.isFinite() && it > 0f } ?: viewportWidth
+    val contentHeight = contentSize?.height?.takeIf { it.isFinite() && it > 0f } ?: viewportHeight
+    val maxOffsetX = ((contentWidth * scale - viewportWidth) / 2f).coerceAtLeast(0f)
+    val maxOffsetY = ((contentHeight * scale - viewportHeight) / 2f).coerceAtLeast(0f)
+
+    return Offset(
+        rawOffsetX.coerceIn(-maxOffsetX, maxOffsetX),
+        rawOffsetY.coerceIn(-maxOffsetY, maxOffsetY)
+    )
+}
 
 @OptIn(UnstableApi::class)
 @Composable
