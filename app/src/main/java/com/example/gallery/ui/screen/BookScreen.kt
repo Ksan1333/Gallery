@@ -43,6 +43,8 @@ fun BookScreen(
     val context = LocalContext.current
     val repository = remember { BookRepository(context) }
     val scope = rememberCoroutineScope()
+    val gridBottomPadding =
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
     var books by remember { mutableStateOf<List<BookData>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     
@@ -109,7 +111,7 @@ fun BookScreen(
         if (!hasFullStorageAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return
         
         scope.launch {
-            isLoading = true
+            isLoading = books.isEmpty()
             books = repository.scanBooks()
             isLoading = false
         }
@@ -131,16 +133,36 @@ fun BookScreen(
 
     LaunchedEffect(hasFullStorageAccess) {
         if (hasFullStorageAccess) {
-            refresh()
+            isLoading = true
+            val cachedBooks = repository.loadCachedBooks()
+            if (cachedBooks.isNotEmpty()) {
+                books = cachedBooks
+                isLoading = false
+            }
+            books = repository.scanBooks()
+            isLoading = false
         }
     }
 
     if (selectedBook != null) {
-        BookViewerScreen(
-            book = selectedBook!!,
-            repository = repository,
-            onClose = { selectedBook = null }
-        )
+        val currentBook = selectedBook!!
+        val siblingBooks = remember(books, currentBook.folderPath) {
+            books.filter { it.folderPath == currentBook.folderPath }
+        }
+        val currentBookIndex = siblingBooks.indexOfFirst { it.id == currentBook.id }
+        key(currentBook.id) {
+            BookViewerScreen(
+                book = currentBook,
+                repository = repository,
+                onClose = { selectedBook = null },
+                onPreviousBook = siblingBooks.getOrNull(currentBookIndex - 1)?.let { previous ->
+                    { selectedBook = previous }
+                },
+                onNextBook = siblingBooks.getOrNull(currentBookIndex + 1)?.let { next ->
+                    { selectedBook = next }
+                }
+            )
+        }
     } else {
         Column(
             modifier = Modifier
@@ -242,7 +264,12 @@ fun BookScreen(
 
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
-                        contentPadding = PaddingValues(12.dp),
+                        contentPadding = PaddingValues(
+                            start = 12.dp,
+                            top = 12.dp,
+                            end = 12.dp,
+                            bottom = gridBottomPadding
+                        ),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -258,7 +285,12 @@ fun BookScreen(
 
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
-                        contentPadding = PaddingValues(12.dp),
+                        contentPadding = PaddingValues(
+                            start = 12.dp,
+                            top = 12.dp,
+                            end = 12.dp,
+                            bottom = gridBottomPadding
+                        ),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {

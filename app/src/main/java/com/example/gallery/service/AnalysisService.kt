@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.gallery.GalleryApplication
@@ -20,6 +21,11 @@ class AnalysisService : Service() {
     companion object {
         const val CHANNEL_ID = "AnalysisChannel"
         const val NOTIFICATION_ID = 1001
+        private const val NORMAL_COOLDOWN_MS = 250L
+        private const val LIGHT_COOLDOWN_MS = 750L
+        private const val MODERATE_COOLDOWN_MS = 1_750L
+        private const val LEGACY_COOLDOWN_MS = 500L
+        private const val THERMAL_RECHECK_MS = 10_000L
         
         fun start(context: Context, type: String, periodDays: Int = -1) {
             val intent = Intent(context, AnalysisService::class.java).apply {
@@ -124,6 +130,11 @@ class AnalysisService : Service() {
                     if (!isActive || GlobalOperationService.isCanceled(opId)) {
                          return@launch
                     }
+
+                    val progressBeforeItem = index.toFloat() / targetList.size.toFloat()
+                    if (!awaitThermalBudget(type, opId, progressBeforeItem)) {
+                        return@launch
+                    }
                     
                     val currentProgress = (index + 1).toFloat() / targetList.size.toFloat()
                     val fileName = media.uri.substringAfterLast("/")
@@ -163,6 +174,56 @@ class AnalysisService : Service() {
         }
     }
 
+    private suspend fun awaitThermalBudget(type: String, operationId: String, progress: Float): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            delay(LEGACY_COOLDOWN_MS)
+            return currentCoroutineContext().isActive && !GlobalOperationService.isCanceled(operationId)
+        }
+
+        val powerManager = getSystemService(PowerManager::class.java)
+        var thermalStatus = powerManager.currentThermalStatus
+        if (thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) {
+            Log.w("AnalysisService", "Pausing $type because thermal status is ${thermalStatusName(thermalStatus)}")
+            while (
+                currentCoroutineContext().isActive &&
+                !GlobalOperationService.isCanceled(operationId) &&
+                thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
+            ) {
+                val pauseText = "端末温度が高いため解析を一時停止中"
+                GlobalOperationService.updateProgress(progress, pauseText, operationId)
+                updateNotification(pauseText, progress)
+                delay(THERMAL_RECHECK_MS)
+                thermalStatus = powerManager.currentThermalStatus
+            }
+            if (!currentCoroutineContext().isActive || GlobalOperationService.isCanceled(operationId)) {
+                return false
+            }
+            Log.i("AnalysisService", "Resuming $type at thermal status ${thermalStatusName(thermalStatus)}")
+        }
+
+        val cooldownMs = when {
+            thermalStatus >= PowerManager.THERMAL_STATUS_MODERATE -> MODERATE_COOLDOWN_MS
+            thermalStatus >= PowerManager.THERMAL_STATUS_LIGHT -> LIGHT_COOLDOWN_MS
+            else -> NORMAL_COOLDOWN_MS
+        }
+        delay(cooldownMs)
+        return currentCoroutineContext().isActive && !GlobalOperationService.isCanceled(operationId)
+    }
+
+    private fun thermalStatusName(status: Int): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return "unsupported"
+        return when (status) {
+            PowerManager.THERMAL_STATUS_NONE -> "none"
+            PowerManager.THERMAL_STATUS_LIGHT -> "light"
+            PowerManager.THERMAL_STATUS_MODERATE -> "moderate"
+            PowerManager.THERMAL_STATUS_SEVERE -> "severe"
+            PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
+            PowerManager.THERMAL_STATUS_EMERGENCY -> "emergency"
+            PowerManager.THERMAL_STATUS_SHUTDOWN -> "shutdown"
+            else -> "unknown($status)"
+        }
+    }
+
     private fun updateNotification(text: String, progress: Float) {
         val notification = createNotification(text, progress)
         val manager = getSystemService(NotificationManager::class.java)
@@ -197,4 +258,5 @@ class AnalysisService : Service() {
         serviceJob.cancel()
         super.onDestroy()
     }
+
 }

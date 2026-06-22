@@ -59,7 +59,7 @@ class AiTaggingService(
                     ortEnv = OrtEnvironment.getEnvironment()
                 }
                 
-                val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+                val threadCount = Runtime.getRuntime().availableProcessors().coerceIn(1, 2)
                 val options = OrtSession.SessionOptions().apply {
                     addConfigEntry("session.load_model_format", "ONNX")
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)

@@ -8,6 +8,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -50,8 +51,10 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
+import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.imageLoader
+import coil.memory.MemoryCache
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.gallery.data.model.MediaData
@@ -94,12 +97,17 @@ sealed class GridItem {
 }
 
 private const val TAG = "GalleryGridView"
+private val EmptyMetadataMap = emptyMap<String, com.example.gallery.data.local.entity.MediaMetadataSummary>()
 
 /**
  * ギャラリーのメイングリッド表示コンポーネント
  * 1万件以上のデータを高速に、かつ滑らかに表示するための最適化が施されています。
  */
-@OptIn(kotlinx.coroutines.FlowPreview::class, ExperimentalMaterial3Api::class)
+@OptIn(
+    kotlinx.coroutines.FlowPreview::class,
+    kotlinx.coroutines.ExperimentalCoroutinesApi::class,
+    ExperimentalMaterial3Api::class
+)
 @Composable
 fun GalleryGridView(
     imageList: List<MediaData> = emptyList(),
@@ -132,6 +140,14 @@ fun GalleryGridView(
     val gridState = rememberLazyGridState()
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
+    val sequentialImageDispatcher = remember { Dispatchers.IO.limitedParallelism(1) }
+    val gridImageLoader = remember(context, sequentialImageDispatcher) {
+        context.imageLoader.newBuilder()
+            .dispatcher(sequentialImageDispatcher)
+            .interceptorDispatcher(sequentialImageDispatcher)
+            .crossfade(false)
+            .build()
+    }
     
     // デバイスのアスペクト比。スマホの画面に収まる画像判定に使用
     val deviceAspectRatio = configuration.screenHeightDp.toFloat() / configuration.screenWidthDp.toFloat()
@@ -231,7 +247,13 @@ fun GalleryGridView(
     // --- フィルタリングとソート ---
     var sortedList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     // metadataMapをキーに追加。お気に入りやレーティングの変更をリストに即時反映させる
-    LaunchedEffect(imageList, galleryState.mediaTypeFilter, galleryState.ageRatingFilter, galleryState.deviceFilter, galleryState.sortMode, galleryState.isAscending, metadataMap) {
+    val metadataForFiltering = if (galleryState.ageRatingFilter == AgeRatingFilter.ALL) {
+        EmptyMetadataMap
+    } else {
+        metadataMap
+    }
+
+    LaunchedEffect(imageList, galleryState.mediaTypeFilter, galleryState.ageRatingFilter, galleryState.deviceFilter, galleryState.sortMode, galleryState.isAscending, metadataForFiltering) {
         if (imageList.isEmpty()) { 
             sortedList = emptyList()
             return@LaunchedEffect 
@@ -252,7 +274,7 @@ fun GalleryGridView(
                     if (galleryState.ageRatingFilter == AgeRatingFilter.ALL) {
                         true
                     } else {
-                        val rating = metadataMap[item.uri]?.ageRating ?: "SFW"
+                        val rating = metadataForFiltering[item.uri]?.ageRating ?: "SFW"
                         when (galleryState.ageRatingFilter) {
                             AgeRatingFilter.SFW -> rating == "SFW"
                             AgeRatingFilter.R15 -> rating == "R15"
@@ -428,19 +450,20 @@ fun GalleryGridView(
 
     // --- Prefetch thumbnails near the current viewport, one request at a time. ---
     LaunchedEffect(gridState, flatGridItems, pagingItems, thumbSize, maxLineSpan) {
-        snapshotFlow { gridState.firstVisibleItemIndex }
-            .debounce(200)
-            .collectLatest { firstIndex ->
-                if (maxLineSpan >= 28) return@collectLatest
+        if (maxLineSpan >= 28) return@LaunchedEffect
+        snapshotFlow { gridState.firstVisibleItemIndex to gridState.isScrollInProgress }
+            .debounce(180)
+            .collectLatest { (firstIndex, isScrolling) ->
+                if (isScrolling) return@collectLatest
                 val totalItems = pagingItems?.itemCount ?: flatGridItems.size
                 if (totalItems == 0) return@collectLatest
 
-                val visibleCount = gridState.layoutInfo.visibleItemsInfo.size
-                val preloadStart = (firstIndex - maxLineSpan).coerceAtLeast(0)
-                val preloadEnd = (firstIndex + visibleCount + (maxLineSpan * 2)).coerceAtMost(totalItems - 1)
-                val preloadIndices = (preloadStart..preloadEnd)
-                    .sortedBy { kotlin.math.abs(it - firstIndex) }
-                    .take((visibleCount + maxLineSpan * 2).coerceAtLeast(maxLineSpan))
+                val lastVisibleIndex = gridState.layoutInfo.visibleItemsInfo
+                    .maxOfOrNull { it.index }
+                    ?: firstIndex
+                val preloadStart = (lastVisibleIndex + 1).coerceAtMost(totalItems - 1)
+                val preloadEnd = (preloadStart + maxLineSpan - 1).coerceAtMost(totalItems - 1)
+                val preloadIndices = preloadStart..preloadEnd
                 val preloadRequests = preloadIndices.mapNotNull { i ->
                     val item = if (pagingItems != null) {
                         pagingItems.peek(i)
@@ -455,15 +478,14 @@ fun GalleryGridView(
                         .size(thumbSize)
                         .precision(coil.size.Precision.INEXACT)
                         .bitmapConfig(Bitmap.Config.RGB_565)
+                        .memoryCacheKey(item.data.uri)
                         .placeholderMemoryCacheKey(item.data.uri)
                         .build()
                 }
 
-                withContext(Dispatchers.IO) {
-                    for (request in preloadRequests) {
-                        context.imageLoader.execute(request)
-                        delay(16)
-                    }
+                for (request in preloadRequests) {
+                    gridImageLoader.execute(request)
+                    delay(24)
                 }
             }
     }
@@ -481,13 +503,14 @@ fun GalleryGridView(
             pagingItems = pagingItems,
             maxLineSpan = maxLineSpan,
             thumbSize = thumbSize,
+            imageLoader = gridImageLoader,
             getTopBarOffset = { topBarOffsetHeightPx },
             totalTopBarHeight = totalTopBarHeight,
             totalBottomPadding = totalBottomPadding,
             isSelectionMode = isSelectionMode,
             selectedUris = selectedUris,
             highlightUri = highlightUri,
-            metadataMap = metadataMap,
+            metadataMap = if (maxLineSpan >= 28) EmptyMetadataMap else metadataMap,
             mediaItemsOnly = mediaItemsOnly,
             onImageClick = onImageClick,
             onPageChangedInViewer = onPageChangedInViewer,
@@ -552,7 +575,7 @@ fun GalleryGridView(
             )
         }
 
-        if (sortedList.isNotEmpty() && !isSelectionMode && !galleryState.isZooming) {
+        if (maxLineSpan < 28 && sortedList.isNotEmpty() && !isSelectionMode && !galleryState.isZooming) {
             GalleryScrollbar(
                 gridState = gridState,
                 totalTopBarHeight = totalTopBarHeight,
@@ -573,6 +596,7 @@ private fun GalleryGridContent(
     pagingItems: LazyPagingItems<GridItem>?,
     maxLineSpan: Int,
     thumbSize: Int,
+    imageLoader: ImageLoader,
     getTopBarOffset: () -> Float,
     totalTopBarHeight: androidx.compose.ui.unit.Dp,
     totalBottomPadding: androidx.compose.ui.unit.Dp,
@@ -591,8 +615,9 @@ private fun GalleryGridContent(
     onSelectionEmptied: () -> Unit
 ) {
     val gestureScope = rememberCoroutineScope()
-    val itemBoundsInRoot = remember { mutableStateMapOf<Int, Rect>() }
-    var gridBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
+    val isGridScrolling by remember { derivedStateOf { gridState.isScrollInProgress } }
+    val itemBoundsInRoot = remember(maxLineSpan) { mutableStateMapOf<Int, Rect>() }
+    var gridBoundsInRoot by remember(maxLineSpan) { mutableStateOf<Rect?>(null) }
 
     fun mediaAtGridIndex(index: Int): GridItem.Media? {
         val item = if (pagingItems != null) pagingItems.peek(index) else flatGridItems.getOrNull(index)
@@ -745,6 +770,8 @@ private fun GalleryGridContent(
                     metadataMap = metadataMap,
                     maxLineSpan = maxLineSpan,
                     thumbSize = thumbSize,
+                    imageLoader = imageLoader,
+                    isGridScrolling = isGridScrolling,
                     highlightUri = highlightUri,
                     onMediaBoundsChanged = { gridIndex, bounds ->
                         if (bounds == null) itemBoundsInRoot.remove(gridIndex) else itemBoundsInRoot[gridIndex] = bounds
@@ -770,6 +797,8 @@ private fun GalleryGridContent(
                     metadataMap = metadataMap,
                     maxLineSpan = maxLineSpan,
                     thumbSize = thumbSize,
+                    imageLoader = imageLoader,
+                    isGridScrolling = isGridScrolling,
                     highlightUri = highlightUri,
                     onMediaBoundsChanged = { gridIndex, bounds ->
                         if (bounds == null) itemBoundsInRoot.remove(gridIndex) else itemBoundsInRoot[gridIndex] = bounds
@@ -793,6 +822,8 @@ private fun GridItemRenderer(
     metadataMap: Map<String, com.example.gallery.data.local.entity.MediaMetadataSummary>,
     maxLineSpan: Int,
     thumbSize: Int,
+    imageLoader: ImageLoader,
+    isGridScrolling: Boolean,
     highlightUri: String?,
     onMediaBoundsChanged: (Int, Rect?) -> Unit,
     onMediaClick: (GridItem.Media) -> Unit,
@@ -809,18 +840,69 @@ private fun GridItemRenderer(
             )
         }
         is GridItem.Media -> {
-            MediaGridItemWrapper(
-                item = item,
-                gridIndex = gridIndex,
-                isSelected = selectedUris.containsKey(item.data.uri),
-                metadataMap = metadataMap,
-                columnCount = maxLineSpan,
-                thumbSize = thumbSize,
-                isHighlighted = highlightUri == item.data.uri,
-                onBoundsChanged = onMediaBoundsChanged,
-                onClick = { onMediaClick(item) },
-                onDragSelectionStart = onDragSelectionStart,
-                onDragSelectionMove = onDragSelectionMove
+            if (maxLineSpan >= 28) {
+                DenseMediaGridItem(
+                    media = item.data,
+                    isSelected = selectedUris.containsKey(item.data.uri),
+                    isHighlighted = highlightUri == item.data.uri,
+                    onClick = { onMediaClick(item) },
+                    onLongClick = { onDragSelectionStart(gridIndex) }
+                )
+            } else {
+                MediaGridItemWrapper(
+                    item = item,
+                    gridIndex = gridIndex,
+                    isSelected = selectedUris.containsKey(item.data.uri),
+                    metadataMap = metadataMap,
+                    columnCount = maxLineSpan,
+                    thumbSize = thumbSize,
+                    imageLoader = imageLoader,
+                    isGridScrolling = isGridScrolling,
+                    isHighlighted = highlightUri == item.data.uri,
+                    onBoundsChanged = onMediaBoundsChanged,
+                    onClick = { onMediaClick(item) },
+                    onDragSelectionStart = onDragSelectionStart,
+                    onDragSelectionMove = onDragSelectionMove
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DenseMediaGridItem(
+    media: MediaData,
+    isSelected: Boolean,
+    isHighlighted: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val backgroundColor = when {
+        media.isVideo -> Color(0xFF345B7C)
+        media.isGif -> Color(0xFF5B4C7C)
+        else -> Color(0xFF3A3F43)
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .padding(0.25.dp)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .background(backgroundColor)
+            .then(if (isHighlighted) Modifier.border(1.dp, Color.Cyan) else Modifier)
+    ) {
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = 0.45f))
             )
         }
     }
@@ -837,6 +919,8 @@ private fun MediaGridItemWrapper(
     metadataMap: Map<String, com.example.gallery.data.local.entity.MediaMetadataSummary>,
     columnCount: Int,
     thumbSize: Int,
+    imageLoader: ImageLoader,
+    isGridScrolling: Boolean,
     isHighlighted: Boolean,
     onBoundsChanged: (Int, Rect?) -> Unit,
     onClick: () -> Unit,
@@ -858,6 +942,8 @@ private fun MediaGridItemWrapper(
         isFavorite = isFavorite,
         columnCount = columnCount,
         thumbSize = thumbSize,
+        imageLoader = imageLoader,
+        isGridScrolling = isGridScrolling,
         isHighlighted = isHighlighted,
         isSelected = isSelected,
         gridIndex = gridIndex,
@@ -879,6 +965,8 @@ private fun MediaGridItem(
     isFavorite: Boolean,
     columnCount: Int,
     thumbSize: Int,
+    imageLoader: ImageLoader,
+    isGridScrolling: Boolean,
     isHighlighted: Boolean,
     isSelected: Boolean,
     gridIndex: Int,
@@ -903,6 +991,7 @@ private fun MediaGridItem(
             .bitmapConfig(Bitmap.Config.RGB_565)
             .allowHardware(true)
             .crossfade(false)
+            .memoryCacheKey(media.uri)
             .placeholderMemoryCacheKey(media.uri)
             .apply {
                 if (media.isVideo && columnCount <= 4) {
@@ -926,6 +1015,9 @@ private fun MediaGridItem(
         media.isVideo -> Color(0xFF345B7C)
         media.isGif -> Color(0xFF5B4C7C)
         else -> Color(0xFF3A3F43)
+    }
+    val isMemoryCached = remember(media.uri, imageLoader, isGridScrolling) {
+        imageLoader.memoryCache?.get(MemoryCache.Key(media.uri)) != null
     }
 
 
@@ -1006,9 +1098,10 @@ private fun MediaGridItem(
             .background(itemBackgroundColor)
             .then(highlightModifier)
     ) {
-        if (model != null) {
+        if (model != null && (!isGridScrolling || isMemoryCached)) {
             AsyncImage(
                 model = model,
+                imageLoader = imageLoader,
                 contentDescription = null, 
                 modifier = Modifier.fillMaxSize(), 
                 contentScale = if (columnCount > 1) ContentScale.Crop else ContentScale.FillWidth

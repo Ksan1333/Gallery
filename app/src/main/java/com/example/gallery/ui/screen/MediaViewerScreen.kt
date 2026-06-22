@@ -1,6 +1,7 @@
 package com.example.gallery.ui.screen
 
 import android.app.Activity
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.view.ViewGroup
@@ -1288,6 +1289,7 @@ private fun Ascii2dSearchDialog(
     var isLoading by remember { mutableStateOf(true) }
     var hasRequestedFile by remember(uploadData.filePath) { mutableStateOf(false) }
     var hasProvidedFile by remember(uploadData.filePath) { mutableStateOf(false) }
+    var hasOpenedExternalResult by remember(uploadData.filePath) { mutableStateOf(false) }
 
     DisposableEffect(uploadData.filePath) {
         onDispose {
@@ -1302,6 +1304,21 @@ private fun Ascii2dSearchDialog(
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
             AndroidView(
                 factory = { viewContext ->
+                    fun openResultExternally(url: String?): Boolean {
+                        if (url == null || hasOpenedExternalResult || !isAscii2dResultUrl(url)) return false
+                        val opened = runCatching {
+                            viewContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }.onFailure { error ->
+                            Log.e("Ascii2dSearch", "Failed to open result in external browser: $url", error)
+                        }.isSuccess
+                        if (opened) {
+                            hasOpenedExternalResult = true
+                            Log.i("Ascii2dSearch", "Opening result in external browser: $url")
+                            onDismiss()
+                        }
+                        return opened
+                    }
+
                     WebView(viewContext).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
@@ -1345,8 +1362,18 @@ private fun Ascii2dSearchDialog(
                             }
                         }
                         webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView,
+                                request: WebResourceRequest
+                            ): Boolean {
+                                return request.isForMainFrame && openResultExternally(request.url.toString())
+                            }
+
                             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                                 Log.i("Ascii2dSearch", "WebView page started: url=$url")
+                                if (openResultExternally(url)) {
+                                    view.stopLoading()
+                                }
                             }
 
                             override fun onPageFinished(view: WebView, url: String?) {
@@ -1474,6 +1501,15 @@ private fun buildAscii2dFileChooserJavascript(): String {
           return 'file-input-clicked';
         })();
     """.trimIndent()
+}
+
+private fun isAscii2dResultUrl(url: String): Boolean {
+    val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+    if (!uri.host.orEmpty().equals("ascii2d.net", ignoreCase = true)) return false
+    val segments = uri.pathSegments
+    return segments.size >= 3 &&
+        segments[0].equals("search", ignoreCase = true) &&
+        segments[1].lowercase(Locale.US) in setOf("color", "bovw")
 }
 
 private fun fitContentInsideViewport(

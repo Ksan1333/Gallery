@@ -2,14 +2,18 @@ package com.example.gallery.data.repository
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 
 data class BookData(
@@ -28,9 +32,26 @@ enum class BookType { ZIP, PDF }
 class BookRepository(private val context: Context) {
     private val TAG = "BookRepository"
     private val thumbDir = File(context.cacheDir, "book_thumbs").apply { if (!exists()) mkdirs() }
+    private val indexFile = File(context.cacheDir, "book_index.json")
+    private val zipEntryCache = ConcurrentHashMap<String, List<String>>()
+
+    private data class CachedBook(
+        val book: BookData,
+        val lastModified: Long,
+        val fileSize: Long
+    )
+
+    suspend fun loadCachedBooks(): List<BookData> = withContext(Dispatchers.IO) {
+        loadCachedIndex()
+            .filter { File(it.book.path).exists() }
+            .map { it.book }
+            .sortedBy { it.title }
+    }
 
     suspend fun scanBooks(): List<BookData> = withContext(Dispatchers.IO) {
         val books = mutableListOf<BookData>()
+        val cachedBooks = loadCachedIndex().associateBy { it.book.path }
+        val refreshedCache = mutableListOf<CachedBook>()
         val root = Environment.getExternalStorageDirectory()
         
         Log.d(TAG, "Starting storage scan from: ${root.absolutePath}")
@@ -39,17 +60,23 @@ class BookRepository(private val context: Context) {
             root.walkTopDown()
                 .onEnter { file -> 
                     val name = file.name
-                    val shouldEnter = !name.startsWith(".") && name != "Android"
-                    if (shouldEnter) {
-                        Log.v(TAG, "Entering directory: ${file.absolutePath}")
-                    }
-                    shouldEnter
+                    !name.startsWith(".") && name != "Android"
                 }
                 .filter { it.isFile }
                 .forEach { file ->
                     val nameLower = file.name.lowercase()
                     if (nameLower.endsWith(".zip") || nameLower.endsWith(".pdf")) {
                         Log.d(TAG, "Found candidate file: ${file.absolutePath}")
+                        val cached = cachedBooks[file.absolutePath]
+                        if (
+                            cached != null &&
+                            cached.lastModified == file.lastModified() &&
+                            cached.fileSize == file.length()
+                        ) {
+                            books.add(cached.book)
+                            refreshedCache.add(cached)
+                            return@forEach
+                        }
                         when {
                             nameLower.endsWith(".zip") -> {
                                 try {
@@ -57,7 +84,7 @@ class BookRepository(private val context: Context) {
                                         val pageCount = zip.entries().asSequence().count { isImageFile(it.name) }
                                         if (pageCount > 0) {
                                             val thumbPath = extractZipThumbnail(file)
-                                            books.add(BookData(
+                                            val book = BookData(
                                                 id = file.absolutePath,
                                                 title = file.name,
                                                 path = file.absolutePath,
@@ -66,7 +93,9 @@ class BookRepository(private val context: Context) {
                                                 thumbnailPath = thumbPath,
                                                 folderName = file.parentFile?.name ?: "Unknown",
                                                 folderPath = file.parentFile?.absolutePath ?: ""
-                                            ))
+                                            )
+                                            books.add(book)
+                                            refreshedCache.add(CachedBook(book, file.lastModified(), file.length()))
                                             Log.d(TAG, "Successfully added ZIP: ${file.name} ($pageCount pages)")
                                         } else {
                                             Log.w(TAG, "Skipping ZIP (no images found): ${file.name}")
@@ -84,7 +113,7 @@ class BookRepository(private val context: Context) {
                                     renderer.close()
                                     fd.close()
                                     val thumbPath = extractPdfThumbnail(file)
-                                    books.add(BookData(
+                                    val book = BookData(
                                         id = file.absolutePath,
                                         title = file.name,
                                         path = file.absolutePath,
@@ -93,7 +122,9 @@ class BookRepository(private val context: Context) {
                                         thumbnailPath = thumbPath,
                                         folderName = file.parentFile?.name ?: "Unknown",
                                         folderPath = file.parentFile?.absolutePath ?: ""
-                                    ))
+                                    )
+                                    books.add(book)
+                                    refreshedCache.add(CachedBook(book, file.lastModified(), file.length()))
                                     Log.d(TAG, "Successfully added PDF: ${file.name} ($pageCount pages)")
                                 } catch (e: Exception) { 
                                     Log.e(TAG, "Error processing PDF: ${file.name}", e)
@@ -107,6 +138,7 @@ class BookRepository(private val context: Context) {
         }
         
         Log.d(TAG, "Scan completed. Found ${books.size} books.")
+        saveCachedIndex(refreshedCache)
         books.sortedBy { it.title }
     }
 
@@ -116,7 +148,7 @@ class BookRepository(private val context: Context) {
     }
 
     private fun extractZipThumbnail(file: File): String? {
-        val thumbFile = File(thumbDir, "thumb_${file.name}.jpg")
+        val thumbFile = thumbnailFile(file)
         if (thumbFile.exists()) return thumbFile.absolutePath
 
         try {
@@ -126,25 +158,27 @@ class BookRepository(private val context: Context) {
                     .sortedBy { it.name }
                     .firstOrNull() ?: return null
                 
-                zip.getInputStream(firstImage).use { input ->
-                    FileOutputStream(thumbFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
+                val bytes = zip.getInputStream(firstImage).use { it.readBytes() }
+                val bitmap = decodeThumbnail(bytes) ?: return null
+                FileOutputStream(thumbFile).use { output -> bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output) }
+                bitmap.recycle()
                 return thumbFile.absolutePath
             }
         } catch (e: Exception) { return null }
     }
 
     private fun extractPdfThumbnail(file: File): String? {
-        val thumbFile = File(thumbDir, "thumb_${file.name}.jpg")
+        val thumbFile = thumbnailFile(file)
         if (thumbFile.exists()) return thumbFile.absolutePath
 
         try {
             val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = PdfRenderer(fd)
             val page = renderer.openPage(0)
-            val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+            val scale = (THUMBNAIL_LONG_SIDE.toFloat() / maxOf(page.width, page.height)).coerceAtMost(1f)
+            val width = (page.width * scale).toInt().coerceAtLeast(1)
+            val height = (page.height * scale).toInt().coerceAtLeast(1)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             
             FileOutputStream(thumbFile).use { out ->
@@ -154,33 +188,147 @@ class BookRepository(private val context: Context) {
             page.close()
             renderer.close()
             fd.close()
+            bitmap.recycle()
             return thumbFile.absolutePath
         } catch (e: Exception) { return null }
     }
 
-    suspend fun getZipPage(filePath: String, pageIndex: Int): Bitmap? = withContext(Dispatchers.IO) {
+    suspend fun getZipPage(filePath: String, pageIndex: Int, maxLongSide: Int = 2400): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            ZipFile(File(filePath)).use { zip ->
-                val entries = zip.entries().asSequence()
-                    .filter { isImageFile(it.name) }
-                    .sortedBy { it.name }
-                    .toList()
-                
-                val entry = entries.getOrNull(pageIndex) ?: return@withContext null
-                zip.getInputStream(entry).use { input ->
-                    android.graphics.BitmapFactory.decodeStream(input)
+            val file = File(filePath)
+            val cacheKey = "$filePath:${file.lastModified()}:${file.length()}"
+            val entryNames = zipEntryCache.getOrPut(cacheKey) {
+                ZipFile(file).use { zip ->
+                    zip.entries().asSequence()
+                        .filter { isImageFile(it.name) }
+                        .map { it.name }
+                        .sorted()
+                        .toList()
                 }
+            }
+            ZipFile(file).use { zip ->
+                val entry = entryNames.getOrNull(pageIndex)?.let(zip::getEntry) ?: return@withContext null
+                val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                decodePage(bytes, maxLongSide)
             }
         } catch (e: Exception) { null }
     }
 
-    suspend fun getPdfPage(filePath: String, pageIndex: Int): Bitmap? = withContext(Dispatchers.IO) {
+    private fun thumbnailFile(file: File): File {
+        val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}".hashCode().toUInt().toString(16)
+        return File(thumbDir, "thumb_$key.jpg")
+    }
+
+    private fun decodeThumbnail(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sampleSize = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > THUMBNAIL_LONG_SIDE * 2) {
+            sampleSize *= 2
+        }
+        val decoded = BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+        ) ?: return null
+        val scale = (THUMBNAIL_LONG_SIDE.toFloat() / maxOf(decoded.width, decoded.height)).coerceAtMost(1f)
+        if (scale >= 1f) return decoded
+        val scaled = Bitmap.createScaledBitmap(
+            decoded,
+            (decoded.width * scale).toInt().coerceAtLeast(1),
+            (decoded.height * scale).toInt().coerceAtLeast(1),
+            true
+        )
+        decoded.recycle()
+        return scaled
+    }
+
+    private fun decodePage(bytes: ByteArray, maxLongSide: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sampleSize = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > maxLongSide * 2) {
+            sampleSize *= 2
+        }
+        val decoded = BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        ) ?: return null
+        val scale = (maxLongSide.toFloat() / maxOf(decoded.width, decoded.height)).coerceAtMost(1f)
+        if (scale >= 1f) return decoded
+        val scaled = Bitmap.createScaledBitmap(
+            decoded,
+            (decoded.width * scale).toInt().coerceAtLeast(1),
+            (decoded.height * scale).toInt().coerceAtLeast(1),
+            true
+        )
+        decoded.recycle()
+        return scaled
+    }
+
+    private fun loadCachedIndex(): List<CachedBook> {
+        if (!indexFile.exists()) return emptyList()
+        return runCatching {
+            val array = JSONArray(indexFile.readText())
+            List(array.length()) { index ->
+                val item = array.getJSONObject(index)
+                val type = BookType.valueOf(item.getString("type"))
+                val book = BookData(
+                    id = item.getString("path"),
+                    title = item.getString("title"),
+                    path = item.getString("path"),
+                    type = type,
+                    pageCount = item.getInt("pageCount"),
+                    thumbnailPath = item.optString("thumbnailPath").takeIf { it.isNotBlank() },
+                    folderName = item.optString("folderName", "Unknown"),
+                    folderPath = item.optString("folderPath")
+                )
+                CachedBook(book, item.getLong("lastModified"), item.getLong("fileSize"))
+            }
+        }.onFailure { Log.w(TAG, "Failed to read cached book index", it) }.getOrDefault(emptyList())
+    }
+
+    private fun saveCachedIndex(books: List<CachedBook>) {
+        runCatching {
+            val array = JSONArray()
+            books.forEach { cached ->
+                array.put(
+                    JSONObject()
+                        .put("title", cached.book.title)
+                        .put("path", cached.book.path)
+                        .put("type", cached.book.type.name)
+                        .put("pageCount", cached.book.pageCount)
+                        .put("thumbnailPath", cached.book.thumbnailPath.orEmpty())
+                        .put("folderName", cached.book.folderName)
+                        .put("folderPath", cached.book.folderPath)
+                        .put("lastModified", cached.lastModified)
+                        .put("fileSize", cached.fileSize)
+                )
+            }
+            indexFile.writeText(array.toString())
+        }.onFailure { Log.w(TAG, "Failed to save cached book index", it) }
+    }
+
+    private companion object {
+        const val THUMBNAIL_LONG_SIDE = 480
+    }
+
+    suspend fun getPdfPage(filePath: String, pageIndex: Int, maxLongSide: Int = 2400): Bitmap? = withContext(Dispatchers.IO) {
         try {
             val file = File(filePath)
             val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val renderer = PdfRenderer(fd)
             val page = renderer.openPage(pageIndex)
-            val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+            val scale = (maxLongSide.toFloat() / maxOf(page.width, page.height)).coerceAtMost(1f)
+            val width = (page.width * scale).toInt().coerceAtLeast(1)
+            val height = (page.height * scale).toInt().coerceAtLeast(1)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             page.close()
             renderer.close()

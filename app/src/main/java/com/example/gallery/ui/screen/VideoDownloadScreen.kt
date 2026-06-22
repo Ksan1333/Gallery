@@ -14,6 +14,7 @@ import android.media.MediaFormat
 import android.media.MediaScannerConnection
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -83,10 +84,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.entity.VideoDownloadEntity
+import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.ui.state.GalleryState
 import com.squareup.gifencoder.GifEncoder
 import com.squareup.gifencoder.ImageOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionSpec
@@ -98,6 +102,8 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -801,6 +807,10 @@ fun startDownloadTask(
             status = "DOWNLOADING"
         )
         galleryState.repository.mediaDao.insertVideoDownload(entity)
+        val operationId = GlobalOperationService.startOperation(
+            title = "動画をダウンロード中",
+            canCancel = false
+        )
 
         try {
             val request = Request.Builder()
@@ -819,6 +829,7 @@ fun startDownloadTask(
                 }
 
                 val responseBody = response.body ?: throw Exception("Response body is null")
+                val totalBytes = responseBody.contentLength()
                 val detected = detectMediaType(url, response.header("Content-Type"))
                 val shouldTranscodeGif = forceGifFromVideo && detected.second.startsWith("video/")
                 val (extension, mimeType) = if (shouldTranscodeGif) "gif" to "image/gif" else detected
@@ -831,8 +842,17 @@ fun startDownloadTask(
                     val tempFile = File.createTempFile("x_gif_source_", ".mp4", context.cacheDir)
                     try {
                         tempFile.outputStream().use { output ->
-                            responseBody.byteStream().use { input -> input.copyTo(output) }
+                            responseBody.byteStream().use { input ->
+                                copyDownloadWithProgress(
+                                    input = input,
+                                    output = output,
+                                    totalBytes = totalBytes,
+                                    operationId = operationId,
+                                    progressEnd = 0.9f
+                                )
+                            }
                         }
+                        GlobalOperationService.updateProgress(0.92f, "GIFへ変換中...", operationId)
                         transcodeMp4ToGif(context, tempFile)
                     } finally {
                         tempFile.delete()
@@ -866,10 +886,17 @@ fun startDownloadTask(
 
                 resolver.openOutputStream(uri)?.use { outputStream ->
                     if (outputBytes != null) {
+                        GlobalOperationService.updateProgress(0.98f, "GIFを保存中...", operationId)
                         outputStream.write(outputBytes)
                     } else {
                         responseBody.byteStream().use { input ->
-                            input.copyTo(outputStream)
+                            copyDownloadWithProgress(
+                                input = input,
+                                output = outputStream,
+                                totalBytes = totalBytes,
+                                operationId = operationId,
+                                progressEnd = 0.98f
+                            )
                         }
                     }
                     outputStream.flush()
@@ -908,6 +935,7 @@ fun startDownloadTask(
                 }
 
                 galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "COMPLETED", savePath = actualPath))
+                GlobalOperationService.updateProgress(1f, "保存が完了しました", operationId)
 
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Download complete: $extension", Toast.LENGTH_SHORT).show()
@@ -919,7 +947,82 @@ fun startDownloadTask(
             withContext(Dispatchers.Main) {
                 Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
             }
+        } finally {
+            GlobalOperationService.finishOperation(operationId)
         }
+    }
+}
+
+private suspend fun copyDownloadWithProgress(
+    input: InputStream,
+    output: OutputStream,
+    totalBytes: Long,
+    operationId: String,
+    progressEnd: Float
+) {
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    val startedAt = SystemClock.elapsedRealtime()
+    var downloadedBytes = 0L
+    var lastUpdateAt = 0L
+
+    while (true) {
+        currentCoroutineContext().ensureActive()
+        val read = input.read(buffer)
+        if (read < 0) break
+        output.write(buffer, 0, read)
+        downloadedBytes += read
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastUpdateAt >= 200L || (totalBytes > 0L && downloadedBytes >= totalBytes)) {
+            val elapsedMs = (now - startedAt).coerceAtLeast(1L)
+            val fraction = if (totalBytes > 0L) {
+                (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            val bytesPerSecond = downloadedBytes * 1000L / elapsedMs
+            val remainingMs = if (totalBytes > 0L && bytesPerSecond > 0L) {
+                (totalBytes - downloadedBytes).coerceAtLeast(0L) * 1000L / bytesPerSecond
+            } else {
+                null
+            }
+            val status = buildString {
+                append(formatDownloadSize(downloadedBytes))
+                if (totalBytes > 0L) {
+                    append(" / ")
+                    append(formatDownloadSize(totalBytes))
+                }
+                append("  ")
+                append(formatDownloadSize(bytesPerSecond))
+                append("/秒")
+                if (remainingMs != null && elapsedMs >= 500L) {
+                    append("  残り約")
+                    append(formatDownloadEta(remainingMs))
+                } else {
+                    append("  残り時間を計測中")
+                }
+            }
+            GlobalOperationService.updateProgress(fraction * progressEnd, status, operationId)
+            lastUpdateAt = now
+        }
+    }
+}
+
+private fun formatDownloadSize(bytes: Long): String {
+    val safeBytes = bytes.coerceAtLeast(0L)
+    return when {
+        safeBytes >= 1024L * 1024L -> "%.1f MB".format(Locale.US, safeBytes / (1024f * 1024f))
+        safeBytes >= 1024L -> "%.1f KB".format(Locale.US, safeBytes / 1024f)
+        else -> "$safeBytes B"
+    }
+}
+
+private fun formatDownloadEta(durationMs: Long): String {
+    val totalSeconds = (durationMs.coerceAtLeast(0L) + 999L) / 1000L
+    return if (totalSeconds < 60L) {
+        "${totalSeconds}秒"
+    } else {
+        "${totalSeconds / 60L}分${totalSeconds % 60L}秒"
     }
 }
 

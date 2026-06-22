@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -362,6 +363,21 @@ fun AppNavigation(
                     )
                 )
 
+                NavigationDrawerItem(
+                    label = { Text("お気に入りサイト") },
+                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_sites",
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate("favorite_sites")
+                    },
+                    icon = { Icon(Icons.Default.Language, null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White,
+                        unselectedIconColor = Color.White
+                    )
+                )
+
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 8.dp),
                     color = Color.Gray.copy(alpha = 0.3f)
@@ -660,6 +676,12 @@ fun AppNavigation(
                                 restoreState = true
                             }
                         }
+                    )
+                }
+                composable("favorite_sites") {
+                    isBottomBarVisible = true
+                    FavoriteSitesScreen(
+                        onMenuClick = { scope.launch { drawerState.open() } }
                     )
                 }
                 composable("recommendations") {
