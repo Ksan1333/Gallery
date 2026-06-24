@@ -15,18 +15,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.IOException
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 class ChangelogViewModel : ViewModel() {
     var changelogText by mutableStateOf<String?>(null)
@@ -36,9 +36,6 @@ class ChangelogViewModel : ViewModel() {
     var error by mutableStateOf<String?>(null)
         private set
 
-    private val client = OkHttpClient()
-    private val rawUrl = "https://raw.githubusercontent.com/Ksan1333/Gallery/main/CHANGELOG.md"
-
     private val viewModelJob = SupervisorJob()
     private val viewModelScope = CoroutineScope(Dispatchers.Main + viewModelJob)
 
@@ -47,7 +44,7 @@ class ChangelogViewModel : ViewModel() {
         viewModelJob.cancel()
     }
 
-    fun fetchChangelog() {
+    fun fetchChangelog(context: Context) {
         if (isLoading) return
         isLoading = true
         error = null
@@ -55,10 +52,10 @@ class ChangelogViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    val request = Request.Builder().url(rawUrl).build()
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) throw IOException("Unexpected code $response")
-                        response.body?.string()
+                    context.assets.open("CHANGELOG.md").use { inputStream ->
+                        BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                            reader.readText()
+                        }
                     }
                 }
                 changelogText = result
@@ -77,8 +74,9 @@ fun AboutScreen(
     onBack: () -> Unit,
     viewModel: ChangelogViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
-        viewModel.fetchChangelog()
+        viewModel.fetchChangelog(context)
     }
 
     Scaffold(
@@ -113,7 +111,7 @@ fun AboutScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text("Gallery App", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text("Version 1.1.0", color = Color.Gray, fontSize = 14.sp)
+                    Text("Version 1.0.0", color = Color.Gray, fontSize = 14.sp)
                 }
             }
 
@@ -135,7 +133,7 @@ fun AboutScreen(
                     ) {
                         Text(viewModel.error!!, color = Color.Red, fontSize = 14.sp)
                         Button(
-                            onClick = { viewModel.fetchChangelog() },
+                            onClick = { viewModel.fetchChangelog(context) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
                         ) {
                             Text("再試行")
@@ -143,12 +141,7 @@ fun AboutScreen(
                     }
                 }
                 viewModel.changelogText != null -> {
-                    Text(
-                        text = viewModel.changelogText!!,
-                        color = Color.LightGray,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
-                    )
+                    MarkdownText(viewModel.changelogText!!)
                 }
             }
 
@@ -160,6 +153,64 @@ fun AboutScreen(
             Text("Android Studio AI Assistant によって開発を支援しています。", color = Color.LightGray, fontSize = 14.sp)
             
             Spacer(Modifier.height(48.dp))
+        }
+    }
+}
+
+@Composable
+fun MarkdownText(text: String) {
+    Column {
+        text.lines().forEach { line ->
+            when {
+                line.startsWith("# ") -> {
+                    Text(
+                        text = line.removePrefix("# "),
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
+                line.startsWith("## ") -> {
+                    Text(
+                        text = line.removePrefix("## "),
+                        color = Color.Cyan,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                    )
+                }
+                line.startsWith("### ") -> {
+                    Text(
+                        text = line.removePrefix("### "),
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                    )
+                }
+                line.startsWith("- ") || line.startsWith("* ") -> {
+                    Row(modifier = Modifier.padding(start = 8.dp).padding(vertical = 2.dp)) {
+                        Text("• ", color = Color.Cyan)
+                        Text(
+                            text = line.substring(2),
+                            color = Color.LightGray,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+                line.isBlank() -> {
+                    Spacer(Modifier.height(4.dp))
+                }
+                else -> {
+                    Text(
+                        text = line,
+                        color = Color.LightGray,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+            }
         }
     }
 }

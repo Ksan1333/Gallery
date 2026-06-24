@@ -19,14 +19,17 @@ import com.example.gallery.data.local.migrations.Migration16To17
         com.example.gallery.data.local.entity.ManagedFolderEntity::class,
         com.example.gallery.data.local.entity.TagTranslationEntity::class,
         com.example.gallery.data.local.entity.VideoDownloadEntity::class,
-        com.example.gallery.data.local.entity.MeasureStatsEntity::class
+        com.example.gallery.data.local.entity.MeasureStatsEntity::class,
+        com.example.gallery.data.local.entity.ReferenceProjectEntity::class,
+        com.example.gallery.data.local.entity.ReferenceItemEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class GalleryDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
+    abstract fun referenceDao(): com.example.gallery.data.local.dao.ReferenceDao
 
     companion object {
         @Volatile

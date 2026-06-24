@@ -26,6 +26,7 @@ fun HomeGalleryScreen(
     initialMediaUri: String? = null,
     onMenuClick: (() -> Unit)? = null,
     onBulkEdit: ((List<String>) -> Unit)? = null,
+    onBulkMove: ((List<String>) -> Unit)? = null,
     onNavigateToTag: ((String) -> Unit)? = null // 追加
 ) {
     val configuration = LocalConfiguration.current
@@ -145,6 +146,7 @@ fun HomeGalleryScreen(
                     galleryState.lastViewedUri = it
                 },
                 onBulkEdit = onBulkEdit,
+                onBulkMove = onBulkMove,
                 onScrollConsumed = {
                     galleryState.lastViewedUri = null
                     centerViewedMediaOnReturn = false

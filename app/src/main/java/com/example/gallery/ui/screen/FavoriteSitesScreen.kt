@@ -27,9 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -62,8 +64,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import android.os.Environment
+import android.widget.Toast
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
+import java.util.Scanner
 import org.json.JSONArray
 import org.json.JSONObject
+import com.example.gallery.ui.AppConstants
 
 private const val FAVORITE_SITES_PREFS = "favorite_sites_prefs"
 private const val FAVORITE_SITES_KEY = "favorite_sites"
@@ -91,19 +104,112 @@ fun FavoriteSitesScreen(
         context.getSharedPreferences(FAVORITE_SITES_PREFS, Context.MODE_PRIVATE)
     }
     var sites by remember {
-        mutableStateOf(loadFavoriteSites(preferences).ifEmpty { listOf(FavoriteSite()) })
+        mutableStateOf(loadFavoriteSites(preferences).ifEmpty { emptyList() })
     }
-    var isEditMode by remember { mutableStateOf(false) }
+    var isEditMode by remember { mutableStateOf(sites.isEmpty()) }
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
     var pendingSearchIndex by remember { mutableStateOf<Int?>(null) }
     var activeSearchIndex by remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
 
     fun updateSites(next: List<FavoriteSite>) {
-        sites = next.ifEmpty { listOf(FavoriteSite()) }
+        sites = next
         saveFavoriteSites(
             preferences,
             sites.filter { it.name.isNotBlank() || it.url.isNotBlank() || it.description.isNotBlank() }
         )
+    }
+
+    fun getBackupFile(): File {
+        val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        val folder = File(baseDir, "Gallery/Backups")
+        if (!folder.exists()) folder.mkdirs()
+        return File(folder, "favorite_sites.json")
+    }
+
+    fun exportData() {
+        if (sites.isEmpty()) {
+            Toast.makeText(context, "データがないためバックアップできません", Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = getBackupFile()
+                FileOutputStream(file).use { stream ->
+                    val array = JSONArray()
+                    sites.forEach { site ->
+                        if (site.name.isNotBlank() || site.url.isNotBlank()) {
+                            array.put(
+                                JSONObject()
+                                    .put("name", site.name)
+                                    .put("url", site.url)
+                                    .put("description", site.description)
+                            )
+                        }
+                    }
+                    OutputStreamWriter(stream).use { writer ->
+                        writer.write(array.toString(2))
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "保存しました: ${getBackupFile().absolutePath}", Toast.LENGTH_LONG).show()
+                }
+            }.onFailure {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "保存に失敗しました: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun importData() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = getBackupFile()
+                if (!file.exists()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "バックアップファイルが見つかりません", Toast.LENGTH_SHORT).show()
+                    }
+                    return@runCatching
+                }
+                file.inputStream().use { stream ->
+                    val content = Scanner(stream).useDelimiter("\\A").next()
+                    val array = JSONArray(content)
+                    val newSites = mutableListOf<FavoriteSite>()
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val url = obj.optString("url")
+                        if (url.isBlank()) continue
+                        
+                        newSites.add(
+                            FavoriteSite(
+                                name = obj.optString("name"),
+                                url = url,
+                                description = obj.optString("description")
+                            )
+                        )
+                    }
+                    if (newSites.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            val currentUrls = sites.map { it.url }.toSet()
+                            val uniqueNewSites = newSites.filter { it.url !in currentUrls }
+                            if (uniqueNewSites.isNotEmpty()) {
+                                updateSites(sites + uniqueNewSites)
+                            }
+                            Toast.makeText(context, "読み込みました", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "追加できる新しいサイトがありません", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }.onFailure {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "読み込みに失敗しました: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     Scaffold(
@@ -116,6 +222,12 @@ fun FavoriteSitesScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { exportData() }) {
+                        Icon(Icons.Default.Download, contentDescription = "書き出し", tint = siteInk)
+                    }
+                    IconButton(onClick = { importData() }) {
+                        Icon(Icons.Default.Upload, contentDescription = "読み込み", tint = siteInk)
+                    }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(
                             Icons.Default.Edit,

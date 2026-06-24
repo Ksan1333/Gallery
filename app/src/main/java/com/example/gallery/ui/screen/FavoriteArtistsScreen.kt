@@ -65,6 +65,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.os.Environment
+import android.widget.Toast
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
+import java.util.Scanner
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -98,14 +112,15 @@ fun FavoriteArtistsScreen(
     onNavigateHome: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(CREATOR_PREFS, Context.MODE_PRIVATE) }
-    var creators by remember { mutableStateOf(loadCreators(prefs).ifEmpty { listOf(emptyCreator()) }) }
+    var creators by remember { mutableStateOf(loadCreators(prefs).ifEmpty { emptyList() }) }
     var customSites by remember { mutableStateOf(loadCustomSites(prefs)) }
     var customSiteInput by remember { mutableStateOf("") }
     var pendingDeleteCreatorIndex by remember { mutableStateOf<Int?>(null) }
     var pendingSearch by remember { mutableStateOf<SearchTarget?>(null) }
     var activeWebSearch by remember { mutableStateOf<SearchTarget?>(null) }
-    var isEditMode by remember { mutableStateOf(false) }
+    var isEditMode by remember { mutableStateOf(creators.isEmpty()) }
     val platforms = remember(customSites) { (defaultPlatforms + customSites).distinct() }
 
     fun persistCreators(next: List<FavoriteCreator>) {
@@ -120,6 +135,122 @@ fun FavoriteArtistsScreen(
         saveCustomSites(prefs, customSites)
     }
 
+    fun getBackupFile(): File {
+        // 共有ストレージのルートではなく、アプリ専用の外部ストレージを使用するか、
+        // ユーザーに分かりやすい場所（Documentsなど）にフォルダを作成する。
+        // ここでは、権限の問題を回避しつつユーザーが見つけやすい「Documents/Gallery/Backups」を試みます。
+        val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        val folder = File(baseDir, "Gallery/Backups")
+        if (!folder.exists()) folder.mkdirs()
+        return File(folder, "favorite_artists.json")
+    }
+
+    fun exportData() {
+        if (creators.isEmpty() && customSites.isEmpty()) {
+            Toast.makeText(context, "データがないためバックアップできません", Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = getBackupFile()
+                FileOutputStream(file).use { stream ->
+                    val root = JSONObject()
+                    val artistsArray = JSONArray()
+                    creators.forEach { c ->
+                        val links = JSONArray()
+                        c.links.forEach { l ->
+                            links.put(JSONObject().put("platform", l.platform).put("url", l.url))
+                        }
+                        artistsArray.put(JSONObject().put("name", c.name).put("links", links))
+                    }
+                    root.put("artists", artistsArray)
+                    val sitesArray = JSONArray()
+                    customSites.forEach { s -> sitesArray.put(s) }
+                    root.put("custom_sites", sitesArray)
+
+                    OutputStreamWriter(stream).use { writer ->
+                        writer.write(root.toString(2))
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "保存しました: ${file.absolutePath}", Toast.LENGTH_LONG).show()
+                }
+            }.onFailure {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "保存に失敗しました: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun importData() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = getBackupFile()
+                if (!file.exists()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "バックアップファイルが見つかりません", Toast.LENGTH_SHORT).show()
+                    }
+                    return@runCatching
+                }
+                file.inputStream().use { stream ->
+                    val content = Scanner(stream).useDelimiter("\\A").next()
+                    val root = JSONObject(content)
+                    
+                    val artistsArray = root.optJSONArray("artists")
+                    val newArtists = mutableListOf<FavoriteCreator>()
+                    if (artistsArray != null) {
+                        for (i in 0 until artistsArray.length()) {
+                            val obj = artistsArray.getJSONObject(i)
+                            val name = obj.optString("name")
+                            if (name.isBlank()) continue
+                            
+                            val linksArr = obj.optJSONArray("links")
+                            val links = mutableListOf<CreatorLink>()
+                            if (linksArr != null) {
+                                for (j in 0 until linksArr.length()) {
+                                    val l = linksArr.getJSONObject(j)
+                                    links.add(CreatorLink(l.optString("platform"), l.optString("url")))
+                                }
+                            }
+                            newArtists.add(FavoriteCreator(name, links))
+                        }
+                    }
+
+                    val sitesArray = root.optJSONArray("custom_sites")
+                    val newSites = mutableListOf<String>()
+                    if (sitesArray != null) {
+                        for (i in 0 until sitesArray.length()) {
+                            newSites.add(sitesArray.getString(i))
+                        }
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        if (newArtists.isNotEmpty()) {
+                            val currentNames = creators.map { it.name }.toSet()
+                            val uniqueNewArtists = newArtists.filter { it.name !in currentNames }
+                            if (uniqueNewArtists.isNotEmpty()) {
+                                persistCreators(creators + uniqueNewArtists)
+                            }
+                        }
+                        if (newSites.isNotEmpty()) {
+                            val currentSites = customSites.toSet()
+                            val uniqueNewSites = newSites.filter { it !in currentSites }
+                            if (uniqueNewSites.isNotEmpty()) {
+                                persistCustomSites(customSites + uniqueNewSites)
+                            }
+                        }
+                        Toast.makeText(context, "読み込みました", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.onFailure {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "読み込みに失敗しました: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -130,6 +261,12 @@ fun FavoriteArtistsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { exportData() }) {
+                        Icon(Icons.Default.Download, contentDescription = "Export", tint = creatorInk)
+                    }
+                    IconButton(onClick = { importData() }) {
+                        Icon(Icons.Default.Upload, contentDescription = "Import", tint = creatorInk)
+                    }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(Icons.Default.Edit, contentDescription = "Toggle edit", tint = if (isEditMode) creatorAccent else creatorInk)
                     }
@@ -597,12 +734,23 @@ private fun CreatorSearchDialog(
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             webViewClient = object : WebViewClient() {
+                                var initialPageLoaded = false
+                                
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    if (url == request.initialUrl) {
+                                        initialPageLoaded = true
+                                    }
+                                }
+
                                 override fun shouldOverrideUrlLoading(
                                     view: WebView?,
                                     webRequest: WebResourceRequest?
                                 ): Boolean {
                                     val targetUrl = webRequest?.url?.toString().orEmpty()
+                                    // 最初のGoogle検索結果ページが表示された後、最初に別のURLへ遷移しようとした時にそのURLを取得する
                                     if (
+                                        initialPageLoaded &&
                                         webRequest?.isForMainFrame == true &&
                                         targetUrl.isNotBlank() &&
                                         targetUrl != request.initialUrl

@@ -3,6 +3,8 @@ package com.example.gallery.ui.component
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -43,18 +45,20 @@ import kotlinx.coroutines.withContext
 fun UnifiedMediaEditDialog(
     uris: List<String>,
     repository: MediaRepository,
-    onDismiss: () -> Unit,
-    onSelectFolder: (() -> Unit)? = null, // 追加: フォルダ選択画面を開く
-    initialFolderName: String = "" // 追加: 選択されたフォルダ名を受け取る
+    onDismiss: () -> Unit
 ) {
-    var targetFolderName by remember(initialFolderName) { mutableStateOf(initialFolderName) }
     var selectedAgeRating by rememberSaveable { mutableStateOf<String?>(null) }
     val tagCounts by repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
-    val allTags = remember(tagCounts) { tagCounts.map { it.tag } }
-
-    // 既存の全フォルダ名を取得（MediaDataのフォルダ名とメタデータのフォルダ名の両方を考慮）
-    val allMetadata by repository.getAllMetadataSummaryFlow().collectAsState(initial = emptyList())
-    // フォルダ移動のUIを簡略化したため existingFolders は不要になった
+    
+    // タグ検索用の状態
+    var tagSearchQuery by remember { mutableStateOf("") }
+    val filteredTags = remember(tagCounts, tagSearchQuery) {
+        tagCounts
+            .filter { !it.tag.endsWith("系") }
+            .filter { it.tag.contains(tagSearchQuery, ignoreCase = true) || 
+                      TagTranslationService.translate(it.tag).contains(tagSearchQuery, ignoreCase = true) }
+            .map { it.tag }
+    }
 
     val selectedTags = remember { mutableStateListOf<String>() }
     var newTagName by remember { mutableStateOf("") }
@@ -79,7 +83,7 @@ fun UnifiedMediaEditDialog(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("一括編集 (${uris.size} 件)", color = Color.White) },
+                title = { Text("一括タグ・評価編集 (${uris.size} 件)", color = Color.White) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss, enabled = !isProcessing) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = if (!isProcessing) Color.White else Color.Gray)
@@ -92,11 +96,6 @@ fun UnifiedMediaEditDialog(
                             scope.launch {
                                 GlobalOperationService.startOperation("アイテムを更新中...")
                                 val total = uris.size
-
-                                // フォルダ移動の処理 (フォルダが指定されている場合)
-                                if (targetFolderName.isNotBlank()) {
-                                    repository.moveMediaToFolder(uris, targetFolderName)
-                                }
 
                                 uris.forEachIndexed { index, uri ->
                                     repository.bulkUpdateAgeRating(listOf(uri), selectedAgeRating)
@@ -121,7 +120,8 @@ fun UnifiedMediaEditDialog(
             )
         },
         containerColor = AppConstants.BackgroundColor,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0) // ナビゲーションバー等の余白を無視
+        // ナビゲーションバーを考慮するために WindowInsets を設定
+        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -129,6 +129,7 @@ fun UnifiedMediaEditDialog(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
+
             // 選択中の画像プレビュー (縦2列の横並び: LazyVerticalGridを使用して高さ固定)
             if (!isProcessing && uris.isNotEmpty()) {
                 Text(
@@ -203,37 +204,6 @@ fun UnifiedMediaEditDialog(
 
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("フォルダ移動", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
-                    Text("移動先フォルダを選択してください", fontSize = 12.sp, color = Color.Gray)
-
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedCard(
-                            onClick = { if (!isProcessing) onSelectFolder?.invoke() },
-                            enabled = !isProcessing,
-                            modifier = Modifier.weight(1f),
-                            colors = CardDefaults.outlinedCardColors(
-                                containerColor = Color.DarkGray.copy(alpha = 0.5f)
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Folder, contentDescription = null, tint = Color.LightGray)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (targetFolderName.isBlank()) "フォルダを選択..." else targetFolderName,
-                                    color = if (targetFolderName.isBlank()) Color.Gray else Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
                     Text("タグ設定", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
 
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -277,15 +247,41 @@ fun UnifiedMediaEditDialog(
                         }
                     }
 
-                    val existingTags = allTags.filter { !it.endsWith("系") }
-                    if (existingTags.isNotEmpty()) {
+                    if (filteredTags.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("既存のタグから選択:", fontSize = 12.sp, color = Color.Gray)
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("既存のタグから選択:", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.weight(1f))
+                            // タグ検索フィールド
+                            OutlinedTextField(
+                                value = tagSearchQuery,
+                                onValueChange = { tagSearchQuery = it },
+                                placeholder = { Text("タグを検索...", fontSize = 10.sp) },
+                                modifier = Modifier.width(150.dp).height(40.dp),
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = Color.Cyan,
+                                    unfocusedBorderColor = Color.DarkGray
+                                )
+                            )
+                        }
+                        
+                        // 高さを制限してスクロール可能にする
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
+                                .padding(vertical = 4.dp)
+                                .background(Color.Black.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .verticalScroll(rememberScrollState())
                         ) {
-                            existingTags.forEach { tag ->
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                filteredTags.forEach { tag ->
                                     FilterChip(
                                         selected = selectedTags.contains(tag),
                                         onClick = {
@@ -294,36 +290,17 @@ fun UnifiedMediaEditDialog(
                                                 else selectedTags.add(tag)
                                             }
                                         },
-                                        label = { Text(TagTranslationService.translate(tag)) },
+                                        label = { Text(TagTranslationService.translate(tag), fontSize = 12.sp) },
                                         enabled = !isProcessing,
                                         colors = FilterChipDefaults.filterChipColors(
                                             labelColor = if (!isProcessing) Color.White else Color.Gray,
-                                            selectedLabelColor = Color.White
+                                            selectedLabelColor = Color.White,
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                                         )
                                     )
+                                }
                             }
                         }
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(32.dp))
-                    Text("その他", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
-                    Button(
-                        onClick = {
-                            isProcessing = true
-                            scope.launch {
-                                repository.moveToTrash(uris)
-                                onDismiss()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        enabled = !isProcessing,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("ゴミ箱へ移動")
                     }
                 }
             }

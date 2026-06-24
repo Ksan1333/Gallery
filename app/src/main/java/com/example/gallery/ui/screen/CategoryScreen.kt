@@ -101,6 +101,7 @@ fun CategoryScreen(
     lastViewedUri: String? = null,
     onPageChangedInViewer: (String) -> Unit = {},
     onBulkEdit: ((List<String>) -> Unit)? = null,
+    onBulkMove: ((List<String>) -> Unit)? = null,
     onScrollConsumed: () -> Unit = {},
     onNavigateToTag: ((String) -> Unit)? = null,
     onCategoryLongClick: (CategoryData) -> Unit = {},
@@ -455,6 +456,7 @@ fun CategoryScreen(
                 scrollToUri = if (selectedImageIndex == null) lastViewedUri else null,
                 onPageChangedInViewer = onPageChangedInViewer,
                 onBulkEdit = onBulkEdit,
+                onBulkMove = onBulkMove,
                 onScrollConsumed = onScrollConsumed,
                 topBarActions = topBarActions
             )

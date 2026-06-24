@@ -1,6 +1,7 @@
 package com.example.gallery
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +16,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
@@ -50,10 +54,14 @@ import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.GalleryViewMode
 import com.example.gallery.ui.component.GalleryBottomNavigationBar
 import com.example.gallery.ui.component.GlobalProgressOverlay
+import com.example.gallery.ui.component.TutorialDialog
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
+import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.ThumbnailGenerationService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val BOOKMARKS_PREFS = "book_bookmarks"
 
 class MainActivity : ComponentActivity() {
     private var sharedXUrl by mutableStateOf<String?>(null)
@@ -94,6 +102,21 @@ fun AppNavigation(
     galleryState.navController = navController
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var isBottomBarVisible by rememberSaveable { mutableStateOf(true) }
+
+    var showTutorial by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("tutorial_shown", false)) {
+            showTutorial = true
+            prefs.edit().putBoolean("tutorial_shown", true).apply()
+        }
+    }
+
+    val bookmarksPrefs = remember { context.getSharedPreferences(BOOKMARKS_PREFS, Context.MODE_PRIVATE) }
+    var bookmarksCount by remember { mutableIntStateOf(bookmarksPrefs.all.size) }
+
+    var pendingBookmarkBookId by remember { mutableStateOf<String?>(null) }
+    var pendingBookmarkPage by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(sharedXUrl) {
         if (sharedXUrl != null) {
@@ -182,9 +205,17 @@ fun AppNavigation(
             insetsController.systemBarsBehavior =
                 androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-            val isFullScreenRoute = currentRoute == "mass_edit" ||
-                                   currentRoute == "folders_select" ||
+            val isFullScreenRoute = currentRoute == "folders_select" ||
                                    currentRoute?.startsWith("analysis") == true
+
+            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
+                currentRoute == "references" || currentRoute?.startsWith("reference_detail") == true || currentRoute?.startsWith("reference_search") == true
+
+            if (isAlwaysShowNavBarRoute) {
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+                return
+            }
 
             if (isFullScreenRoute) {
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
@@ -207,6 +238,12 @@ fun AppNavigation(
     LaunchedEffect(isBottomBarVisible, currentRouteForSystemBars) {
         setupSystemBars(!isBottomBarVisible, currentRouteForSystemBars)
     }
+
+    val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
+    val currentRouteForDrawer = navBackStackEntryForDrawer?.destination?.route
+    val isRefOrBookmarkRoute = currentRouteForDrawer == "book_bookmarks" || currentRouteForDrawer == "references"
+    val isReferenceInteriorRoute = currentRouteForDrawer?.startsWith("reference_detail") == true ||
+        currentRouteForDrawer?.startsWith("reference_search") == true
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -325,6 +362,7 @@ fun AppNavigation(
                             unselectedIconColor = Color.White
                         )
                     )
+
                     NavigationDrawerItem(
                         label = { Text("ゴミ箱") },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "trash",
@@ -407,6 +445,38 @@ fun AppNavigation(
                         )
                     )
 
+                    NavigationDrawerItem(
+                        label = { Text("お絵描き資料") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "references",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("references")
+                        },
+                        icon = { Icon(Icons.Default.Brush, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
+                    )
+
+                    NavigationDrawerItem(
+                        label = { Text("本のしおり ($bookmarksCount)") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "book_bookmarks",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("book_bookmarks")
+                        },
+                        icon = { Icon(if (bookmarksCount > 0) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
+                    )
+
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 4.dp),
                         color = Color.Gray.copy(alpha = 0.2f)
@@ -472,6 +542,22 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
+                        label = { Text("使い方ガイド") },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            showTutorial = true
+                        },
+                        icon = { Icon(Icons.Default.Info, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
+                    )
+
+                    NavigationDrawerItem(
                         label = { Text("このアプリについて") },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "about",
                         onClick = {
@@ -488,7 +574,7 @@ fun AppNavigation(
                     )
 
                     Text(
-                        "v1.0.0",
+                        "v0.3.0",
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                         fontSize = 11.sp,
                         color = Color.Gray
@@ -498,15 +584,17 @@ fun AppNavigation(
                 }
             }
         },
-        gesturesEnabled = isBottomBarVisible && !galleryState.isSelectionMode && !galleryState.isZooming
+        gesturesEnabled = (isBottomBarVisible || isRefOrBookmarkRoute) && !isReferenceInteriorRoute && !galleryState.isSelectionMode && !galleryState.isZooming
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
             val currentRouteForDrawer = navBackStackEntryForDrawer?.destination?.route
             val isGalleryGridVisible =
-                currentRouteForDrawer == "home" || currentRouteForDrawer == "folders" || currentRouteForDrawer == "mylist"
+                currentRouteForDrawer == "home" || currentRouteForDrawer == "folders" || 
+                currentRouteForDrawer == "mylist" || currentRouteForDrawer == "references" || 
+                currentRouteForDrawer == "book_bookmarks" || currentRouteForDrawer == "books"
 
-            if (!drawerState.isOpen && isBottomBarVisible && isGalleryGridVisible && !galleryState.isSelectionMode && !galleryState.isZooming) {
+            if (!drawerState.isOpen && (isBottomBarVisible || isRefOrBookmarkRoute) && !isReferenceInteriorRoute && isGalleryGridVisible && !galleryState.isSelectionMode && !galleryState.isZooming) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
@@ -572,9 +660,13 @@ fun AppNavigation(
                                 restoreState = true
                             }
                         },
-                        onBulkEdit = { uris ->
+                        onBulkEdit = { uris: List<String> ->
                             galleryState.urisToMove = uris
                             navController.navigate("mass_edit")
+                        },
+                        onBulkMove = { uris: List<String> ->
+                            galleryState.urisToMove = uris
+                            navController.navigate("bulk_move_selection")
                         }
                     )
                 }
@@ -600,9 +692,13 @@ fun AppNavigation(
                                 }
                             }
                         },
-                        onBulkEdit = { uris ->
+                        onBulkEdit = { uris: List<String> ->
                             galleryState.urisToMove = uris
                             navController.navigate("mass_edit")
+                        },
+                        onBulkMove = { uris: List<String> ->
+                            galleryState.urisToMove = uris
+                            navController.navigate("bulk_move_selection")
                         }
                     )
                 }
@@ -662,18 +758,26 @@ fun AppNavigation(
                         isBottomBarVisible = false
                         onDispose { }
                     }
-                    val selectedFolder = it.savedStateHandle.get<String>("selected_folder")
-                    if (selectedFolder != null) {
-                        galleryState.selectedFolderForMove = selectedFolder
-                        it.savedStateHandle.remove<String>("selected_folder")
-                    }
 
                     UnifiedMediaEditDialog(
                         uris = galleryState.urisToMove,
                         repository = galleryState.repository,
-                        onDismiss = { navController.popBackStack() },
-                        onSelectFolder = { navController.navigate("folders_select") },
-                        initialFolderName = galleryState.selectedFolderForMove
+                        onDismiss = { navController.popBackStack() }
+                    )
+                }
+                composable("bulk_move_selection") {
+                    isBottomBarVisible = false
+                    FolderPickerScreen(
+                        galleryState = galleryState,
+                        onFolderSelected = { folder ->
+                            scope.launch {
+                                GlobalOperationService.startOperation("アイテムを移動中...")
+                                galleryState.repository.moveMediaToFolder(galleryState.urisToMove, folder)
+                                GlobalOperationService.finishOperation()
+                                navController.popBackStack()
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 composable("folders_select") {
@@ -701,7 +805,35 @@ fun AppNavigation(
                         isBottomBarVisible = !isViewerOpen
                     }
 
-                    BookScreen(onViewerStateChanged = { isViewerOpen = it })
+                    BookScreen(
+                        onViewerStateChanged = { isViewerOpen = it },
+                        onBookmarksChanged = { bookmarksCount = bookmarksPrefs.all.size },
+                        onNavigateToBookmarks = { navController.navigate("book_bookmarks") },
+                        initialJumpBookId = pendingBookmarkBookId,
+                        initialJumpPage = pendingBookmarkPage,
+                        onJumpHandled = { 
+                            pendingBookmarkBookId = null
+                            pendingBookmarkPage = -1
+                        }
+                    )
+                }
+                composable("book_bookmarks") {
+                    isBottomBarVisible = false
+                    BookBookmarksScreen(
+                        onMenuClick = { scope.launch { drawerState.open() } },
+                        onBookClick = { id ->
+                            val data = bookmarksPrefs.getString(id, null)
+                            if (data != null) {
+                                runCatching {
+                                    val json = org.json.JSONObject(data)
+                                    pendingBookmarkBookId = id
+                                    pendingBookmarkPage = json.optInt("page", 0)
+                                    navController.navigate("books")
+                                }
+                            }
+                        },
+                        onBookmarksChanged = { bookmarksCount = bookmarksPrefs.all.size }
+                    )
                 }
                 composable("trash") {
                     isBottomBarVisible = true
@@ -710,6 +842,30 @@ fun AppNavigation(
                         onHideViewer = { isBottomBarVisible = true },
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } }
+                    )
+                }
+                composable("references") {
+                    isBottomBarVisible = false
+                    ReferenceProjectScreen(
+                        onMenuClick = { scope.launch { drawerState.open() } },
+                        onProjectClick = { id -> navController.navigate("reference_detail/$id") }
+                    )
+                }
+                composable("reference_detail/{projectId}") { backStackEntry ->
+                    val projectId = backStackEntry.arguments?.getString("projectId")?.toLong() ?: 0L
+                    isBottomBarVisible = false
+                    ReferenceDetailScreen(
+                        projectId = projectId,
+                        onBack = { navController.popBackStack() },
+                        onAddClick = { navController.navigate("reference_search/$projectId") }
+                    )
+                }
+                composable("reference_search/{projectId}") { backStackEntry ->
+                    val projectId = backStackEntry.arguments?.getString("projectId")?.toLong() ?: 0L
+                    isBottomBarVisible = false
+                    ReferenceSearchScreen(
+                        projectId = projectId,
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 composable("video_downloader") {
@@ -774,9 +930,22 @@ fun AppNavigation(
 
             GlobalProgressOverlay()
 
+            if (showTutorial) {
+                TutorialDialog(onDismiss = { showTutorial = false })
+            }
+
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
-            val isHideRoute = currentRoute == null ||
+            
+            // 基本機能（ホーム、フォルダ、タグ、本、ゴミ箱）以外はボトムバーを非表示にする
+            val isBasicFunction = currentRoute == "home" || 
+                                 currentRoute == "folders" || 
+                                 currentRoute == "mylist" || 
+                                 currentRoute == "books" || 
+                                 currentRoute == "trash"
+
+            val isHideRoute = !isBasicFunction ||
+                currentRoute == null ||
                 currentRoute == "mass_edit" ||
                 currentRoute == "folders_select" ||
                 currentRoute.startsWith("analysis")

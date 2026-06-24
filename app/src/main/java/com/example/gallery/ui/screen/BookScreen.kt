@@ -27,18 +27,28 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
+import android.widget.Toast
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import coil.compose.AsyncImage
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
+import com.example.gallery.data.repository.BookType
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.screen.BookViewerScreen
-import androidx.compose.runtime.saveable.Saver
-import com.example.gallery.data.repository.BookType
 import kotlinx.coroutines.launch
+
+private const val BOOKMARKS_PREFS = "book_bookmarks"
 
 @Composable
 fun BookScreen(
-    onViewerStateChanged: (Boolean) -> Unit = {}
+    onViewerStateChanged: (Boolean) -> Unit = {},
+    onBookmarksChanged: () -> Unit = {},
+    onNavigateToBookmarks: () -> Unit = {},
+    initialJumpBookId: String? = null,
+    initialJumpPage: Int = -1,
+    onJumpHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val repository = remember { BookRepository(context) }
@@ -47,6 +57,17 @@ fun BookScreen(
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
     var books by remember { mutableStateOf<List<BookData>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+
+    // しおりからの自動遷移処理
+    LaunchedEffect(initialJumpBookId, books) {
+        if (initialJumpBookId != null && books.isNotEmpty()) {
+            val book = books.find { it.id == initialJumpBookId }
+            if (book != null) {
+                // ここで直接開く
+                // BookViewerScreenに開始ページを渡す必要がある
+            }
+        }
+    }
     
     // 現在選択されているフォルダパス
     var selectedFolderPath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -82,9 +103,24 @@ fun BookScreen(
     )
 
     var selectedBook by rememberSaveable(stateSaver = bookSaver) { mutableStateOf(null) }
+    var startPageForSelectedBook by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(initialJumpBookId, books) {
+        if (initialJumpBookId != null && books.isNotEmpty()) {
+            val book = books.find { it.id == initialJumpBookId }
+            if (book != null) {
+                startPageForSelectedBook = initialJumpPage.coerceAtLeast(0)
+                selectedBook = book
+                onJumpHandled()
+            }
+        }
+    }
 
     LaunchedEffect(selectedBook) {
         onViewerStateChanged(selectedBook != null)
+        if (selectedBook == null) {
+            startPageForSelectedBook = 0
+        }
     }
 
     // 戻るボタンの制御
@@ -156,11 +192,19 @@ fun BookScreen(
                 repository = repository,
                 onClose = { selectedBook = null },
                 onPreviousBook = siblingBooks.getOrNull(currentBookIndex - 1)?.let { previous ->
-                    { selectedBook = previous }
+                    { 
+                        selectedBook = previous 
+                        startPageForSelectedBook = 0
+                    }
                 },
                 onNextBook = siblingBooks.getOrNull(currentBookIndex + 1)?.let { next ->
-                    { selectedBook = next }
-                }
+                    { 
+                        selectedBook = next 
+                        startPageForSelectedBook = 0
+                    }
+                },
+                onBookmarksChanged = onBookmarksChanged,
+                initialPage = startPageForSelectedBook
             )
         }
     } else {
@@ -184,8 +228,14 @@ fun BookScreen(
                     color = Color.White,
                     fontSize = AppConstants.HeaderFontSize
                 )
+                Spacer(Modifier.weight(1f))
                 IconButton(onClick = { refresh() }) {
                     Icon(Icons.Default.Refresh, "Scan", tint = Color.White)
+                }
+                IconButton(onClick = {
+                    onNavigateToBookmarks()
+                }) {
+                    Icon(Icons.Default.Bookmark, "Bookmarks", tint = Color.Cyan)
                 }
             }
 

@@ -30,7 +30,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -65,6 +68,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
 import java.util.Locale
 
 private enum class BookPageLayout { AUTO, SINGLE, DOUBLE }
@@ -94,7 +98,9 @@ fun BookViewerScreen(
     repository: BookRepository,
     onClose: () -> Unit,
     onPreviousBook: (() -> Unit)? = null,
-    onNextBook: (() -> Unit)? = null
+    onNextBook: (() -> Unit)? = null,
+    onBookmarksChanged: () -> Unit = {},
+    initialPage: Int = 0
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -102,6 +108,12 @@ fun BookViewerScreen(
     val view = LocalView.current
     val preferences = remember {
         context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE)
+    }
+    val bookmarksPrefs = remember {
+        context.getSharedPreferences("book_bookmarks", Context.MODE_PRIVATE)
+    }
+    var isBookmarked by remember {
+        mutableStateOf(bookmarksPrefs.contains(book.id))
     }
     var viewerSettings by remember { mutableStateOf(loadBookViewerSettings(preferences)) }
     var showSettings by remember { mutableStateOf(false) }
@@ -135,7 +147,7 @@ fun BookViewerScreen(
     }
 
     val spreadCount = if (isTwoPageMode) (book.pageCount + 1) / 2 else book.pageCount
-    var currentAbsolutePage by rememberSaveable { mutableIntStateOf(0) }
+    var currentAbsolutePage by rememberSaveable { mutableIntStateOf(initialPage.coerceAtMost(book.pageCount - 1)) }
     
     val pagerState = rememberPagerState(
         initialPage = if (isTwoPageMode) currentAbsolutePage / 2 else currentAbsolutePage,
@@ -447,23 +459,78 @@ fun BookViewerScreen(
                         fontSize = 14.sp
                     )
                     Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                        IconButton(onClick = { openBookTitleSearch(context, book.title) }) {
-                            Icon(Icons.Default.Search, contentDescription = "タイトルで検索", tint = Color.White)
-                        }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "表示設定", tint = Color.White)
-                        }
                         IconButton(onClick = {
-                            val bitmap = captureViewToBitmap(context, isTwoPageMode, book.pageCount, pagerState.currentPage, pageCache, viewSize)
-                            if (bitmap != null) saveBitmapToGallery(context, bitmap) else Toast.makeText(context, "保存失敗", Toast.LENGTH_SHORT).show()
-                        }) { Icon(Icons.Default.Screenshot, null, tint = Color.White) }
-                        IconButton(onClick = {
-                            screenOrientation = if (isLandscape) {
-                                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            isBookmarked = !isBookmarked
+                            if (isBookmarked) {
+                                // ページ番号を含めて保存する形式に変更 (JSON文字列として保存)
+                                val bookmarkData = JSONObject()
+                                    .put("title", book.title)
+                                    .put("page", currentAbsolutePage)
+                                    .toString()
+                                bookmarksPrefs.edit().putString(book.id, bookmarkData).apply()
+                                Toast.makeText(context, "ページをしおりに挟みました", Toast.LENGTH_SHORT).show()
                             } else {
-                                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                bookmarksPrefs.edit().remove(book.id).apply()
+                                Toast.makeText(context, "しおりを外しました", Toast.LENGTH_SHORT).show()
                             }
-                        }) { Icon(Icons.Default.ScreenRotation, null, tint = Color.White) }
+                            onBookmarksChanged()
+                        }) {
+                            Icon(
+                                if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = "しおり",
+                                tint = if (isBookmarked) Color.Cyan else Color.White
+                            )
+                        }
+                        
+                        var showMoreMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "もっと見る", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                                containerColor = Color(0xFF1D1A18)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("タイトルで検索", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.White) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        openBookTitleSearch(context, book.title)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("表示設定", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Settings, null, tint = Color.White) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showSettings = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("スクリーンショット", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.Screenshot, null, tint = Color.White) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        val bitmap = captureViewToBitmap(context, isTwoPageMode, book.pageCount, pagerState.currentPage, pageCache, viewSize)
+                                        if (bitmap != null) saveBitmapToGallery(context, bitmap) else Toast.makeText(context, "保存失敗", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("画面回転", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Default.ScreenRotation, null, tint = Color.White) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        screenOrientation = if (isLandscape) {
+                                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                        } else {
+                                            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }

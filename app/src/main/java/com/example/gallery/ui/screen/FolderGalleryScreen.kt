@@ -40,7 +40,8 @@ fun FolderGalleryScreen(
     onStartAnalysis: () -> Unit = {},
     isSelectionMode: Boolean = false,
     onFolderSelected: (String) -> Unit = {},
-    onBulkEdit: ((List<String>) -> Unit)? = null
+    onBulkEdit: ((List<String>) -> Unit)? = null,
+    onBulkMove: ((List<String>) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -171,6 +172,7 @@ fun FolderGalleryScreen(
             lastViewedUri = galleryState.lastViewedUri, 
             onPageChangedInViewer = { galleryState.lastViewedUri = it }, 
             onBulkEdit = onBulkEdit,
+            onBulkMove = onBulkMove,
             onScrollConsumed = { galleryState.lastViewedUri = null }
         )
     }
