@@ -12,6 +12,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -213,218 +216,286 @@ fun AppNavigation(
                 drawerContentColor = Color.White,
                 modifier = Modifier.width(260.dp)
             ) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "\u30ae\u30e3\u30e9\u30ea\u30fc\u30e1\u30cb\u30e5\u30fc",
-                    modifier = Modifier.padding(16.dp),
-                    fontSize = 20.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                )
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Spacer(Modifier.height(12.dp))
+                    Icon(
+                        imageVector = Icons.Default.Language,
+                        contentDescription = null,
+                        tint = Color.Cyan,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp).size(28.dp)
+                    )
+                    Text(
+                        "ギャラリーメニュー",
+                        modifier = Modifier.padding(16.dp, 8.dp),
+                        fontSize = 18.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
 
-                NavigationDrawerItem(
-                    label = { Text("\u30db\u30fc\u30e0") },
-                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "home",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("home") {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                    Text(
+                        "基本機能",
+                        modifier = Modifier.padding(16.dp, 8.dp),
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+
+                    NavigationDrawerItem(
+                        label = { Text("ホーム") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "home",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("home") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Home, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                        },
+                        icon = { Icon(Icons.Default.Home, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
 
-                Text(
-                    "\u30d5\u30a9\u30eb\u30c0",
-                    modifier = Modifier.padding(16.dp, 8.dp),
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-
-                NavigationDrawerItem(
-                    label = { Text("\u30d5\u30a9\u30eb\u30c0\u5225") },
-                    selected = galleryState.galleryViewMode == GalleryViewMode.FOLDER && navController.currentBackStackEntryAsState().value?.destination?.route == "folders",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        galleryState.galleryViewMode = GalleryViewMode.FOLDER
-                        navController.navigate("folders") {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                    NavigationDrawerItem(
+                        label = { Text("フォルダ") },
+                        selected = galleryState.galleryViewMode == GalleryViewMode.FOLDER && navController.currentBackStackEntryAsState().value?.destination?.route == "folders",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            galleryState.galleryViewMode = GalleryViewMode.FOLDER
+                            navController.navigate("folders") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.AutoMirrored.Filled.List, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                        },
+                        icon = { Icon(Icons.AutoMirrored.Filled.List, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
-                NavigationDrawerItem(
-                    label = { Text("\u30bf\u30b0\u5225") },
-                    selected = galleryState.galleryViewMode == GalleryViewMode.MYLIST && navController.currentBackStackEntryAsState().value?.destination?.route == "mylist",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        galleryState.galleryViewMode = GalleryViewMode.MYLIST
-                        navController.navigate("mylist") {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                    NavigationDrawerItem(
+                        label = { Text("タグ") },
+                        selected = galleryState.galleryViewMode == GalleryViewMode.MYLIST && navController.currentBackStackEntryAsState().value?.destination?.route == "mylist",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            galleryState.galleryViewMode = GalleryViewMode.MYLIST
+                            navController.navigate("mylist") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Favorite, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                        },
+                        icon = { Icon(Icons.Default.Favorite, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
 
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    color = Color.Gray.copy(alpha = 0.3f)
-                )
-
-                NavigationDrawerItem(
-                    label = { Text("\u672c") },
-                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "books",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("books")
-                    },
-                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                    NavigationDrawerItem(
+                        label = { Text("本") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "books",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("books")
+                        },
+                        icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
-                NavigationDrawerItem(
-                    label = { Text("\u30b4\u30df\u7bb1") },
-                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "trash",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("trash") {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                    NavigationDrawerItem(
+                        label = { Text("ゴミ箱") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "trash",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("trash") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Delete, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                        },
+                        icon = { Icon(Icons.Default.Delete, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
 
-                NavigationDrawerItem(
-                    label = { Text("\u52d5\u753bDL (X/Twitter)") },
-                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("video_downloader")
-                    },
-                    icon = { Icon(Icons.Default.Download, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = Color.Gray.copy(alpha = 0.2f)
                     )
-                )
 
-                NavigationDrawerItem(
-                    label = { Text("\u304a\u6c17\u306b\u5165\u308a\u30af\u30ea\u30a8\u30a4\u30bf\u30fc") },
-                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_artists",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("favorite_artists")
-                    },
-                    icon = { Icon(Icons.Default.Favorite, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                    Text(
+                        "便利機能",
+                        modifier = Modifier.padding(16.dp, 8.dp),
+                        fontSize = 11.sp,
+                        color = Color.Gray
                     )
-                )
 
-                NavigationDrawerItem(
-                    label = { Text("お気に入りサイト") },
-                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_sites",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("favorite_sites")
-                    },
-                    icon = { Icon(Icons.Default.Language, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                    NavigationDrawerItem(
+                        label = { Text("動画DL") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("video_downloader")
+                        },
+                        icon = { Icon(Icons.Default.Download, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
 
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    color = Color.Gray.copy(alpha = 0.3f)
-                )
-
-                NavigationDrawerItem(
-                    label = { Text(if (galleryState.isMeasureModeActive) "Measure mode running..." else "Start measure mode") },
-                    selected = galleryState.isMeasureModeActive,
-                    onClick = {
-                        galleryState.isMeasureModeActive = !galleryState.isMeasureModeActive
-                        if (!galleryState.isMeasureModeActive) {
-                        }
-                    },
-                    icon = { 
-                        Icon(
-                            if (galleryState.isMeasureModeActive) Icons.Default.Pause else Icons.Default.PlayArrow, 
-                            null,
-                            tint = if (galleryState.isMeasureModeActive) Color.Red else Color.Green
-                        ) 
-                    },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White,
-                        selectedContainerColor = Color.DarkGray,
-                        selectedTextColor = Color.Red,
-                        selectedIconColor = Color.Red
+                    NavigationDrawerItem(
+                        label = { Text("お気に入りクリエイター") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_artists",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("favorite_artists")
+                        },
+                        icon = { Icon(Icons.Default.Star, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
 
-                NavigationDrawerItem(
-                    label = { Text("Recommendations") },
-                    selected = navController.currentBackStackEntryAsState().value?.destination?.route == "recommendations",
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("recommendations")
-                    },
-                    icon = { Icon(Icons.Default.Star, null) },
-                    colors = NavigationDrawerItemDefaults.colors(
-                        unselectedContainerColor = Color.Transparent,
-                        unselectedTextColor = Color.White,
-                        unselectedIconColor = Color.White
+                    NavigationDrawerItem(
+                        label = { Text("お気に入りサイト") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_sites",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("favorite_sites")
+                        },
+                        icon = { Icon(Icons.Default.Language, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
                     )
-                )
 
-                Spacer(Modifier.weight(1f))
-                Spacer(Modifier.height(12.dp))
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = Color.Gray.copy(alpha = 0.2f)
+                    )
+
+                    Text(
+                        "計測",
+                        modifier = Modifier.padding(16.dp, 8.dp),
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+
+                    NavigationDrawerItem(
+                        label = { Text(if (galleryState.isMeasureModeActive) "計測を停止する" else "計測を開始する（開発中）") },
+                        selected = galleryState.isMeasureModeActive,
+                        onClick = {
+                            galleryState.isMeasureModeActive = !galleryState.isMeasureModeActive
+                        },
+                        icon = { 
+                            Icon(
+                                if (galleryState.isMeasureModeActive) Icons.Default.Pause else Icons.Default.PlayArrow, 
+                                null,
+                                tint = if (galleryState.isMeasureModeActive) Color.Red else Color.Green
+                            ) 
+                        },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White,
+                            selectedContainerColor = Color.DarkGray,
+                            selectedTextColor = Color.Red,
+                            selectedIconColor = Color.Red
+                        )
+                    )
+
+                    NavigationDrawerItem(
+                        label = { Text("おすすめ（開発中）") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "recommendations",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("recommendations")
+                        },
+                        icon = { Icon(Icons.Default.Star, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = Color.Gray.copy(alpha = 0.2f)
+                    )
+
+                    Text(
+                        "情報",
+                        modifier = Modifier.padding(16.dp, 8.dp),
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+
+                    NavigationDrawerItem(
+                        label = { Text("このアプリについて") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "about",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("about")
+                        },
+                        icon = { Icon(Icons.Default.Info, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedTextColor = Color.White,
+                            unselectedIconColor = Color.White
+                        )
+                    )
+
+                    Text(
+                        "v1.0.0",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+                }
             }
         },
         gesturesEnabled = isBottomBarVisible && !galleryState.isSelectionMode && !galleryState.isZooming
@@ -691,6 +762,12 @@ fun AppNavigation(
                         onShowViewer = { isBottomBarVisible = false },
                         onHideViewer = { isBottomBarVisible = true },
                         onMenuClick = { scope.launch { drawerState.open() } }
+                    )
+                }
+                composable("about") {
+                    isBottomBarVisible = false
+                    AboutScreen(
+                        onBack = { navController.popBackStack() }
                     )
                 }
             }

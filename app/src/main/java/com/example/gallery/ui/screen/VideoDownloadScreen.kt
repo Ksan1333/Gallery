@@ -560,12 +560,10 @@ private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
 
             okHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.e("VideoDownloader", "API request failed: $apiUrl ${response.code} ${response.message}")
                     return@use null
                 }
 
                 val body = response.body?.string() ?: return@use null
-                Log.d("VideoDownloader", "API Response from $apiUrl: $body")
 
                 extractMediaUrlCandidates(JSONObject(body))
                     .sortedWith(
@@ -582,7 +580,7 @@ private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
                     .distinctBy { it.url }
                     .takeIf { it.isNotEmpty() }
             }
-        }.orEmpty().also { Log.d("VideoDownloader", "Resolved media URLs: $it") }
+        }.orEmpty()
     } catch (e: Exception) {
         val errorMessage = if (e is javax.net.ssl.SSLHandshakeException) {
             "SSL Handshake failed: ${e.localizedMessage}. OkHttp was used for this request."
@@ -1030,27 +1028,15 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
     val retriever = MediaMetadataRetriever()
     var input: FileInputStream? = null
     try {
-        Log.i(
-            "VideoDownloader",
-            "GIF transcode source: path=${sourceFile.absolutePath}, size=${sourceFile.length()}, header=${sourceFile.headerHex()}"
-        )
         val patchResult = patchMp4ForAndroidExtractor(sourceFile)
-        if (patchResult.patched) {
-            Log.i(
-                "VideoDownloader",
-                "GIF source MP4 patched for Android extractor: ${patchResult.details.joinToString("; ")}, header=${sourceFile.headerHex()}"
-            )
-        }
         try {
             input = FileInputStream(sourceFile)
             retriever.setDataSource(input.fd)
-            Log.d("VideoDownloader", "MediaMetadataRetriever data source set from FileDescriptor")
         } catch (fdError: Exception) {
             Log.w("VideoDownloader", "FileDescriptor data source failed, retrying by path", fdError)
             input?.close()
             input = null
             retriever.setDataSource(sourceFile.absolutePath)
-            Log.d("VideoDownloader", "MediaMetadataRetriever data source set from file path")
         }
         val rawDurationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
         val durationMs = rawDurationMs?.coerceAtLeast(300L) ?: 3000L
@@ -1064,10 +1050,6 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
                 ?.toIntOrNull()
                 ?: 0
-            Log.i(
-                "VideoDownloader",
-                "GIF transcode metadata: durationMs=$rawDurationMs, frameCount=$videoFrameCount, width=$videoWidth, height=$videoHeight, mime=$mimeType"
-            )
             if (videoFrameCount > 0) {
                 val targetCount = videoFrameCount.coerceIn(1, 28)
                 val step = (videoFrameCount / targetCount).coerceAtLeast(1)
@@ -1082,13 +1064,7 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
                     }
                     frameIndex += step
                 }
-                Log.i("VideoDownloader", "GIF transcode frames from index API: ${frames.size}")
             }
-        } else {
-            Log.i(
-                "VideoDownloader",
-                "GIF transcode metadata: durationMs=$rawDurationMs, width=$videoWidth, height=$videoHeight, mime=$mimeType"
-            )
         }
 
         if (frames.isEmpty()) {
@@ -1100,28 +1076,21 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
                         ?: retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                         ?: retriever.frameAtTime
                 } catch (e: Exception) {
-                    Log.d("VideoDownloader", "getFrameAtTime failed at timeUs=$timeUs", e)
                     null
                 }
                 if (frame != null) {
                     frames.add(scaleBitmapForGif(frame))
                 }
             }
-            Log.i("VideoDownloader", "GIF transcode frames from time API: ${frames.size}")
         }
 
         if (frames.isEmpty()) {
             val codecFrames = decodeGifFramesWithCodec(sourceFile)
             frames.addAll(codecFrames.frames)
-            Log.i(
-                "VideoDownloader",
-                "GIF transcode frames from codec fallback: ${frames.size}, durationMs=${codecFrames.durationMs}"
-            )
             if (codecFrames.durationMs != null) {
                 // Prefer the decoder duration when Retriever cannot read this X tweet_video MP4.
                 val fallbackDelayMs = (codecFrames.durationMs / frames.size.coerceAtLeast(1)).coerceIn(80L, 180L)
                 if (frames.isNotEmpty()) {
-                    Log.i("VideoDownloader", "GIF transcode complete: frames=${frames.size}, delayMs=$fallbackDelayMs")
                     return SimpleGifEncoder.encode(frames, fallbackDelayMs.toInt())
                 }
             }
@@ -1133,7 +1102,6 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
             )
         }
         val frameDelayMs = (durationMs / frames.size.coerceAtLeast(1)).coerceIn(80L, 180L)
-        Log.i("VideoDownloader", "GIF transcode complete: frames=${frames.size}, delayMs=$frameDelayMs")
         return SimpleGifEncoder.encode(frames, frameDelayMs.toInt())
     } finally {
         retriever.release()
@@ -1283,17 +1251,12 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
 
     try {
         extractor.setDataSource(sourceFile.absolutePath)
-        Log.i(
-            "VideoDownloader",
-            "GIF codec fallback start: tracks=${extractor.trackCount}, size=${sourceFile.length()}, header=${sourceFile.headerHex()}"
-        )
 
         var videoTrackIndex = -1
         var videoMime: String? = null
         for (trackIndex in 0 until extractor.trackCount) {
             val format = extractor.getTrackFormat(trackIndex)
             val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
-            Log.i("VideoDownloader", "GIF codec fallback track[$trackIndex]: mime=$mime, format=$format")
             if (videoTrackIndex == -1 && mime.startsWith("video/")) {
                 videoTrackIndex = trackIndex
                 videoMime = mime
@@ -1309,12 +1272,6 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
         val videoFormat = extractor.getTrackFormat(videoTrackIndex)
         val durationUs = videoFormat.longOrNull(MediaFormat.KEY_DURATION)?.takeIf { it > 0L }
         durationMs = durationUs?.div(1000L)
-        Log.i(
-            "VideoDownloader",
-            "GIF codec fallback selected: track=$videoTrackIndex, mime=$videoMime, " +
-                "durationMs=$durationMs, width=${videoFormat.intOrNull(MediaFormat.KEY_WIDTH)}, " +
-                "height=${videoFormat.intOrNull(MediaFormat.KEY_HEIGHT)}"
-        )
 
         codec = createStartedVideoDecoder(videoMime, extractor, videoTrackIndex)
         val decoder = codec ?: throw Exception("GIF codec decoder was not created")
@@ -1372,9 +1329,7 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
             }
 
             when (val outputIndex = decoder.dequeueOutputBuffer(bufferInfo, 10_000L)) {
-                MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    Log.i("VideoDownloader", "GIF codec output format: ${decoder.outputFormat}")
-                }
+                MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {}
 
                 MediaCodec.INFO_TRY_AGAIN_LATER -> {
                     idleOutputLoops++
@@ -1399,7 +1354,6 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
 
                         if (shouldCapture) {
                             val image = runCatching { decoder.getOutputImage(outputIndex) }
-                                .onFailure { Log.d("VideoDownloader", "getOutputImage failed at output=$outputIndex", it) }
                                 .getOrNull()
                             if (image == null) {
                                 imageNullCount++
@@ -1428,11 +1382,6 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
             }
         }
 
-        Log.i(
-            "VideoDownloader",
-            "GIF codec fallback complete: decoded=$decodedFrameCount, captured=${frames.size}, " +
-                "imageNull=$imageNullCount, durationMs=$durationMs"
-        )
         return DecodedGifFrames(frames, durationMs)
     } catch (e: Exception) {
         frames.forEach { it.recycle() }
@@ -1464,7 +1413,6 @@ private fun createStartedVideoDecoder(
     try {
         codec.configure(preferredFormat, null, null, 0)
         codec.start()
-        Log.i("VideoDownloader", "GIF codec decoder started with flexible YUV output")
         return codec
     } catch (e: Exception) {
         Log.w("VideoDownloader", "Flexible YUV decoder configure failed, retrying with source format", e)
@@ -1474,7 +1422,6 @@ private fun createStartedVideoDecoder(
     codec = MediaCodec.createDecoderByType(mime)
     codec.configure(extractor.getTrackFormat(trackIndex), null, null, 0)
     codec.start()
-    Log.i("VideoDownloader", "GIF codec decoder started with source output format")
     return codec
 }
 

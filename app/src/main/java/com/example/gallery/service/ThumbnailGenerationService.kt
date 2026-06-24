@@ -43,7 +43,6 @@ object ThumbnailGenerationService {
             _progress.value = 0f
 
             try {
-                Log.d(TAG, "Checking startup tasks... (force=$force)")
                 val allMedia = repository.getAllMedia(forceRefresh = false)
                 val allMetadata = repository.getAllMetadataSummary().associateBy { it.uri }
                 if (!isActive) return@launch
@@ -70,7 +69,6 @@ object ThumbnailGenerationService {
 
                 val totalTasks = thumbTargets.size + vectorTargets.size
                 if (totalTasks == 0) {
-                    Log.d(TAG, "No pending startup tasks")
                     _isStartupTasksCompleted.value = true
                     _progress.value = 1f
                     return@launch
@@ -117,8 +115,6 @@ object ThumbnailGenerationService {
                         if (index % 5 == 0) delay(15)
                     }
                 }
-
-                Log.d(TAG, "Startup tasks completed successfully")
                 _isStartupTasksCompleted.value = true
                 _progress.value = 1f
                 GlobalOperationService.updateProgress(1.0f, "準備完了", OP_ID)

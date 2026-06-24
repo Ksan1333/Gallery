@@ -149,6 +149,7 @@ fun MediaViewerScreen(
     }
 
     var isUiVisible by rememberSaveable { mutableStateOf(false) }
+    var showTagDialog by remember { mutableStateOf(false) }
     var screenOrientation by rememberSaveable { mutableIntStateOf(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) }
 
     var isRecommendationVisible by rememberSaveable { mutableStateOf(false) }
@@ -214,7 +215,6 @@ fun MediaViewerScreen(
     }.collectAsState(initial = emptyList<com.example.gallery.data.local.entity.TagEntity>())
 
     var recommendedMediaByVisual by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
-    var recommendedMediaByTags by remember { mutableStateOf<List<com.example.gallery.data.repository.MediaRepository.MediaSimilarity>>(emptyList()) }
     var randomMediaList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
 
     val deletedUris by (galleryState?.repository?.mediaDao?.getDeletedMetadataSummaryFlow() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
@@ -237,9 +237,9 @@ fun MediaViewerScreen(
 
     LaunchedEffect(pagerState.currentPage) {
         onPageSelected?.invoke(pagerState.currentPage)
-        // ページ切り替え時に詳細パネルの状態を完全にリセット
-        isRecommendationVisible = false
-        recommendationDragOffset.snapTo(0f)
+        // ページ切り替え時に詳細パネルを閉じないように変更
+        // isRecommendationVisible = false
+        // recommendationDragOffset.snapTo(0f)
 
         videoPosition = 0L
         videoDuration = 0L
@@ -270,31 +270,32 @@ fun MediaViewerScreen(
         onDispose { (context as? Activity)?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
 
-    LaunchedEffect(isRecommendationVisible) {
+    LaunchedEffect(isRecommendationVisible, pagerState.currentPage) {
         if (isRecommendationVisible && currentMedia != null) {
             val currentAgeRating = currentMetadata?.ageRating ?: "SFW"
-            if (currentMedia.isVideo) {
-                val allMedia = galleryState?.repository?.getAllMedia() ?: emptyList()
-                randomMediaList = allMedia.filter { it.isVideo && it.uri != currentMedia.uri }.shuffled().take(20)
-                scope.launch {
-                    if (currentMetadata?.isAiAnalyzed == true) {
-                        recommendedMediaByTags = galleryState?.repository?.findMediaByTagSimilarity(currentMedia.uri) ?: emptyList()
-                    } else if (galleryState != null) {
-                        galleryState.aiTaggingService.analyzeSingle(currentMedia)
-                        recommendedMediaByTags = galleryState.repository.findMediaByTagSimilarity(currentMedia.uri)
-                    }
-                }
-                recommendedMediaByVisual = emptyList()
+            
+            // 1. ランダムなメディア（現在のコンテキスト優先）
+            val contextMedia = if (currentMedia.isVideo) {
+                imageList.filter { it.isVideo && it.uri != currentMedia.uri }
             } else {
-                scope.launch { randomMediaList = galleryState?.repository?.getRandomMediaByAgeRating(20, currentAgeRating) ?: emptyList() }
+                imageList.filter { !it.isVideo && it.uri != currentMedia.uri }
+            }
+
+            if (contextMedia.isNotEmpty()) {
+                randomMediaList = contextMedia.shuffled().take(20)
+            } else {
                 scope.launch {
-                    if (currentMetadata?.isAiAnalyzed == true) {
-                        recommendedMediaByTags = galleryState?.repository?.findMediaByTagSimilarity(currentMedia.uri) ?: emptyList()
-                    } else if (galleryState != null) {
-                        galleryState.aiTaggingService.analyzeSingle(currentMedia)
-                        recommendedMediaByTags = galleryState.repository.findMediaByTagSimilarity(currentMedia.uri)
+                    if (currentMedia.isVideo) {
+                        val allMedia = galleryState?.repository?.getAllMedia() ?: emptyList()
+                        randomMediaList = allMedia.filter { it.isVideo && it.uri != currentMedia.uri }.shuffled().take(20)
+                    } else {
+                        randomMediaList = galleryState?.repository?.getRandomMediaByAgeRating(20, currentAgeRating) ?: emptyList()
                     }
                 }
+            }
+
+            // 2. AI推薦 (画像のみ)
+            if (!currentMedia.isVideo) {
                 scope.launch {
                     if (currentMetadata?.hasFeatureVector == true) {
                         recommendedMediaByVisual = galleryState?.repository?.findSimilarVisualMedia(currentMedia.uri) ?: emptyList()
@@ -303,6 +304,8 @@ fun MediaViewerScreen(
                         recommendedMediaByVisual = galleryState.repository.findSimilarVisualMedia(currentMedia.uri)
                     }
                 }
+            } else {
+                recommendedMediaByVisual = emptyList()
             }
         }
     }
@@ -334,7 +337,7 @@ fun MediaViewerScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = !isCurrentPageZoomed && !isRecommendationVisible && !isVerticalSwiping,
+            userScrollEnabled = !isCurrentPageZoomed && !isVerticalSwiping,
             beyondViewportPageCount = 1
         ) { page ->
             val mediaItem = imageList[page]
@@ -390,22 +393,17 @@ fun MediaViewerScreen(
                         onVerticalDrag = { drag ->
                             isVerticalSwiping = true
                             scope.launch {
-                                val newOffset = offsetY.value + drag
-
-                                // 上方向へのスワイプ（レコメンド表示）
-                                if (newOffset < -10f && !isRecommendationVisible) {
-                                    isRecommendationVisible = true
-                                    recommendationDragOffset.snapTo(maxRecDrag)
-                                }
-
                                 if (isRecommendationVisible) {
-                                    // レコメンドが表示されているときは、画像（offsetY）は動かさず
-                                    // パネル（recommendationDragOffset）だけを動かす
                                     val currentRecOffset = recommendationDragOffset.value
-                                    recommendationDragOffset.snapTo((currentRecOffset + drag).coerceIn(0f, maxRecDrag))
+                                    recommendationDragOffset.snapTo((currentRecOffset + drag).coerceAtLeast(0f))
                                 } else {
-                                    // それ以外（下スワイプで閉じる動作など）は画像を動かす
-                                    offsetY.snapTo(newOffset)
+                                    val newOffset = offsetY.value + drag
+                                    if (newOffset < -20f) {
+                                        scope.launch { recommendationDragOffset.snapTo(0f) }
+                                        isRecommendationVisible = true
+                                    } else {
+                                        offsetY.snapTo(newOffset)
+                                    }
                                 }
                             }
                         },
@@ -422,10 +420,11 @@ fun MediaViewerScreen(
                             if (isSeeking) scope.launch { delay(50); isSeeking = false; seekTargetPosition = -1L }
 
                             if (isRecommendationVisible) {
-                                if (recommendationDragOffset.value > maxRecDrag * 0.75f) {
+                                if (recommendationDragOffset.value > 100f) {
                                     scope.launch {
-                                        recommendationDragOffset.animateTo(maxRecDrag, tween(250))
+                                        recommendationDragOffset.animateTo(maxRecDrag, tween(200))
                                         isRecommendationVisible = false
+                                        delay(200)
                                         recommendationDragOffset.snapTo(0f)
                                     }
                                 } else {
@@ -436,7 +435,7 @@ fun MediaViewerScreen(
                             if (scale.value < 0.95f) {
                                 scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } }
                             } else if (scale.value <= 1.05f) {
-                                if (!isRecommendationVisible && offsetY.value > 250f) onClickedClose()
+                                if (offsetY.value > 200f) onClickedClose()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
@@ -470,29 +469,28 @@ fun MediaViewerScreen(
                         onVerticalDrag = { drag: Float ->
                             isVerticalSwiping = true
                             scope.launch {
-                                val newOffset = offsetY.value + drag
-
-                                if (newOffset < -10f && !isRecommendationVisible) {
-                                    isRecommendationVisible = true
-                                    recommendationDragOffset.snapTo(maxRecDrag)
-                                }
-
                                 if (isRecommendationVisible) {
                                     val currentRecOffset = recommendationDragOffset.value
-                                    recommendationDragOffset.snapTo((currentRecOffset + drag).coerceIn(0f, maxRecDrag))
+                                    recommendationDragOffset.snapTo((currentRecOffset + drag).coerceAtLeast(0f))
                                 } else {
-                                    offsetY.snapTo(newOffset)
+                                    val newOffset = offsetY.value + drag
+                                    if (newOffset < -20f) {
+                                        scope.launch { recommendationDragOffset.snapTo(0f) }
+                                        isRecommendationVisible = true
+                                    } else {
+                                        offsetY.snapTo(newOffset)
+                                    }
                                 }
                             }
                         },
                         onDragEnd = {
                             isVerticalSwiping = false
                             if (isRecommendationVisible) {
-                                if (recommendationDragOffset.value > maxRecDrag * 0.75f) {
+                                if (recommendationDragOffset.value > 100f) {
                                     scope.launch {
-                                        recommendationDragOffset.animateTo(maxRecDrag, tween(250))
+                                        recommendationDragOffset.animateTo(maxRecDrag, tween(200))
                                         isRecommendationVisible = false
-                                        delay(250)
+                                        delay(200)
                                         recommendationDragOffset.snapTo(0f)
                                     }
                                 } else {
@@ -503,7 +501,7 @@ fun MediaViewerScreen(
                             if (scale.value < 0.95f) {
                                 scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } }
                             } else {
-                                if (!isRecommendationVisible && offsetY.value > 300f) onClickedClose()
+                                if (offsetY.value > 200f) onClickedClose()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
@@ -533,15 +531,17 @@ fun MediaViewerScreen(
                             .graphicsLayer { scaleX = scale.value; scaleY = scale.value; translationX = offsetX.value; translationY = offsetY.value }
                             .pointerInput(Unit) {
                                 awaitEachGesture {
+                                    val firstDown = awaitFirstDown(requireUnconsumed = false)
                                     var accumulatedPan = Offset.Zero
                                     var isTransforming = false
+                                    var verticalSwipeStarted = false
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val zoomChange = event.calculateZoom()
                                         val panChange = event.calculatePan()
                                         val currentScale = scale.value
                                         val isZoomed = currentScale > 1.01f
-                                        if (event.changes.size >= 2 || isZoomed) {
+                                        if (!verticalSwipeStarted && (event.changes.size >= 2 || isZoomed)) {
                                             accumulatedPan += panChange
                                             val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
                                             if (shouldHandleTransform && (zoomChange != 1f || panChange != Offset.Zero)) {
@@ -562,27 +562,54 @@ fun MediaViewerScreen(
                                                 event.changes.forEach { if (it.pressed) it.consume() }
                                             }
                                         } else {
-                                            if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 3.0f) {
-                                                isVerticalSwiping = true
-                                                scope.launch {
-                                                    val newOffset = offsetY.value + panChange.y
-
-                                                    if (newOffset < -10f && !isRecommendationVisible) {
-                                                        isRecommendationVisible = true
-                                                        recommendationDragOffset.snapTo(maxRecDrag)
+                                            if (panChange != Offset.Zero) {
+                                                val isVerticalGesture = Math.abs(panChange.y) > Math.abs(panChange.x) * 3.0f
+                                                if (verticalSwipeStarted || isVerticalGesture) {
+                                                    if (!verticalSwipeStarted) {
+                                                        verticalSwipeStarted = true
+                                                        isVerticalSwiping = true
                                                     }
-
-                                                    if (isRecommendationVisible) {
-                                                        val currentRecOffset = recommendationDragOffset.value
-                                                        recommendationDragOffset.snapTo((currentRecOffset + panChange.y).coerceIn(0f, maxRecDrag))
-                                                    } else {
-                                                        offsetY.snapTo(newOffset)
+                                                    scope.launch {
+                                                        if (isRecommendationVisible) {
+                                                            val currentRecOffset = recommendationDragOffset.value
+                                                            recommendationDragOffset.snapTo((currentRecOffset + panChange.y).coerceAtLeast(0f))
+                                                        } else {
+                                                            val newOffset = offsetY.value + panChange.y
+                                                            if (newOffset < -20f) {
+                                                                scope.launch { recommendationDragOffset.snapTo(0f) }
+                                                                isRecommendationVisible = true
+                                                            } else {
+                                                                offsetY.snapTo(newOffset)
+                                                            }
+                                                        }
                                                     }
+                                                    event.changes.forEach { if (it.pressed) it.consume() }
                                                 }
-                                                event.changes.forEach { if (it.pressed) it.consume() }
                                             }
                                         }
-                                        if (event.changes.all { !it.pressed }) { isVerticalSwiping = false; break }
+                                        if (event.changes.all { !it.pressed }) {
+                                            if (verticalSwipeStarted) {
+                                                isVerticalSwiping = false
+                                                if (isRecommendationVisible) {
+                                                    if (recommendationDragOffset.value > 100f) {
+                                                        scope.launch {
+                                                            recommendationDragOffset.animateTo(maxRecDrag, tween(200))
+                                                            isRecommendationVisible = false
+                                                            delay(200)
+                                                            recommendationDragOffset.snapTo(0f)
+                                                        }
+                                                    } else {
+                                                        scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) }
+                                                    }
+                                                }
+
+                                                if (scale.value <= 1.05f) {
+                                                    if (offsetY.value > 200f) onClickedClose()
+                                                    else scope.launch { offsetY.animateTo(0f) }
+                                                }
+                                            }
+                                            break
+                                        }
                                     }
                                 }
                             }
@@ -591,31 +618,6 @@ fun MediaViewerScreen(
                                     val targetScale = if (scale.value > 1.1f) 1f else 3.0f
                                     scope.launch { if (targetScale == 1f) { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } } else scale.animateTo(3.0f) }
                                 })
-                            }
-                            .pointerInput(Unit) {
-                                awaitPointerEventScope {
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        if (event.changes.all { !it.pressed }) {
-                                            if (isRecommendationVisible) {
-                                                if (recommendationDragOffset.value > maxRecDrag * 0.75f) {
-                                                    scope.launch {
-                                                        recommendationDragOffset.animateTo(maxRecDrag, tween(250))
-                                                        isRecommendationVisible = false
-                                                        recommendationDragOffset.snapTo(0f)
-                                                    }
-                                                } else {
-                                                    scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) }
-                                                }
-                                            }
-
-                                            if (scale.value <= 1.05f) {
-                                                if (!isRecommendationVisible && offsetY.value > 250f) onClickedClose()
-                                                else scope.launch { offsetY.animateTo(0f) }
-                                            }
-                                        }
-                                    }
-                                }
                             },
                         contentScale = ContentScale.Fit
                     )
@@ -643,7 +645,7 @@ fun MediaViewerScreen(
                     )
                 }
 
-                var showTagDialog by remember { mutableStateOf(false) }
+
                 LaunchedEffect(showTagDialog) {
                     if (showTagDialog) {
                         delay(100)
@@ -924,13 +926,19 @@ fun MediaViewerScreen(
                     androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                         val currentMediaItem = imageList.getOrNull(pagerState.currentPage)
                         if (currentMediaItem != null) {
+                            // 1. 似た雰囲気の画像 (AIベクトル) - 画像のみ
                             if (!currentMediaItem.isVideo && !isTrashMode) {
                                 item { Text("似た雰囲気の画像 (AIベクトル)", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                                 item { if (currentMetadata?.hasFeatureVector != true) { Text("この画像は未分析です。分析すると似た画像を見つけられるようになります。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else if (recommendedMediaByVisual.isEmpty()) { Text("似た画像が見つかりませんでした。", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) } else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaByVisual) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) { scope.launch { pagerState.scrollToPage(index); onPageSelected?.invoke(index) } } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
-                            } else if (!isTrashMode) {
-                                item { Text("ランダムな動画", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                                item { if (randomMediaList.isEmpty()) Text("動画が見つかりませんでした", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(randomMediaList) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } } }
                             }
+
+                            // 2. ランダムな画像 / 動画
+                            if (!isTrashMode) {
+                                item { Text(if (currentMediaItem.isVideo) "ランダムな動画" else "ランダムな画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                                item { if (randomMediaList.isEmpty()) Text(if (currentMediaItem.isVideo) "動画が見つかりませんでした" else "読込中...", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) else { LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(randomMediaList) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } } }
+                            }
+
+                            // 3. タグ (Chips)
                             item {
                                 val normalTags = remember(currentMediaTagsFlow) { currentMediaTagsFlow.filter { !it.tag.endsWith("系") && it.confidence >= 0.6f }.sortedByDescending { it.confidence } }
                                 val currentAgeRating = currentMetadata?.ageRating ?: "SFW"
@@ -954,44 +962,37 @@ fun MediaViewerScreen(
 
                                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         normalTags.forEach { tag ->
-                                            InputChip(
-                                                selected = false,
-                                                onClick = { isRecommendationVisible = false; onNavigateToTag?.invoke(tag.tag) },
-                                                label = {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(TagTranslationService.translate(tag.tag), color = Color.White)
-                                                        if (tag.confidence > 0f && tag.confidence < 1f) {
-                                                            Text(text = " ${(tag.confidence * 100).toInt()}%", color = Color.Gray, fontSize = 10.sp)
-                                                        }
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color.DarkGray)
+                                                    .drawWithContent {
+                                                        val progressWidth = size.width * tag.confidence
+                                                        drawRect(
+                                                            color = Color.Green.copy(alpha = 0.4f),
+                                                            topLeft = Offset(size.width - progressWidth, 0f),
+                                                            size = Size(progressWidth, size.height)
+                                                        )
+                                                        drawContent()
                                                     }
-                                                },
-                                                trailingIcon = {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "削除",
-                                                        modifier = Modifier.size(16.dp).clickable {
-                                                            scope.launch {
-                                                                galleryState?.repository?.mediaDao?.deleteTag(tag)
-                                                            }
-                                                        },
-                                                        tint = Color.Gray
-                                                    )
-                                                },
-                                                colors = InputChipDefaults.inputChipColors(containerColor = Color.DarkGray)
-                                            )
+                                                    .clickable { isRecommendationVisible = false; onNavigateToTag?.invoke(tag.tag) }
+                                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(TagTranslationService.translate(tag.tag), color = Color.White, fontSize = 12.sp)
+                                                    if (tag.confidence > 0f && tag.confidence < 1f) {
+                                                        Text(text = " ${(tag.confidence * 100).toInt()}%", color = Color.LightGray, fontSize = 10.sp, modifier = Modifier.padding(start = 4.dp))
+                                                    }
+                                                }
+                                            }
                                         }
                                         if (!isTrashMode) {
-                                            IconButton(onClick = { /* showTagDialog logic handled externally */ }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) {
+                                            IconButton(onClick = { showTagDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) {
                                                 Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp))
                                             }
                                         }
                                     }
                                 }
-                            }
-                            item { if (!isTrashMode) { if (recommendedMediaByTags.isEmpty()) Text("関連アイテムがありません", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) else LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(recommendedMediaByTags) { _, similarity -> RecommendationCard(mediaItem = similarity.media, score = "${(similarity.similarityScore * 100).toInt()}%", imageLoader = imageLoader, isDeleted = deletedUriSet.contains(similarity.media.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == similarity.media.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(similarity.media.uri) } } } } }
-                            if (!currentMediaItem.isVideo && !isTrashMode) {
-                                item { Text("ランダムな画像", color = Color.White, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                                item { if (randomMediaList.isEmpty()) Text("読込中...", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) else LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(randomMediaList) { _, item -> RecommendationCard(mediaItem = item, score = null, imageLoader = imageLoader, isDeleted = deletedUriSet.contains(item.uri)) { isRecommendationVisible = false; val index = imageList.indexOfFirst { it.uri == item.uri }; if (index != -1) scope.launch { pagerState.scrollToPage(index) } else onNavigateToMedia?.invoke(item.uri) } } } }
                             }
                             item { val media = currentMediaItem; Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) { HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 16.dp)); Text("ファイル情報", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp)); MediaInfoRow("日時", SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault()).format(Date(media.dateAdded))); MediaInfoRow("ファイル名", media.fileName); val actualPath = remember(media.uri) { try { val cursor = context.contentResolver.query(Uri.parse(media.uri), arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null); cursor?.use { if (it.moveToFirst()) it.getString(0) else media.uri } ?: media.uri } catch (e: Exception) { media.uri } }; MediaInfoRow("ファイルパス", actualPath); val labels = currentMediaTagsFlow.filter { !it.tag.endsWith("系") }.map { TagTranslationService.translate(it.tag) }; if (labels.isNotEmpty()) MediaInfoRow("画像情報", labels.joinToString(", ")); MediaInfoRow("画像サイズ", formatFileSize(media.fileSize)); if (media.width > 0 && media.height > 0) MediaInfoRow("画像の幅x高さ", "${media.width} x ${media.height}") } }
                         }

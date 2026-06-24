@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 
 object ModelDownloader {
     private const val TAG = "ModelDownloader"
-    
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -61,7 +61,6 @@ object ModelDownloader {
         for (task in tasks) {
             // ファイルが存在し、かつサイズが妥当かチェック
             if (task.file.exists() && task.file.length() >= task.minExpectedSize) {
-                Log.d(TAG, "Model already exists and size is valid: ${task.file.name}")
                 totalProgress += task.weight
                 onProgress(totalProgress)
                 continue
@@ -70,7 +69,6 @@ object ModelDownloader {
                 task.file.delete()
             }
 
-            Log.d(TAG, "Starting download: ${task.url}")
             val success = downloadFile(task.url, task.file) { taskProgress ->
                 onProgress(totalProgress + (taskProgress * task.weight))
             }
@@ -79,7 +77,6 @@ object ModelDownloader {
                 Log.e(TAG, "Failed to download model: ${task.file.name}")
                 return@withContext false
             }
-            Log.d(TAG, "Download finished: ${task.file.name}")
             totalProgress += task.weight
             onProgress(totalProgress)
         }
@@ -90,7 +87,6 @@ object ModelDownloader {
 
     private suspend fun downloadFile(urlStr: String, file: File, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Downloading with OkHttp: $urlStr")
             val request = Request.Builder()
                 .url(urlStr)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")

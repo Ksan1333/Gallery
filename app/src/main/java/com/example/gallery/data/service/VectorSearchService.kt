@@ -34,7 +34,6 @@ class VectorSearchService(
         try {
             val modelFile = ModelDownloader.getVectorModelFile(context)
             if (modelFile.exists()) {
-                Log.d("VectorSearchService", "Initializing ImageEmbedder with model: ${modelFile.absolutePath}")
                 val baseOptionsBuilder = BaseOptions.builder()
                     .setModelAssetPath(modelFile.absolutePath)
 
@@ -47,7 +46,6 @@ class VectorSearchService(
                         .setQuantize(false)
                         .build()
                     imageEmbedder = ImageEmbedder.createFromOptions(context, options)
-                    Log.d("VectorSearchService", "ImageEmbedder initialized with GPU")
                 } catch (e: Exception) {
                     Log.w("VectorSearchService", "GPU not available for ImageEmbedder, falling back to CPU", e)
                     val baseOptions = baseOptionsBuilder.setDelegate(com.google.mediapipe.tasks.core.Delegate.CPU).build()
@@ -57,7 +55,6 @@ class VectorSearchService(
                         .setQuantize(false)
                         .build()
                     imageEmbedder = ImageEmbedder.createFromOptions(context, options)
-                    Log.d("VectorSearchService", "ImageEmbedder initialized with CPU")
                 }
             } else {
                 Log.w("VectorSearchService", "Model file not found at ${modelFile.absolutePath}")
@@ -82,7 +79,6 @@ class VectorSearchService(
             }
 
             try {
-                Log.d("VectorSearchService", "Analyzing vector for ${media.uri}")
                 val bitmap = decodeBitmap(media.uri) ?: run {
                     Log.w("VectorSearchService", "Failed to decode bitmap for ${media.uri}")
                     return@withLock
@@ -97,7 +93,6 @@ class VectorSearchService(
                 val vector: FloatArray? = embedding?.floatEmbedding()
 
                 if (vector != null) {
-                    Log.d("VectorSearchService", "Vector extracted for ${media.uri}, size=${vector.size}")
                     repository.updateFeatureVector(media.uri, vector, folderName = media.folderName)
                 } else {
                     Log.w("VectorSearchService", "Failed to extract vector for ${media.uri}: result is null or empty")

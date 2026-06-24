@@ -53,9 +53,9 @@ class BookRepository(private val context: Context) {
         val cachedBooks = loadCachedIndex().associateBy { it.book.path }
         val refreshedCache = mutableListOf<CachedBook>()
         val root = Environment.getExternalStorageDirectory()
-        
+
         Log.d(TAG, "Starting storage scan from: ${root.absolutePath}")
-        
+
         try {
             root.walkTopDown()
                 .onEnter { file -> 
@@ -101,7 +101,7 @@ class BookRepository(private val context: Context) {
                                             Log.w(TAG, "Skipping ZIP (no images found): ${file.name}")
                                         }
                                     }
-                                } catch (e: Exception) { 
+                                } catch (e: Exception) {
                                     Log.e(TAG, "Error processing ZIP: ${file.name}", e)
                                 }
                             }
@@ -126,7 +126,7 @@ class BookRepository(private val context: Context) {
                                     books.add(book)
                                     refreshedCache.add(CachedBook(book, file.lastModified(), file.length()))
                                     Log.d(TAG, "Successfully added PDF: ${file.name} ($pageCount pages)")
-                                } catch (e: Exception) { 
+                                } catch (e: Exception) {
                                     Log.e(TAG, "Error processing PDF: ${file.name}", e)
                                 }
                             }

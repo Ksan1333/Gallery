@@ -54,7 +54,6 @@ class AiTaggingService(
             val tagsFile = ModelDownloader.getDanbooruTagsFile(context)
             
             if (modelFile.exists() && tagsFile.exists()) {
-                Log.d("AiTaggingService", "Initializing ONNX session with model: ${modelFile.absolutePath} (size: ${modelFile.length()})")
                 if (ortEnv == null) {
                     ortEnv = OrtEnvironment.getEnvironment()
                 }
@@ -69,15 +68,13 @@ class AiTaggingService(
                     setMemoryPatternOptimization(true)
                     try {
                         addXnnpack(mapOf("intra_op_num_threads" to threadCount.toString()))
-                        Log.d("AiTaggingService", "XNNPACK enabled for tagger")
                     } catch (e: Exception) {
                         Log.w("AiTaggingService", "XNNPACK init failed; falling back to default CPU", e)
                     }
                 }
                 ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
                 cacheInputMetadata()
-                Log.d("AiTaggingService", "ONNX session created. Input names: ${ortSession?.inputNames}")
-                
+
                 tags = tagsFile.readLines()
                     .drop(1)
                     .map { line ->
@@ -85,9 +82,6 @@ class AiTaggingService(
                         if (parts.size >= 2) parts[1] else ""
                     }
                     .filter { it.isNotEmpty() }
-                Log.d("AiTaggingService", "Loaded ${tags.size} tags")
-            } else {
-                Log.w("AiTaggingService", "Model or tags file missing")
             }
         } catch (e: Exception) {
             Log.e("AiTaggingService", "CRITICAL: Failed to initialize Tagger session", e)
@@ -114,7 +108,6 @@ class AiTaggingService(
         }
 
         if (media.isVideo || ortSession == null || tags.isEmpty()) {
-            Log.d("AiTaggingService", "Skipping analysis for ${media.uri}: isVideo=${media.isVideo}, sessionNull=${ortSession == null}, tagsEmpty=${tags.isEmpty()}")
             return@withContext emptyList()
         }
 
@@ -185,7 +178,6 @@ class AiTaggingService(
                     tags = savedTags
                 )
 
-                Log.d("AiTaggingService", "Detected ${detectedTags.size} tags, saved ${savedTags.size} for ${media.uri}, ageRating=$ageRating")
                 savedTags.take(3).map { TagTranslationService.translate(it.tag) }
             } catch (e: Exception) {
                 Log.e("AiTaggingService", "Error in SmilingWolf analysis: ${media.uri}", e)
