@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -62,6 +63,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val BOOKMARKS_PREFS = "book_bookmarks"
+private const val SCROLL_RESTORE_TRACE = "GALLERY_SCROLL_RESTORE_TRACE"
+
+private fun logScrollRestoreTrace(message: String) {
+    Log.d(SCROLL_RESTORE_TRACE, "$SCROLL_RESTORE_TRACE $message")
+}
 
 class MainActivity : ComponentActivity() {
     private var sharedXUrl by mutableStateOf<String?>(null)
@@ -173,7 +179,12 @@ fun AppNavigation(
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                logScrollRestoreTrace(
+                    "main_on_resume_refresh before=${galleryState.refreshTrigger} " +
+                        "route=${navController.currentBackStackEntry?.destination?.route}"
+                )
                 galleryState.refresh()
+                logScrollRestoreTrace("main_on_resume_refresh after=${galleryState.refreshTrigger}")
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

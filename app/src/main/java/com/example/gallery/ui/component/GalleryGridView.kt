@@ -101,10 +101,65 @@ sealed class GridItem {
     }
 }
 
+private data class GridBuildResult(
+    val gridItems: List<GridItem>,
+    val mediaItems: List<MediaData>,
+    val denseLogMessage: String? = null
+)
 
 
-private const val TAG = "GalleryGridView"
+
+private const val DENSE28_TRACE = "GALLERY_DENSE28_TRACE"
+private const val SCROLL_RESTORE_TRACE = "GALLERY_SCROLL_RESTORE_TRACE"
+private const val DENSE28_ROWS_PER_YEAR = 6
+private const val DENSE28_THUMB_SIZE = 48
+private const val DENSE28_THUMB_LOAD_ROWS = 12
 private val EmptyMetadataMap = emptyMap<String, com.example.gallery.data.local.entity.MediaMetadataSummary>()
+
+private fun logDense28Trace(message: String) {
+    Log.d(DENSE28_TRACE, "$DENSE28_TRACE $message")
+}
+
+private fun logScrollRestoreTrace(message: String) {
+    Log.d(SCROLL_RESTORE_TRACE, "$SCROLL_RESTORE_TRACE $message")
+}
+
+private fun buildScrollbarDateLabels(gridItems: List<GridItem>): List<String?> {
+    if (gridItems.isEmpty()) return emptyList()
+
+    val formatter = SimpleDateFormat("yyyy\u5e74M\u6708d\u65e5", Locale.JAPAN)
+    val date = Date()
+    val labels = MutableList<String?>(gridItems.size) { null }
+
+    gridItems.forEachIndexed { index, item ->
+        if (item is GridItem.Media) {
+            date.time = item.data.dateAdded
+            labels[index] = formatter.format(date)
+        }
+    }
+
+    var nextLabel: String? = null
+    for (index in labels.indices.reversed()) {
+        val label = labels[index]
+        if (label == null) {
+            labels[index] = nextLabel
+        } else {
+            nextLabel = label
+        }
+    }
+
+    var previousLabel: String? = null
+    for (index in labels.indices) {
+        val label = labels[index]
+        if (label == null) {
+            labels[index] = previousLabel
+        } else {
+            previousLabel = label
+        }
+    }
+
+    return labels
+}
 
 /**
  * ギャラリーのメイングリッド表示コンポーネント
@@ -138,6 +193,15 @@ fun GalleryGridView(
     onSelectionChanged: (List<String>) -> Unit = {},
     isTrashMode: Boolean = false,
     onScrollConsumed: () -> Unit = {},
+    initialScrollIndex: Int = 0,
+    initialScrollOffset: Int = 0,
+    restoreScrollIndex: Int = initialScrollIndex,
+    restoreScrollOffset: Int = initialScrollOffset,
+    restoreScrollUri: String? = null,
+    restoreScrollRequestKey: Int = 0,
+    onScrollPositionChanged: (Int, Int) -> Unit = { _, _ -> },
+    onScrollAnchorChanged: (Int, Int, String?) -> Unit = { _, _, _ -> },
+    onScrollRestored: (Int) -> Unit = {},
     topBarActions: @Composable RowScope.() -> Unit = {}
 ) {
     // 列数の選択肢 (28:年, 7:月, 4, 3, 1:日)
@@ -145,7 +209,118 @@ fun GalleryGridView(
     var currentColumnIndex by remember { mutableIntStateOf(2) }
     
     val scope = rememberCoroutineScope()
-    val gridState = rememberLazyGridState()
+    val gridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = initialScrollIndex.coerceAtLeast(0),
+        initialFirstVisibleItemScrollOffset = initialScrollOffset.coerceAtLeast(0)
+    )
+    val currentOnScrollPositionChanged by rememberUpdatedState(onScrollPositionChanged)
+    val currentOnScrollAnchorChanged by rememberUpdatedState(onScrollAnchorChanged)
+    val currentOnScrollRestored by rememberUpdatedState(onScrollRestored)
+    var isRestoringScroll by remember { mutableStateOf(false) }
+
+    suspend fun waitForRestoreTargetIndex(source: String, requestedIndex: Int): Int? {
+        val safeIndex = requestedIndex.coerceAtLeast(0)
+        val startTime = System.currentTimeMillis()
+        val completed = withTimeoutOrNull(2500) {
+            while (gridState.layoutInfo.totalItemsCount <= safeIndex) {
+                delay(50)
+            }
+            true
+        } ?: false
+        val totalItems = gridState.layoutInfo.totalItemsCount
+        if (totalItems <= 0) {
+            logScrollRestoreTrace(
+                "grid_restore_wait_no_target source=$source requested=$requestedIndex safe=$safeIndex " +
+                    "total=$totalItems first=${gridState.firstVisibleItemIndex} " +
+                    "elapsedMs=${System.currentTimeMillis() - startTime} timeout=${!completed}"
+            )
+            return null
+        }
+        val targetIndex = safeIndex.coerceIn(0, totalItems - 1)
+        logScrollRestoreTrace(
+            "grid_restore_wait_done source=$source requested=$requestedIndex safe=$safeIndex " +
+                "target=$targetIndex total=$totalItems visible=${gridState.layoutInfo.visibleItemsInfo.size} " +
+                "first=${gridState.firstVisibleItemIndex} offset=${gridState.firstVisibleItemScrollOffset} " +
+                "elapsedMs=${System.currentTimeMillis() - startTime} timeout=${!completed} " +
+                "clamped=${targetIndex != safeIndex} columns=${columnOptions[currentColumnIndex]}"
+        )
+        return targetIndex
+    }
+
+    var hasRestoredInitialScroll by remember(initialScrollIndex, initialScrollOffset) {
+        mutableStateOf(initialScrollIndex <= 0 && initialScrollOffset <= 0)
+    }
+    LaunchedEffect(gridState, initialScrollIndex, initialScrollOffset) {
+        if (hasRestoredInitialScroll) return@LaunchedEffect
+        isRestoringScroll = true
+        logScrollRestoreTrace(
+            "grid_initial_restore_start requested=$initialScrollIndex offset=$initialScrollOffset " +
+                "firstBefore=${gridState.firstVisibleItemIndex} totalBefore=${gridState.layoutInfo.totalItemsCount} " +
+                "columns=${columnOptions[currentColumnIndex]}"
+        )
+        try {
+            val targetIndex = waitForRestoreTargetIndex("initial", initialScrollIndex)
+            if (targetIndex != null) {
+                gridState.scrollToItem(targetIndex, initialScrollOffset.coerceAtLeast(0))
+                logScrollRestoreTrace(
+                    "grid_initial_restore_scroll requested=$initialScrollIndex target=$targetIndex " +
+                        "offset=$initialScrollOffset firstNow=${gridState.firstVisibleItemIndex} " +
+                        "total=${gridState.layoutInfo.totalItemsCount}"
+                )
+            }
+            delay(100)
+            hasRestoredInitialScroll = true
+            logScrollRestoreTrace(
+                "grid_initial_restore_done requested=$initialScrollIndex firstAfter=${gridState.firstVisibleItemIndex} " +
+                    "offsetAfter=${gridState.firstVisibleItemScrollOffset} total=${gridState.layoutInfo.totalItemsCount}"
+            )
+            currentOnScrollRestored(0)
+        } finally {
+            isRestoringScroll = false
+        }
+    }
+    LaunchedEffect(gridState, restoreScrollRequestKey) {
+        if (restoreScrollRequestKey <= 0) return@LaunchedEffect
+        isRestoringScroll = true
+        logScrollRestoreTrace(
+            "grid_restore_request_start key=$restoreScrollRequestKey requested=$restoreScrollIndex " +
+                "offset=$restoreScrollOffset firstBefore=${gridState.firstVisibleItemIndex} " +
+                "offsetBefore=${gridState.firstVisibleItemScrollOffset} totalBefore=${gridState.layoutInfo.totalItemsCount} " +
+                "columns=${columnOptions[currentColumnIndex]}"
+        )
+        try {
+            val targetIndex = waitForRestoreTargetIndex("request_$restoreScrollRequestKey", restoreScrollIndex)
+            if (targetIndex != null) {
+                gridState.scrollToItem(targetIndex, restoreScrollOffset.coerceAtLeast(0))
+                logScrollRestoreTrace(
+                    "grid_restore_request_scroll key=$restoreScrollRequestKey requested=$restoreScrollIndex " +
+                        "target=$targetIndex offset=$restoreScrollOffset firstNow=${gridState.firstVisibleItemIndex} " +
+                        "total=${gridState.layoutInfo.totalItemsCount}"
+                )
+            } else {
+                logScrollRestoreTrace(
+                    "grid_restore_request_no_target key=$restoreScrollRequestKey requested=$restoreScrollIndex " +
+                        "total=${gridState.layoutInfo.totalItemsCount} first=${gridState.firstVisibleItemIndex}"
+                )
+            }
+            delay(100)
+            logScrollRestoreTrace(
+                "grid_restore_request_done key=$restoreScrollRequestKey requested=$restoreScrollIndex " +
+                    "firstAfter=${gridState.firstVisibleItemIndex} offsetAfter=${gridState.firstVisibleItemScrollOffset} " +
+                    "total=${gridState.layoutInfo.totalItemsCount} uriHash=${restoreScrollUri?.hashCode()}"
+            )
+            if (restoreScrollUri == null) {
+                currentOnScrollRestored(restoreScrollRequestKey)
+            } else {
+                logScrollRestoreTrace(
+                    "grid_restore_request_wait_uri key=$restoreScrollRequestKey uriHash=${restoreScrollUri.hashCode()} " +
+                        "first=${gridState.firstVisibleItemIndex} total=${gridState.layoutInfo.totalItemsCount}"
+                )
+            }
+        } finally {
+            isRestoringScroll = false
+        }
+    }
     // Track if user is actively using scrollbar to suppress heavy work (bounds updates, prefetch, etc.)
     var isScrollbarDragging by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -170,10 +345,18 @@ fun GalleryGridView(
 
     // 列数（ズームレベル）に応じてグルーピング単位を自動的に切り替える
     LaunchedEffect(currentColumnIndex) {
-        galleryState.groupingMode = when (columnOptions[currentColumnIndex]) {
+        val nextGroupingMode = when (columnOptions[currentColumnIndex]) {
             28 -> GroupingMode.YEAR
             7 -> GroupingMode.MONTH
             else -> GroupingMode.DAY
+        }
+        galleryState.groupingMode = nextGroupingMode
+        if (columnOptions[currentColumnIndex] >= 28) {
+            logDense28Trace(
+                "mode_enter columns=${columnOptions[currentColumnIndex]} grouping=$nextGroupingMode " +
+                    "rowsPerYear=$DENSE28_ROWS_PER_YEAR maxItemsPerYear=${columnOptions[currentColumnIndex] * DENSE28_ROWS_PER_YEAR} " +
+                    "thumbSize=$DENSE28_THUMB_SIZE thumbLoadRows=$DENSE28_THUMB_LOAD_ROWS"
+            )
         }
     }
 
@@ -251,12 +434,10 @@ fun GalleryGridView(
             .debounce(1000)  // スクロール中の更新を減らすため 500ms → 1000ms に延長
             .distinctUntilChanged()
             .collect { list ->
-                val startTime = System.currentTimeMillis()
                 val newMap = withContext(Dispatchers.Default) { 
                     list.associateBy { it.uri } 
                 }
                 metadataMap = newMap
-                Log.d(TAG, "Metadata update: processed ${list.size} items in ${System.currentTimeMillis() - startTime}ms")
             }
     }
 
@@ -275,7 +456,6 @@ fun GalleryGridView(
             return@LaunchedEffect 
         }
         
-        val startTime = System.currentTimeMillis()
         withContext(Dispatchers.Default) {
             val sequence = imageList.asSequence()
                 .filter { item ->
@@ -327,75 +507,85 @@ fun GalleryGridView(
             }
             
             sortedList = if (galleryState.isAscending) sorted.toList().reversed() else sorted.toList()
-            Log.d(TAG, "Filter/Sort finished: ${sortedList.size} items in ${System.currentTimeMillis() - startTime}ms")
         }
     }
 
     // --- グリッド用フラットリストの生成 ---
     var flatGridItems by remember { mutableStateOf<List<GridItem>>(emptyList()) }
     var mediaItemsOnly by remember { mutableStateOf<List<MediaData>>(emptyList()) }
+    var flatGridBuiltColumns by remember { mutableIntStateOf(columnOptions[currentColumnIndex]) }
+    val currentFlatGridItems by rememberUpdatedState(flatGridItems)
     
-    LaunchedEffect(sortedList, galleryState.groupingMode, currentColumnIndex) {
+    LaunchedEffect(sortedList, currentColumnIndex) {
         if (sortedList.isEmpty()) { 
             flatGridItems = emptyList()
             mediaItemsOnly = emptyList()
+            flatGridBuiltColumns = columnOptions[currentColumnIndex]
             return@LaunchedEffect 
         }
         
+        val buildColumnIndex = currentColumnIndex
+        val buildColumns = columnOptions[buildColumnIndex]
+        val sortedSnapshot = sortedList
         val startTime = System.currentTimeMillis()
-        withContext(Dispatchers.Default) {
-            val is28 = columnOptions[currentColumnIndex] == 28
-            val isDenseYear = is28 && galleryState.groupingMode == GroupingMode.YEAR
-            val denseYearLimit = 6
+        val buildResult = withContext(Dispatchers.Default) {
+            val currentColumns = buildColumns
+            val effectiveGroupingMode = when (currentColumns) {
+                28 -> GroupingMode.YEAR
+                7 -> GroupingMode.MONTH
+                else -> GroupingMode.DAY
+            }
+            val is28 = currentColumns == 28
+            val isDenseYear = is28 && effectiveGroupingMode == GroupingMode.YEAR
+            val denseRowsPerYear = DENSE28_ROWS_PER_YEAR
+            val denseMaxItemsPerYear = currentColumns * denseRowsPerYear
             
             if (isDenseYear) {
-                // Build limited to 6 per year for the 6-column grid.
-                // Sequential virtualization via LazyGrid (composes visible rows on demand).
+                // 28-column overview keeps only six rows per calendar year.
                 val result = ArrayList<GridItem>()
                 val mediaOnly = ArrayList<MediaData>()
-                var lastGroupKey = -1L
                 var lastHeaderText: String? = null
                 var currentGroupCount = 0
+                var yearCount = 0
+                var skippedByLimit = 0
                 val dateObj = Date()
-                val div = 86400000L * 365L
                 val displaySdf = SimpleDateFormat("yyyy年", Locale.JAPAN)
 
-                for (media in sortedList) {
-                    val currentGroupKey = media.dateAdded / div
-                    if (currentGroupKey != lastGroupKey) {
-                        dateObj.time = media.dateAdded
-                        val headerText = displaySdf.format(dateObj)
-                        if (headerText != lastHeaderText) {
-                            result.add(GridItem.Header(headerText, currentGroupKey.toString()))
-                            lastHeaderText = headerText
-                        }
-                        lastGroupKey = currentGroupKey
+                for (media in sortedSnapshot) {
+                    dateObj.time = media.dateAdded
+                    val headerText = displaySdf.format(dateObj)
+                    if (headerText != lastHeaderText) {
+                        result.add(GridItem.Header(headerText, headerText))
+                        lastHeaderText = headerText
                         currentGroupCount = 0
+                        yearCount++
                     }
-                    if (currentGroupCount < denseYearLimit) {
-                        val label = when { 
-                            media.isGif -> "GIF"
-                            media.isVideo -> formatDuration(media.duration)
-                            else -> null 
-                        }
-                        val gridMedia = GridItem.Media(media, label, currentGroupCount)
+                    if (currentGroupCount < denseMaxItemsPerYear) {
+                        val gridMedia = GridItem.Media(media, label = null, index = mediaOnly.size)
                         result.add(gridMedia)
                         mediaOnly.add(media)
                         currentGroupCount++
+                    } else {
+                        skippedByLimit++
                     }
                 }
-                flatGridItems = result
-                mediaItemsOnly = mediaOnly
-                Log.d(TAG, "FlatGridItems (dense limited) generation: ${result.size} items in ${System.currentTimeMillis() - startTime}ms")
+                GridBuildResult(
+                    gridItems = result,
+                    mediaItems = mediaOnly,
+                    denseLogMessage = "build_done sorted=${sortedSnapshot.size} years=$yearCount headers=${result.size - mediaOnly.size} " +
+                        "mediaItems=${mediaOnly.size} gridItems=${result.size} rowsPerYear=$denseRowsPerYear " +
+                        "maxItemsPerYear=$denseMaxItemsPerYear skippedByLimit=$skippedByLimit " +
+                        "elapsedMs=${System.currentTimeMillis() - startTime}"
+                )
             } else {
-                val resultCapacity = sortedList.size + 200
-                val mediaCapacity = sortedList.size
+                val resultCapacity = sortedSnapshot.size + 200
+                val mediaCapacity = sortedSnapshot.size
                 val result = ArrayList<GridItem>(resultCapacity)
                 val mediaOnly = ArrayList<MediaData>(mediaCapacity)
                 
-                if (galleryState.groupingMode == GroupingMode.NONE) {
-                    for (idx in sortedList.indices) {
-                        val it = sortedList[idx]
+                if (effectiveGroupingMode == GroupingMode.NONE) {
+                    for (idx in sortedSnapshot.indices) {
+                        val it = sortedSnapshot[idx]
                         val label = when { 
                             it.isGif -> "GIF"
                             it.isVideo -> formatDuration(it.duration)
@@ -405,7 +595,7 @@ fun GalleryGridView(
                         mediaOnly.add(it) 
                     }
                 } else {
-                    val displaySdf = when (galleryState.groupingMode) {
+                    val displaySdf = when (effectiveGroupingMode) {
                         GroupingMode.DAY -> SimpleDateFormat("yyyy年M月d日", Locale.JAPAN)
                         GroupingMode.MONTH -> SimpleDateFormat("yyyy年M月", Locale.JAPAN)
                         GroupingMode.YEAR -> SimpleDateFormat("yyyy年", Locale.JAPAN)
@@ -419,13 +609,13 @@ fun GalleryGridView(
                         var mediaIdx = 0
                         val dateObj = Date()
                         
-                        val div = when (galleryState.groupingMode) {
+                        val div = when (effectiveGroupingMode) {
                             GroupingMode.DAY -> 86400000L
                             GroupingMode.MONTH -> 86400000L * 30L 
                             else -> 86400000L * 365L
                         }
 
-                        for (media in sortedList) {
+                        for (media in sortedSnapshot) {
                             val currentGroupKey = media.dateAdded / div
                             if (currentGroupKey != lastGroupKey) {
                                 dateObj.time = media.dateAdded
@@ -450,21 +640,140 @@ fun GalleryGridView(
                         }
                     }
                 }
-                flatGridItems = result
-                mediaItemsOnly = mediaOnly
-                Log.d(TAG, "FlatGridItems generation: ${result.size} items in ${System.currentTimeMillis() - startTime}ms")
+                GridBuildResult(
+                    gridItems = result,
+                    mediaItems = mediaOnly
+                )
             }
         }
+        if (buildColumnIndex != currentColumnIndex || sortedSnapshot !== sortedList) {
+            return@LaunchedEffect
+        }
+        flatGridItems = buildResult.gridItems
+        mediaItemsOnly = buildResult.mediaItems
+        flatGridBuiltColumns = buildColumns
+        buildResult.denseLogMessage?.let(::logDense28Trace)
     }
 
     // URI指定による自動スクロールの実行
+    fun gridItemForScrollAnchor(index: Int): GridItem? {
+        if (index < 0) return null
+        val paging = pagingItems
+        if (paging != null) {
+            val pagingItem = if (index < paging.itemCount) {
+                runCatching { paging.peek(index) }.getOrNull()
+            } else {
+                null
+            }
+            return pagingItem ?: currentFlatGridItems.getOrNull(index)
+        }
+        return currentFlatGridItems.getOrNull(index)
+    }
+
+    fun firstVisibleMediaUriForScrollAnchor(): String? {
+        return gridState.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { itemInfo ->
+            (gridItemForScrollAnchor(itemInfo.index) as? GridItem.Media)?.data?.uri
+        }
+    }
+
+    fun indexOfRestoreUri(uri: String): Int {
+        return currentFlatGridItems.indexOfFirst { item ->
+            item is GridItem.Media && item.data.uri == uri
+        }
+    }
+
+    LaunchedEffect(gridState) {
+        snapshotFlow {
+            Triple(
+                gridState.firstVisibleItemIndex,
+                gridState.firstVisibleItemScrollOffset,
+                gridState.layoutInfo.totalItemsCount
+            )
+        }
+            .distinctUntilChanged()
+            .debounce(300)
+            .collect { (index, offset, totalItems) ->
+                val anchorUri = firstVisibleMediaUriForScrollAnchor()
+                if (hasRestoredInitialScroll && !isRestoringScroll && totalItems > 0) {
+                    logScrollRestoreTrace(
+                        "grid_position_emit index=$index offset=$offset total=$totalItems " +
+                            "anchorUriHash=${anchorUri?.hashCode()} columns=${columnOptions[currentColumnIndex]}"
+                    )
+                    currentOnScrollPositionChanged(index, offset)
+                    currentOnScrollAnchorChanged(index, offset, anchorUri)
+                } else if (isRestoringScroll) {
+                    logScrollRestoreTrace(
+                        "grid_position_emit_suppressed reason=restoring index=$index offset=$offset " +
+                            "total=$totalItems anchorUriHash=${anchorUri?.hashCode()} columns=${columnOptions[currentColumnIndex]}"
+                    )
+                }
+            }
+    }
+
+    LaunchedEffect(gridState, restoreScrollRequestKey, restoreScrollUri) {
+        val uri = restoreScrollUri ?: return@LaunchedEffect
+        if (restoreScrollRequestKey <= 0) return@LaunchedEffect
+
+        isRestoringScroll = true
+        val startTime = System.currentTimeMillis()
+        try {
+            val ready = withTimeoutOrNull(2500) {
+                while (true) {
+                    val index = indexOfRestoreUri(uri)
+                    if (index >= 0 && gridState.layoutInfo.totalItemsCount > index) {
+                        return@withTimeoutOrNull index
+                    }
+                    delay(50)
+                }
+            }
+
+            if (ready == null) {
+                logScrollRestoreTrace(
+                    "grid_restore_uri_no_target key=$restoreScrollRequestKey uriHash=${uri.hashCode()} " +
+                        "flatItems=${flatGridItems.size} total=${gridState.layoutInfo.totalItemsCount} " +
+                        "elapsedMs=${System.currentTimeMillis() - startTime}"
+                )
+            } else {
+                repeat(16) { step ->
+                    val index = indexOfRestoreUri(uri)
+                    if (index >= 0 && gridState.layoutInfo.totalItemsCount > index) {
+                        gridState.scrollToItem(index, restoreScrollOffset.coerceAtLeast(0))
+                        logScrollRestoreTrace(
+                            "grid_restore_uri_step key=$restoreScrollRequestKey step=$step uriHash=${uri.hashCode()} " +
+                                "target=$index firstNow=${gridState.firstVisibleItemIndex} " +
+                                "offsetNow=${gridState.firstVisibleItemScrollOffset} total=${gridState.layoutInfo.totalItemsCount}"
+                        )
+                    }
+                    delay(180)
+                }
+                logScrollRestoreTrace(
+                    "grid_restore_uri_done key=$restoreScrollRequestKey uriHash=${uri.hashCode()} " +
+                        "firstAfter=${gridState.firstVisibleItemIndex} offsetAfter=${gridState.firstVisibleItemScrollOffset} " +
+                        "total=${gridState.layoutInfo.totalItemsCount} elapsedMs=${System.currentTimeMillis() - startTime}"
+                )
+            }
+        } finally {
+            isRestoringScroll = false
+            currentOnScrollRestored(restoreScrollRequestKey)
+        }
+    }
+
     LaunchedEffect(scrollToUri) {
         if (scrollToUri != null) {
+            logScrollRestoreTrace(
+                "grid_scroll_to_uri_start uriHash=${scrollToUri.hashCode()} center=$centerScrollToUri " +
+                    "flatItems=${flatGridItems.size} firstBefore=${gridState.firstVisibleItemIndex} " +
+                    "totalBefore=${gridState.layoutInfo.totalItemsCount}"
+            )
             val index = flatGridItems.indexOfFirst { item ->
                 item is GridItem.Media && item.data.uri == scrollToUri 
             }
             if (index != -1) {
                 gridState.scrollToItem(index)
+                logScrollRestoreTrace(
+                    "grid_scroll_to_uri_found uriHash=${scrollToUri.hashCode()} index=$index " +
+                        "firstNow=${gridState.firstVisibleItemIndex} total=${gridState.layoutInfo.totalItemsCount}"
+                )
                 if (centerScrollToUri) {
                     delay(16)
                     val itemInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
@@ -472,12 +781,31 @@ fun GalleryGridView(
                         val itemCenter = itemInfo.offset.y + itemInfo.size.height / 2f
                         val viewportCenter = (gridState.layoutInfo.viewportStartOffset + gridState.layoutInfo.viewportEndOffset) / 2f
                         gridState.scrollBy(itemCenter - viewportCenter)
+                        logScrollRestoreTrace(
+                            "grid_scroll_to_uri_centered uriHash=${scrollToUri.hashCode()} index=$index " +
+                                "firstAfter=${gridState.firstVisibleItemIndex} " +
+                                "offsetAfter=${gridState.firstVisibleItemScrollOffset}"
+                        )
+                    } else {
+                        logScrollRestoreTrace(
+                            "grid_scroll_to_uri_center_missing_item uriHash=${scrollToUri.hashCode()} index=$index " +
+                                "visible=${gridState.layoutInfo.visibleItemsInfo.size}"
+                        )
                     }
                 }
                 highlightUri = scrollToUri
                 delay(2000)
                 highlightUri = null
                 onScrollConsumed()
+                logScrollRestoreTrace(
+                    "grid_scroll_to_uri_consumed uriHash=${scrollToUri.hashCode()} index=$index " +
+                        "firstAfter=${gridState.firstVisibleItemIndex} offsetAfter=${gridState.firstVisibleItemScrollOffset}"
+                )
+            } else {
+                logScrollRestoreTrace(
+                    "grid_scroll_to_uri_not_found uriHash=${scrollToUri.hashCode()} flatItems=${flatGridItems.size} " +
+                        "first=${gridState.firstVisibleItemIndex} total=${gridState.layoutInfo.totalItemsCount}"
+                )
             }
         }
     }
@@ -485,7 +813,7 @@ fun GalleryGridView(
     val maxLineSpan = columnOptions[currentColumnIndex]
     val thumbSize = remember(maxLineSpan) {
         when {
-            maxLineSpan >= 28 -> 18
+            maxLineSpan >= 28 -> DENSE28_THUMB_SIZE
             maxLineSpan >= 7 -> 160
             maxLineSpan >= 4 -> 512
             else -> 1024
@@ -494,14 +822,24 @@ fun GalleryGridView(
 
     // --- Prefetch thumbnails near the current viewport (bidirectional, throttled).
     // Enhanced preload feature for smoother gallery browsing.
-    LaunchedEffect(gridState, flatGridItems, pagingItems, thumbSize, maxLineSpan, isScrollbarDragging) {
-        // Allow prefetch even in 28-col for thumbnails (small 18px, cheap and sequential with delay)
+    LaunchedEffect(gridState, flatGridItems, flatGridBuiltColumns, pagingItems, thumbSize, maxLineSpan, isScrollbarDragging) {
         snapshotFlow { 
             Triple(gridState.firstVisibleItemIndex, gridState.isScrollInProgress, isScrollbarDragging) 
         }
             .debounce(180)
             .collectLatest { (firstIndex, isScrolling, dragging) ->
-                if (isScrolling || dragging) return@collectLatest
+                if (maxLineSpan >= 28 && flatGridBuiltColumns != maxLineSpan) {
+                    return@collectLatest
+                }
+                val maxPrefetchRequests = when {
+                    maxLineSpan >= 28 -> 12
+                    maxLineSpan >= 7 -> 6
+                    maxLineSpan >= 4 -> 8
+                    else -> 4
+                }
+                if (isScrolling || dragging) {
+                    return@collectLatest
+                }
                 val totalItems = pagingItems?.itemCount ?: flatGridItems.size
                 if (totalItems == 0) return@collectLatest
 
@@ -510,17 +848,24 @@ fun GalleryGridView(
                     ?: firstIndex
 
                 // Bidirectional prefetch (previous + next rows) for better preload experience
-                val preloadStart = (firstIndex - maxLineSpan).coerceAtLeast(0)
-                val preloadEnd = (lastVisibleIndex + maxLineSpan * 2).coerceAtMost(totalItems - 1)
+                val preloadStart = firstIndex.coerceAtLeast(0)
+                val preloadEnd = if (maxLineSpan >= 28) {
+                    (firstIndex + maxLineSpan * DENSE28_THUMB_LOAD_ROWS).coerceAtMost(totalItems - 1)
+                } else {
+                    (lastVisibleIndex + maxLineSpan).coerceAtMost(totalItems - 1)
+                }
                 val preloadIndices = (preloadStart..preloadEnd).toList()
                 val preloadRequests = preloadIndices.mapNotNull { i ->
                     val item = if (pagingItems != null) {
-                        pagingItems.peek(i)
+                        runCatching { pagingItems.peek(i) }.getOrNull()
                     } else {
                         flatGridItems.getOrNull(i)
                     }
 
                     if (item !is GridItem.Media) return@mapNotNull null
+                    if (gridImageLoader.memoryCache?.get(MemoryCache.Key(item.data.uri)) != null) {
+                        return@mapNotNull null
+                    }
 
                     ImageRequest.Builder(context)
                         .data(item.data.uri)
@@ -535,7 +880,7 @@ fun GalleryGridView(
                             }
                         }
                         .build()
-                }
+                }.take(maxPrefetchRequests)
 
                 for (request in preloadRequests) {
                     gridImageLoader.execute(request)
@@ -551,10 +896,14 @@ fun GalleryGridView(
             .background(AppConstants.BackgroundColor)
             .nestedScroll(nestedScrollConnection)
     ) {
+        val useDense28FlatGrid = maxLineSpan >= 28
+        val denseGridReady = !useDense28FlatGrid || flatGridBuiltColumns == maxLineSpan
+        val displayedFlatGridItems = if (denseGridReady) flatGridItems else emptyList()
+        val displayedMediaItemsOnly = if (denseGridReady) mediaItemsOnly else emptyList()
         GalleryGridContent(
             gridState = gridState,
-            flatGridItems = if (pagingItems != null) emptyList() else flatGridItems,
-            pagingItems = pagingItems,
+            flatGridItems = if (pagingItems != null && !useDense28FlatGrid) emptyList() else displayedFlatGridItems,
+            pagingItems = if (useDense28FlatGrid) null else pagingItems,
             maxLineSpan = maxLineSpan,
             thumbSize = thumbSize,
             imageLoader = gridImageLoader,
@@ -566,7 +915,7 @@ fun GalleryGridView(
             selectedUris = selectedUris,
             highlightUri = highlightUri,
             metadataMap = if (maxLineSpan >= 28) EmptyMetadataMap else metadataMap,
-            mediaItemsOnly = mediaItemsOnly,
+            mediaItemsOnly = displayedMediaItemsOnly,
             onImageClick = onImageClick,
             onPageChangedInViewer = onPageChangedInViewer,
             onSelectionModeChanged = { isSelectionMode = it },
@@ -638,6 +987,8 @@ fun GalleryGridView(
         if (maxLineSpan < 28 && sortedList.isNotEmpty() && !isSelectionMode && !galleryState.isZooming) {
             GalleryScrollbar(
                 gridState = gridState,
+                columnCount = maxLineSpan,
+                positionLabelItems = displayedFlatGridItems,
                 totalTopBarHeight = totalTopBarHeight,
                 totalBottomPadding = totalBottomPadding,
                 isActive = { isScrollbarDragging = it },
@@ -704,19 +1055,59 @@ private fun GalleryGridContent(
         }
     }
 
-    // isGridScrolling now means "actively scrolling at a slow speed" -> pause non-cached loads
-    // during slow scrolls to reduce jank. Fast scrolls or stopped = allow loads (unless other conditions).
+    // Pause uncached image loads while the grid is moving. Dense mode can expose hundreds
+    // of cells at once, so decoding during movement quickly becomes input jank.
     val isGridScrolling by remember {
         derivedStateOf {
-            val v = scrollVelocity.floatValue
-            rawIsGridScrolling && v > 0.5f && v < 25f && !isScrollbarDragging
+            isScrollbarDragging || rawIsGridScrolling
+        }
+    }
+    LaunchedEffect(gridState, maxLineSpan, flatGridItems.size, pagingItems?.itemCount) {
+        if (maxLineSpan < 28) return@LaunchedEffect
+        var lastFirstIndex = gridState.firstVisibleItemIndex
+        while (true) {
+            delay(700)
+            if (rawIsGridScrolling) {
+                val visibleItems = gridState.layoutInfo.visibleItemsInfo
+                val firstIndex = gridState.firstVisibleItemIndex
+                val lastIndex = visibleItems.maxOfOrNull { it.index } ?: firstIndex
+                val total = gridState.layoutInfo.totalItemsCount
+                val deltaIndex = firstIndex - lastFirstIndex
+                logDense28Trace(
+                    "dense_scroll_sample first=$firstIndex last=$lastIndex delta=$deltaIndex " +
+                        "visible=${visibleItems.size} total=$total flatItems=${flatGridItems.size} " +
+                        "source=${if (pagingItems == null) "flat_capped" else "paging"} " +
+                        "thumbLoadRows=$DENSE28_THUMB_LOAD_ROWS " +
+                        "velocityItemsPerSec=${"%.1f".format(Locale.US, scrollVelocity.floatValue)}"
+                )
+                lastFirstIndex = firstIndex
+            }
         }
     }
     val itemBoundsInRoot = remember(maxLineSpan) { mutableStateMapOf<Int, Rect>() }
     var gridBoundsInRoot by remember(maxLineSpan) { mutableStateOf<Rect?>(null) }
+    val denseThumbnailStartIndex by remember(gridState, maxLineSpan) {
+        derivedStateOf {
+            if (maxLineSpan >= 28) gridState.firstVisibleItemIndex else 0
+        }
+    }
+    val denseThumbnailEndIndex by remember(gridState, maxLineSpan) {
+        derivedStateOf {
+            if (maxLineSpan >= 28) {
+                gridState.firstVisibleItemIndex + maxLineSpan * DENSE28_THUMB_LOAD_ROWS
+            } else {
+                Int.MAX_VALUE
+            }
+        }
+    }
 
     fun mediaAtGridIndex(index: Int): GridItem.Media? {
-        val item = if (pagingItems != null) pagingItems.peek(index) else flatGridItems.getOrNull(index)
+        if (index < 0) return null
+        val item = if (pagingItems != null) {
+            if (index >= pagingItems.itemCount) null else runCatching { pagingItems.peek(index) }.getOrNull()
+        } else {
+            flatGridItems.getOrNull(index)
+        }
         return item as? GridItem.Media
     }
 
@@ -856,11 +1247,15 @@ private fun GalleryGridContent(
                 key = pagingItems.itemKey { it.key },
                 contentType = pagingItems.itemContentType { if (it is GridItem.Header) "header" else "media" },
                 span = { index -> 
-                    val item = pagingItems[index]
+                    val item = runCatching { pagingItems.peek(index) }.getOrNull()
                     if (item is GridItem.Header) GridItemSpan(maxLineSpan) else GridItemSpan(1)
                 }
             ) { index ->
-                val item = pagingItems[index] ?: return@items
+                val item = pagingItems[index]
+                if (item == null) {
+                    PagingPlaceholderGridItem(columnCount = maxLineSpan)
+                    return@items
+                }
                 GridItemRenderer(
                     item = item,
                     gridIndex = index,
@@ -870,6 +1265,9 @@ private fun GalleryGridContent(
                     thumbSize = thumbSize,
                     imageLoader = imageLoader,
                     isGridScrolling = isGridScrolling,
+                    isScrollbarDragging = isScrollbarDragging,
+                    denseThumbnailStartIndex = denseThumbnailStartIndex,
+                    denseThumbnailEndIndex = denseThumbnailEndIndex,
                     highlightUri = highlightUri,
                     onMediaBoundsChanged = { gridIndex, bounds ->
                         if (!isScrollbarDragging) {
@@ -899,6 +1297,9 @@ private fun GalleryGridContent(
                     thumbSize = thumbSize,
                     imageLoader = imageLoader,
                     isGridScrolling = isGridScrolling,
+                    isScrollbarDragging = isScrollbarDragging,
+                    denseThumbnailStartIndex = denseThumbnailStartIndex,
+                    denseThumbnailEndIndex = denseThumbnailEndIndex,
                     highlightUri = highlightUri,
                     onMediaBoundsChanged = { gridIndex, bounds ->
                         if (!isScrollbarDragging) {
@@ -917,6 +1318,32 @@ private fun GalleryGridContent(
 }
 
 @Composable
+private fun PagingPlaceholderGridItem(columnCount: Int) {
+    val isDenseGrid = columnCount >= 28
+    val itemModifier = remember(columnCount) {
+        Modifier
+            .fillMaxWidth()
+            .then(
+                if (columnCount > 1) {
+                    Modifier.aspectRatio(1f)
+                } else {
+                    Modifier
+                        .height(220.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                }
+            )
+            .padding(if (columnCount > 1) 0.5.dp else 0.dp)
+            .then(if (columnCount in 2..27) Modifier.clip(RoundedCornerShape(1.dp)) else Modifier)
+    }
+    Box(
+        modifier = itemModifier.background(
+            if (isDenseGrid) Color(0xFF262A2E) else Color(0xFF202124)
+        )
+    )
+}
+
+@Composable
 private fun GridItemRenderer(
     item: GridItem,
     gridIndex: Int,
@@ -926,6 +1353,9 @@ private fun GridItemRenderer(
     thumbSize: Int,
     imageLoader: ImageLoader,
     isGridScrolling: Boolean,
+    isScrollbarDragging: Boolean,
+    denseThumbnailStartIndex: Int,
+    denseThumbnailEndIndex: Int,
     highlightUri: String?,
     onMediaBoundsChanged: (Int, Rect?) -> Unit,
     onMediaClick: (GridItem.Media) -> Unit,
@@ -942,23 +1372,35 @@ private fun GridItemRenderer(
             )
         }
         is GridItem.Media -> {
-            // Always use wrapper (even in 28-col) so images/thumbnails are displayed.
-            // (Dense color-only was causing "images not shown".)
-            MediaGridItemWrapper(
-                item = item,
-                gridIndex = gridIndex,
-                isSelected = selectedUris.containsKey(item.data.uri),
-                metadataMap = metadataMap,
-                columnCount = maxLineSpan,
-                thumbSize = thumbSize,
-                imageLoader = imageLoader,
-                isGridScrolling = isGridScrolling,
-                isHighlighted = highlightUri == item.data.uri,
-                onBoundsChanged = onMediaBoundsChanged,
-                onClick = { onMediaClick(item) },
-                onDragSelectionStart = onDragSelectionStart,
-                onDragSelectionMove = onDragSelectionMove
-            )
+            if (maxLineSpan >= 28) {
+                DenseMediaGridItem(
+                    media = item.data,
+                    thumbSize = thumbSize,
+                    imageLoader = imageLoader,
+                    shouldLoadThumbnail = gridIndex in denseThumbnailStartIndex..denseThumbnailEndIndex,
+                    isGridScrolling = isGridScrolling,
+                    isSelected = selectedUris.containsKey(item.data.uri),
+                    isHighlighted = highlightUri == item.data.uri,
+                    onClick = { onMediaClick(item) }
+                )
+            } else {
+                MediaGridItemWrapper(
+                    item = item,
+                    gridIndex = gridIndex,
+                    isSelected = selectedUris.containsKey(item.data.uri),
+                    metadataMap = metadataMap,
+                    columnCount = maxLineSpan,
+                    thumbSize = thumbSize,
+                    imageLoader = imageLoader,
+                    isGridScrolling = isGridScrolling,
+                    isScrollbarDragging = isScrollbarDragging,
+                    isHighlighted = highlightUri == item.data.uri,
+                    onBoundsChanged = onMediaBoundsChanged,
+                    onClick = { onMediaClick(item) },
+                    onDragSelectionStart = onDragSelectionStart,
+                    onDragSelectionMove = onDragSelectionMove
+                )
+            }
         }
     }
 }
@@ -967,30 +1409,64 @@ private fun GridItemRenderer(
 @Composable
 private fun DenseMediaGridItem(
     media: MediaData,
+    thumbSize: Int,
+    imageLoader: ImageLoader,
+    shouldLoadThumbnail: Boolean,
+    isGridScrolling: Boolean,
     isSelected: Boolean,
     isHighlighted: Boolean,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val backgroundColor = when {
         media.isVideo -> Color(0xFF345B7C)
         media.isGif -> Color(0xFF5B4C7C)
         else -> Color(0xFF3A3F43)
     }
+    val isMemoryCached = remember(media.uri, imageLoader, isGridScrolling, shouldLoadThumbnail) {
+        imageLoader.memoryCache?.get(MemoryCache.Key(media.uri)) != null
+    }
+    val shouldDrawThumbnail = isMemoryCached || (shouldLoadThumbnail && !isGridScrolling)
+    val model = remember(media.uri, thumbSize) {
+        ImageRequest.Builder(context)
+            .data(media.uri)
+            .size(thumbSize)
+            .precision(coil.size.Precision.INEXACT)
+            .bitmapConfig(Bitmap.Config.RGB_565)
+            .allowHardware(true)
+            .crossfade(false)
+            .memoryCacheKey(media.uri)
+            .placeholderMemoryCacheKey(media.uri)
+            .apply {
+                if (media.isVideo) {
+                    videoFrameMillis(1000)
+                }
+            }
+            .build()
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(0.25.dp)
-            .combinedClickable(
+            .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
-                // Long press / drag selection disabled in 28-col dense view (only tap + scroll)
             )
             .background(backgroundColor)
             .then(if (isHighlighted) Modifier.border(1.dp, Color.Cyan) else Modifier)
     ) {
+        if (shouldDrawThumbnail) {
+            AsyncImage(
+                model = model,
+                imageLoader = imageLoader,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
         if (isSelected) {
             Box(
                 modifier = Modifier
@@ -1014,6 +1490,7 @@ private fun MediaGridItemWrapper(
     thumbSize: Int,
     imageLoader: ImageLoader,
     isGridScrolling: Boolean,
+    isScrollbarDragging: Boolean,
     isHighlighted: Boolean,
     onBoundsChanged: (Int, Rect?) -> Unit,
     onClick: () -> Unit,
@@ -1037,6 +1514,7 @@ private fun MediaGridItemWrapper(
         thumbSize = thumbSize,
         imageLoader = imageLoader,
         isGridScrolling = isGridScrolling,
+        isScrollbarDragging = isScrollbarDragging,
         isHighlighted = isHighlighted,
         isSelected = isSelected,
         gridIndex = gridIndex,
@@ -1060,6 +1538,7 @@ private fun MediaGridItem(
     thumbSize: Int,
     imageLoader: ImageLoader,
     isGridScrolling: Boolean,
+    isScrollbarDragging: Boolean,
     isHighlighted: Boolean,
     isSelected: Boolean,
     gridIndex: Int,
@@ -1128,9 +1607,11 @@ private fun MediaGridItem(
     Box(
         modifier = itemModifier
             .onGloballyPositioned { coordinates ->
-                val bounds = coordinates.boundsInRoot()
-                boundsInRoot = bounds
-                onBoundsChanged(gridIndex, bounds)
+                if (!isScrollbarDragging) {
+                    val bounds = coordinates.boundsInRoot()
+                    boundsInRoot = bounds
+                    onBoundsChanged(gridIndex, bounds)
+                }
             }
             .pointerInput(gridIndex) {
                 awaitEachGesture {
@@ -1190,7 +1671,8 @@ private fun MediaGridItem(
             .background(itemBackgroundColor)
             .then(highlightModifier)
     ) {
-        if (model != null && (!isGridScrolling || isMemoryCached)) {
+        val shouldDrawImage = !isGridScrolling || isMemoryCached
+        if (shouldDrawImage) {
             AsyncImage(
                 model = model,
                 imageLoader = imageLoader,
@@ -1343,6 +1825,8 @@ private fun SelectionModeBar(
 @Composable
 private fun GalleryScrollbar(
     gridState: LazyGridState,
+    columnCount: Int,
+    positionLabelItems: List<GridItem>,
     totalTopBarHeight: androidx.compose.ui.unit.Dp,
     totalBottomPadding: androidx.compose.ui.unit.Dp,
     isActive: (Boolean) -> Unit = {},
@@ -1356,49 +1840,167 @@ private fun GalleryScrollbar(
     val totalItemsState = remember(gridState) { derivedStateOf { gridState.layoutInfo.totalItemsCount } }
     val visibleItemsSizeState = remember(gridState) { derivedStateOf { gridState.layoutInfo.visibleItemsInfo.size } }
     val firstVisibleIndexState = remember(gridState) { derivedStateOf { gridState.firstVisibleItemIndex } }
+    // Keep the latest requested index for the thumb preview. The grid follows at a
+    // throttled rate while images and bounds work are paused by isScrollbarDragging.
+    var scrollbarTargetIndex by remember { mutableIntStateOf(-1) }
+    val scrollbarDateLabels = remember(positionLabelItems) {
+        buildScrollbarDateLabels(positionLabelItems)
+    }
     val thumbHeightRatioState = remember(gridState) { derivedStateOf { 
         val total = totalItemsState.value; if (total == 0) 0.1f else (visibleItemsSizeState.value.toFloat() / total).coerceIn(0.1f, 1f) 
     } }
     val scrollPositionState = remember(gridState) { derivedStateOf { 
-        val total = totalItemsState.value; if (total <= 1) 0f else firstVisibleIndexState.value.toFloat() / (total - 1) 
-    } }
-    var containerHeight by remember { mutableIntStateOf(0) }
-
-    // Use a target index + LaunchedEffect to decouple scrollbar drag from direct grid scroll calls.
-    // This + heavy throttling prevents freeze/jank when using the scrollbar.
-    var scrollbarTargetIndex by remember { mutableIntStateOf(-1) }
-    // Debounce the actual scrollToItem to prevent spamming during rapid target changes (tap/drag)
-    LaunchedEffect(scrollbarTargetIndex) {
-        val target = scrollbarTargetIndex
-        if (target >= 0) {
-            delay(16) // small debounce for batching
-            // For large jumps (typical on tap), use animate to spread the work
-            if (kotlin.math.abs(target - gridState.firstVisibleItemIndex) > 20) {
-                gridState.animateScrollToItem(target)
+        val total = totalItemsState.value
+        if (total <= 1) {
+            0f
+        } else {
+            val previewIndex = (if (isPressed && scrollbarTargetIndex >= 0) {
+                scrollbarTargetIndex
             } else {
-                gridState.scrollToItem(target)
+                firstVisibleIndexState.value
+            }).coerceIn(0, total - 1)
+            previewIndex.toFloat() / (total - 1)
+        }
+    } }
+    val currentPositionLabelState = remember(gridState, scrollbarDateLabels) {
+        derivedStateOf {
+            val total = totalItemsState.value
+            if (total <= 0) {
+                null
+            } else {
+                val previewIndex = (if (isPressed && scrollbarTargetIndex >= 0) {
+                    scrollbarTargetIndex
+                } else {
+                    firstVisibleIndexState.value
+                }).coerceIn(0, total - 1)
+                scrollbarDateLabels.getOrNull(previewIndex)
             }
         }
     }
+    var containerHeight by remember { mutableIntStateOf(0) }
+    var labelHeight by remember { mutableIntStateOf(0) }
 
-    Box(modifier = modifier.fillMaxHeight().width(32.dp).padding(top = totalTopBarHeight + 8.dp, bottom = totalBottomPadding + 8.dp).onSizeChanged { containerHeight = it.height }.zIndex(5f).pointerInput(Unit) { 
+    Box(modifier = modifier.fillMaxHeight().width(176.dp).padding(top = totalTopBarHeight + 8.dp, bottom = totalBottomPadding + 8.dp).zIndex(5f)) {
+        val positionLabel = currentPositionLabelState.value
+        AnimatedVisibility(
+            visible = isPressed && positionLabel != null,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .graphicsLayer {
+                    val scrollPos = scrollPositionState.value
+                    val heightRatio = thumbHeightRatioState.value
+                    val currentThumbHeight = containerHeight * heightRatio
+                    val centeredY = ((containerHeight - currentThumbHeight) * scrollPos) +
+                        (currentThumbHeight / 2f) - (labelHeight / 2f)
+                    val maxY = (containerHeight - labelHeight).coerceAtLeast(0).toFloat()
+                    translationY = centeredY.coerceIn(0f, maxY)
+                    translationX = (-28.dp).toPx()
+                }
+        ) {
+            Surface(
+                modifier = Modifier.onSizeChanged { labelHeight = it.height },
+                shape = RoundedCornerShape(6.dp),
+                color = Color.Black.copy(alpha = 0.78f),
+                tonalElevation = 4.dp
+            ) {
+                Text(
+                    text = positionLabel.orEmpty(),
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        Box(modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().width(32.dp).onSizeChanged { containerHeight = it.height }.pointerInput(Unit) {
         awaitPointerEventScope { 
             while (true) { 
-                val total = totalItemsState.value
-                if (total == 0) {
+                if (totalItemsState.value == 0) {
                     awaitFirstDown()
                     continue
                 }
-                val down = awaitFirstDown(); isPressed = true; isActive(true); var touchPos = (down.position.y / size.height.toFloat()).coerceIn(0f, 1f)
-                val initialIdx = (touchPos * total).toInt().coerceAtMost(total - 1)
+                fun currentTotalItems(): Int = totalItemsState.value
+
+                fun targetIndexForTouchY(y: Float): Int {
+                    val itemCount = currentTotalItems()
+                    if (itemCount <= 1) return 0
+                    val railHeight = size.height.toFloat().coerceAtLeast(1f)
+                    val thumbRatio = (visibleItemsSizeState.value.toFloat() / itemCount)
+                        .coerceIn(0.1f, 1f)
+                    val thumbHeight = railHeight * thumbRatio
+                    val travelHeight = (railHeight - thumbHeight).coerceAtLeast(1f)
+                    val progress = ((y - thumbHeight / 2f) / travelHeight).coerceIn(0f, 1f)
+                    return (progress * (itemCount - 1)).roundToInt().coerceIn(0, itemCount - 1)
+                }
+
+                fun isBottomTouch(y: Float): Boolean {
+                    return y >= size.height.toFloat() - 1f
+                }
+
+                fun isTopTouch(y: Float): Boolean {
+                    return y <= 1f
+                }
+
+                val down = awaitFirstDown(); isPressed = true; isActive(true)
+                var lastTouchY = down.position.y
+                val initialIdx = targetIndexForTouchY(lastTouchY)
                 scrollbarTargetIndex = initialIdx
-                drag(down.id) { change -> change.consume(); touchPos = (change.position.y / size.height.toFloat()).coerceIn(0f, 1f)
-                    val newIdx = (touchPos * total).toInt().coerceAtMost(total - 1)
-                    // Only update target on significant change + throttle via effect
-                    if (kotlin.math.abs(newIdx - scrollbarTargetIndex) >= 2) {
-                        scrollbarTargetIndex = newIdx
+                var lastLiveRequestAt = 0L
+                var lastLiveRequestedIndex = gridState.firstVisibleItemIndex
+                val liveFollowIntervalMs = if (columnCount >= 7) 120L else 90L
+                val liveFollowMinDelta = maxOf(columnCount * 2, 8)
+                fun requestLiveFollow(target: Int, force: Boolean = false) {
+                    val now = System.currentTimeMillis()
+                    val deltaFromLast = kotlin.math.abs(target - lastLiveRequestedIndex)
+                    val sincePreviousMs = now - lastLiveRequestAt
+                    if (!force) {
+                        val enoughTimePassed = sincePreviousMs >= liveFollowIntervalMs
+                        val enoughDistanceMoved = deltaFromLast >= liveFollowMinDelta
+                        if (!enoughTimePassed || !enoughDistanceMoved) {
+                            return
+                        }
                     }
-                }; isPressed = false; isActive(false)
+                    gridState.requestScrollToItem(target)
+                    lastLiveRequestAt = now
+                    lastLiveRequestedIndex = target
+                }
+                requestLiveFollow(initialIdx, force = true)
+                drag(down.id) { change -> change.consume()
+                    lastTouchY = change.position.y
+                    val latestTotal = currentTotalItems()
+                    val newIdx = targetIndexForTouchY(lastTouchY)
+                    // Only update target on significant change + throttle via effect
+                    val isEdgeTarget = newIdx == 0 || newIdx == latestTotal - 1
+                    if (isEdgeTarget || kotlin.math.abs(newIdx - scrollbarTargetIndex) >= 2) {
+                        scrollbarTargetIndex = newIdx
+                        requestLiveFollow(newIdx, force = isEdgeTarget)
+                    }
+                }
+                val finalTotal = currentTotalItems()
+                val finalTarget = when {
+                    isBottomTouch(lastTouchY) -> (finalTotal - 1).coerceAtLeast(0)
+                    isTopTouch(lastTouchY) -> 0
+                    else -> targetIndexForTouchY(lastTouchY)
+                }
+                if (finalTarget >= 0) {
+                    gridState.requestScrollToItem(finalTarget)
+                    if (finalTotal > 0 && finalTarget == finalTotal - 1) {
+                        scope.launch {
+                            repeat(10) {
+                                delay(140)
+                                val latestTotal = totalItemsState.value
+                                if (latestTotal > 0) {
+                                    gridState.requestScrollToItem(latestTotal - 1)
+                                }
+                            }
+                        }
+                    }
+                }
+                isPressed = false
+                scope.launch {
+                    delay(700)
+                    isActive(false)
+                }
                 scrollbarTargetIndex = -1
             } 
         } 
@@ -1407,5 +2009,6 @@ private fun GalleryScrollbar(
             val scrollPos = scrollPositionState.value; val heightRatio = thumbHeightRatioState.value; val currentThumbHeight = containerHeight * heightRatio
             translationY = (containerHeight - currentThumbHeight) * scrollPos; translationX = (-4.dp).toPx(); scaleY = heightRatio; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f) 
         }.clip(CircleShape).background(if (isPressed) Color.Cyan else Color.White.copy(alpha = 0.8f)))
+        }
     }
 }

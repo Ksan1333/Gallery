@@ -1,16 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
-  <title id="title">共通基盤UIモック</title>
-  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#1f2937}.overlay{fill:#0f172a;stroke:#22d3ee}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
-  <rect class="bg" width="960" height="620"/>
-  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
-  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="160" y="72">Gallery</text><text class="txt" x="74" y="72">☰</text><circle class="cyan" cx="92" cy="55" r="12"/><text class="num" x="87" y="61">1</text>
-  <rect class="card" x="76" y="124" width="280" height="260" rx="12"/><text class="small" x="108" y="166">通常の機能画面</text><text class="small" x="108" y="202">Home / Folder / MyList</text><text class="small" x="108" y="238">Books / References</text>
-  <rect class="overlay" x="92" y="300" width="248" height="106" rx="16"/><text class="txt" x="116" y="334">起動タスク実行中</text><text class="small" x="116" y="362">サムネイル作成  45%</text><rect x="116" y="378" width="184" height="10" rx="5" fill="#334155"/><rect x="116" y="378" width="86" height="10" rx="5" fill="#22d3ee"/><circle class="cyan" cx="332" cy="304" r="12"/><text class="num" x="327" y="310">2</text>
-  <rect class="bar" x="48" y="524" width="360" height="60" rx="20"/><text class="small" x="90" y="560">Home   Folders   MyList   Books   Trash</text><circle class="cyan" cx="376" cy="550" r="12"/><text class="num" x="371" y="556">3</text>
-  <rect class="card" x="92" y="430" width="248" height="58" rx="14"/><text class="small" x="114" y="464">AnalysisProgressScreen / Cancel</text><circle class="cyan" cx="332" cy="432" r="12"/><text class="num" x="327" y="438">4</text>
-  <text class="txt" x="470" y="76">画面説明</text>
-  <text class="small" x="470" y="122">1. Drawer。主要画面、ガイド、設定系へ移動。</text>
-  <text class="small" x="470" y="158">2. GlobalProgressOverlay。長時間処理を画面上に重ねる。</text>
-  <text class="small" x="470" y="194">3. BottomBar。主要機能の常設ナビゲーション。</text>
-  <text class="small" x="470" y="230">4. AI分析の専用進捗画面。キャンセル導線を持つ。</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title"><title id="title">共通基盤UIモック</title><defs>
+  <linearGradient id="thumbGrad0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6bff"/><stop offset="1" stop-color="#101827"/></linearGradient>
+  <linearGradient id="thumbGrad1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#19b38b"/><stop offset="1" stop-color="#162021"/></linearGradient>
+  <linearGradient id="thumbGrad2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ce5f4a"/><stop offset="1" stop-color="#271715"/></linearGradient>
+  <linearGradient id="thumbGrad3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9b94e"/><stop offset="1" stop-color="#201b12"/></linearGradient>
+  <linearGradient id="thumbGrad4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ad7cff"/><stop offset="1" stop-color="#1a1628"/></linearGradient>
+  <linearGradient id="thumbGrad5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3659d"/><stop offset="1" stop-color="#27151d"/></linearGradient>
+  <linearGradient id="thumbGrad6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4fb6d8"/><stop offset="1" stop-color="#111c22"/></linearGradient>
+  <linearGradient id="thumbGrad7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8aa25e"/><stop offset="1" stop-color="#151b14"/></linearGradient>
+</defs><style>
+  svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
+  .phone{fill:#08090b;stroke:#2a2f36;stroke-width:3}
+  .screen{fill:#111418}
+  .appbar,.bottomBar{fill:#050607}
+  .sensor{fill:#303640}
+  .title{fill:#fff;font-size:17px;font-weight:700}
+  .docTitle{fill:#f8fbff;font-size:26px;font-weight:800}
+  .docSub{fill:#9ea7b3;font-size:14px}
+  .txt{fill:#eaf0f6;font-size:13px}
+  .small{fill:#d8dee6;font-size:12px}
+  .tinyDim{fill:#89929d;font-size:10px}
+  .smallDim{fill:#9aa3ad;font-size:11px}
+  .chip{fill:#1b2027;stroke:#333a44;stroke-width:1}
+  .chip.selected{fill:#063b43;stroke:#00d5ef}
+  .chipText{fill:#dfe9ef;font-size:11px}
+  .icon{fill:#171c22;stroke:#2e3540}
+  .activeIcon{fill:#04353e;stroke:#00d5ef}
+  .iconText{fill:#f2f7fb;font-size:14px;font-weight:700}
+  .thumb{stroke:#222a33;stroke-width:1}
+  .badge{fill:#050607cc}
+  .badgeText{fill:#fff;font-size:9px;font-weight:700}
+  .star{fill:#ffdb65;font-size:15px}
+  .section{fill:#181d23}
+  .card{fill:#1a1f26;stroke:#303844;stroke-width:1}
+  .card2{fill:#131820;stroke:#333d49;stroke-width:1}
+  .cardTitle{fill:#f6f8fb;font-size:13px;font-weight:700}
+  .metric{fill:#ffffff;font-size:21px;font-weight:800}
+  .metricLabel{fill:#9ca6b2;font-size:10px}
+  .menu{fill:#b8c0cb;font-size:17px}
+  .accentBlue{fill:#00c8e6}.accentGreen{fill:#25d68a}.accentYellow{fill:#ffd25d}.accentRed{fill:#ff6565}
+  .scrim{fill:#00000099}
+  .dialog{fill:#20252d;stroke:#48505c}
+  .dialogTitle{fill:#fff;font-size:16px;font-weight:800}
+  .dialogText{fill:#dce4ec;font-size:12px}
+  .primaryBtn{fill:#00bcd4}
+  .secondaryBtn{fill:#242b34;stroke:#46505c}
+  .btnText{fill:#001216;font-size:12px;font-weight:800}
+  .navCircle{fill:#1a2028}.navCircleOn{fill:#00bcd4}
+  .navIcon{fill:#fff;font-size:11px;font-weight:900}
+  .navText{fill:#8f99a5;font-size:9px}.navTextOn{fill:#dffaff;font-size:9px;font-weight:800}
+  .scrollTrack{fill:#20252c}.scrollThumb{fill:#00bcd4}.bubble{fill:#00bcd4}
+  .bubbleText{fill:#001216;font-size:11px;font-weight:800}
+  .num{fill:#00bcd4}.numText{fill:#001216;font-size:12px;font-weight:900}
+  .line{stroke:#00bcd4;stroke-width:1.4;stroke-opacity:.55}
+  .callTitle{fill:#f4f8fc;font-size:15px;font-weight:800}
+  .callBody{fill:#b5c0cc;font-size:12px}
+  .separator{fill:#303844}
+  .progressBg{fill:#2a313b}.progress{fill:#00bcd4}
+  .input{fill:#11161c;stroke:#4c5664}
+  .tabOn{fill:#00bcd4}.tabOff{fill:#222932}
+  .tabTextOn{fill:#001216;font-size:11px;font-weight:800}.tabText{fill:#cbd4dd;font-size:11px}
+</style><rect x="58" y="38" width="388" height="744" class="phone" rx="34"/><rect x="76" y="66" width="352" height="688" class="screen" rx="20"/><rect x="76" y="66" width="352" height="56" class="appbar" rx="20"/><rect x="76" y="102" width="352" height="20" class="appbar"/><circle cx="98" cy="94" r="2" class="sensor"/><text x="120" y="101" class="title">Gallery</text><text x="120" y="117" class="tinyDim">共通基盤 / 起動タスク</text><rect x="86" y="142" width="156" height="504" class="card2" rx="8"/><text x="102" y="172" class="dialogTitle">Gallery</text><rect x="98" y="200" width="132" height="30" class="tabOn" rx="15"/><text x="164" y="220" class="tabTextOn" text-anchor="middle">ホーム</text><rect x="98" y="242" width="132" height="30" class="tabOff" rx="15"/><text x="164" y="262" class="tabText" text-anchor="middle">フォルダ</text><rect x="98" y="284" width="132" height="30" class="tabOff" rx="15"/><text x="164" y="304" class="tabText" text-anchor="middle">タグ</text><rect x="98" y="326" width="132" height="30" class="tabOff" rx="15"/><text x="164" y="346" class="tabText" text-anchor="middle">本</text><rect x="98" y="368" width="132" height="30" class="tabOff" rx="15"/><text x="164" y="388" class="tabText" text-anchor="middle">動画DL</text><rect x="98" y="410" width="132" height="30" class="tabOff" rx="15"/><text x="164" y="430" class="tabText" text-anchor="middle">お絵描き資料</text><rect x="98" y="452" width="132" height="30" class="tabOff" rx="15"/><text x="164" y="472" class="tabText" text-anchor="middle">おすすめ（開発中）</text><rect x="98" y="494" width="132" height="30" class="tabOff" rx="15"/><text x="164" y="514" class="tabText" text-anchor="middle">使い方ガイド</text><rect x="256" y="142" width="158" height="88" class="card" rx="8"/><text x="270" y="170" class="cardTitle">起動処理</text><text x="270" y="194" class="smallDim">MediaStore同期 / サムネ生成</text><rect x="270" y="208" width="118" height="5" class="progressBg" rx="3"/><rect x="270" y="208" width="74" height="5" class="progress" rx="3"/><rect x="256" y="252" width="158" height="90" class="card" rx="8"/><text x="270" y="282" class="cardTitle">AIモデル</text><text x="270" y="306" class="smallDim">ONNX / MediaPipe</text><rect x="256" y="366" width="158" height="90" class="card" rx="8"/><text x="270" y="396" class="cardTitle">Room DB</text><text x="270" y="420" class="smallDim">metadata / tags / history</text><rect x="260" y="484" width="146" height="144" class="scrim" rx="12"/><rect x="268" y="492" width="130" height="128" class="dialog" rx="12"/><text x="286" y="526" class="dialogTitle">一括処理</text><text x="286" y="556" class="dialogText">サムネイル生成中</text><text x="286" y="582" class="dialogText">42% 完了</text><rect x="274" y="580" width="104" height="32" class="primaryBtn" rx="16"/><text x="326" y="601" class="btnText" text-anchor="middle">詳細</text><rect x="76" y="690" width="352" height="64" class="bottomBar"/><circle cx="111" cy="713" r="15" class="navCircleOn"/><text x="111" y="718" class="navIcon" text-anchor="middle">H</text><text x="111" y="741" class="navTextOn" text-anchor="middle">ホーム</text><circle cx="181" cy="713" r="15" class="navCircle"/><text x="181" y="718" class="navIcon" text-anchor="middle">F</text><text x="181" y="741" class="navText" text-anchor="middle">フォルダ</text><circle cx="252" cy="713" r="15" class="navCircle"/><text x="252" y="718" class="navIcon" text-anchor="middle">M</text><text x="252" y="741" class="navText" text-anchor="middle">マイリスト</text><circle cx="322" cy="713" r="15" class="navCircle"/><text x="322" y="718" class="navIcon" text-anchor="middle">B</text><text x="322" y="741" class="navText" text-anchor="middle">本</text><circle cx="392" cy="713" r="15" class="navCircle"/><text x="392" y="718" class="navIcon" text-anchor="middle">T</text><text x="392" y="741" class="navText" text-anchor="middle">ゴミ箱</text><text x="486" y="52" class="docTitle">共通基盤UIモック</text><text x="486" y="82" class="docSub">実装画面の構成に合わせた詳細設計用モック</text><rect x="486" y="108" width="640" height="1" class="separator"/><line x1="166" y1="228" x2="506" y2="140" class="line"/><circle cx="506" cy="140" r="12" class="num"/><text x="506" y="144" class="numText" text-anchor="middle">1</text><text x="534" y="134" class="callTitle">ナビゲーションドロワー</text><text x="534" y="158" class="callBody">主要画面、開発中機能、ガイド、アプリ情報へ移動します。</text><line x1="326" y1="208" x2="506" y2="204" class="line"/><circle cx="506" cy="204" r="12" class="num"/><text x="506" y="208" class="numText" text-anchor="middle">2</text><text x="534" y="198" class="callTitle">起動タスク</text><text x="534" y="222" class="callBody">MediaStore同期、サムネイル生成、モデル準備を共通サービスで実行します。</text><line x1="322" y1="396" x2="506" y2="268" class="line"/><circle cx="506" cy="268" r="12" class="num"/><text x="506" y="272" class="numText" text-anchor="middle">3</text><text x="534" y="262" class="callTitle">Room / Repository</text><text x="534" y="286" class="callBody">メディアメタデータ、タグ、履歴、参照資料を永続化します。</text><line x1="326" y1="540" x2="506" y2="332" class="line"/><circle cx="506" cy="332" r="12" class="num"/><text x="506" y="336" class="numText" text-anchor="middle">4</text><text x="534" y="326" class="callTitle">グローバル進捗</text><text x="534" y="350" class="callBody">AI解析や一括処理の進行状況をアプリ全体で共有します。</text></svg>

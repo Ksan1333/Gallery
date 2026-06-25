@@ -54,6 +54,10 @@ class GalleryState(context: Context) {
     var isSelectionMode by mutableStateOf(false)
     var isMeasureModeActive by mutableStateOf(false)
     var lastViewedUri by mutableStateOf<String?>(null)
+    var hasHomeGalleryScrollPosition by mutableStateOf(false)
+    var homeGalleryScrollIndex by mutableIntStateOf(0)
+    var homeGalleryScrollOffset by mutableIntStateOf(0)
+    var homeGalleryScrollUri by mutableStateOf<String?>(null)
 
     fun refresh() {
         refreshTrigger++

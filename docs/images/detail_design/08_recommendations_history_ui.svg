@@ -1,18 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
-  <title id="title">おすすめ・視聴履歴UIモック</title>
-  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.cell{fill:#334155}.panel{fill:#111827}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
-  <rect class="bg" width="960" height="620"/>
-  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
-  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="172" y="72">おすすめ</text><text class="txt" x="74" y="72">☰</text><circle class="cyan" cx="92" cy="55" r="12"/><text class="num" x="87" y="61">1</text>
-  <g transform="translate(76 122)">
-    <rect class="cell" x="0" y="0" width="84" height="84" rx="8"/><rect class="cell" x="98" y="0" width="84" height="84" rx="8"/><rect class="cell" x="196" y="0" width="84" height="84" rx="8"/>
-    <rect class="cell" x="0" y="98" width="84" height="84" rx="8"/><rect class="cell" x="98" y="98" width="84" height="84" rx="8"/><rect class="cell" x="196" y="98" width="84" height="84" rx="8"/>
-    <rect class="cell" x="0" y="196" width="84" height="84" rx="8"/><rect class="cell" x="98" y="196" width="84" height="84" rx="8"/><rect class="cell" x="196" y="196" width="84" height="84" rx="8"/>
-  </g><circle class="cyan" cx="354" cy="126" r="12"/><text class="num" x="349" y="132">2</text>
-  <rect class="panel" x="76" y="430" width="280" height="96" rx="14"/><text class="small" x="96" y="462">関連タブ</text><text class="small" x="96" y="488">タグ類似 / ベクトル類似 / ランダム</text><text class="small" x="96" y="512">閲覧履歴から候補生成</text><circle class="cyan" cx="350" cy="430" r="12"/><text class="num" x="345" y="436">3</text>
-  <text class="txt" x="470" y="76">画面説明</text>
-  <text class="small" x="470" y="122">1. おすすめ画面のトップバー。</text>
-  <text class="small" x="470" y="158">2. 推薦結果グリッド。タップでビューアへ。</text>
-  <text class="small" x="470" y="194">3. ビューア側の関連パネル。現在画像に近い候補を表示。</text>
-  <text class="small" x="470" y="230">推薦元: 閲覧時間、閲覧回数、タグ類似、特徴ベクトル。</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title"><title id="title">おすすめ・視聴履歴UIモック</title><defs>
+  <linearGradient id="thumbGrad0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6bff"/><stop offset="1" stop-color="#101827"/></linearGradient>
+  <linearGradient id="thumbGrad1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#19b38b"/><stop offset="1" stop-color="#162021"/></linearGradient>
+  <linearGradient id="thumbGrad2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ce5f4a"/><stop offset="1" stop-color="#271715"/></linearGradient>
+  <linearGradient id="thumbGrad3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9b94e"/><stop offset="1" stop-color="#201b12"/></linearGradient>
+  <linearGradient id="thumbGrad4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ad7cff"/><stop offset="1" stop-color="#1a1628"/></linearGradient>
+  <linearGradient id="thumbGrad5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3659d"/><stop offset="1" stop-color="#27151d"/></linearGradient>
+  <linearGradient id="thumbGrad6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4fb6d8"/><stop offset="1" stop-color="#111c22"/></linearGradient>
+  <linearGradient id="thumbGrad7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8aa25e"/><stop offset="1" stop-color="#151b14"/></linearGradient>
+</defs><style>
+  svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
+  .phone{fill:#08090b;stroke:#2a2f36;stroke-width:3}
+  .screen{fill:#111418}
+  .appbar,.bottomBar{fill:#050607}
+  .sensor{fill:#303640}
+  .title{fill:#fff;font-size:17px;font-weight:700}
+  .docTitle{fill:#f8fbff;font-size:26px;font-weight:800}
+  .docSub{fill:#9ea7b3;font-size:14px}
+  .txt{fill:#eaf0f6;font-size:13px}
+  .small{fill:#d8dee6;font-size:12px}
+  .tinyDim{fill:#89929d;font-size:10px}
+  .smallDim{fill:#9aa3ad;font-size:11px}
+  .chip{fill:#1b2027;stroke:#333a44;stroke-width:1}
+  .chip.selected{fill:#063b43;stroke:#00d5ef}
+  .chipText{fill:#dfe9ef;font-size:11px}
+  .icon{fill:#171c22;stroke:#2e3540}
+  .activeIcon{fill:#04353e;stroke:#00d5ef}
+  .iconText{fill:#f2f7fb;font-size:14px;font-weight:700}
+  .thumb{stroke:#222a33;stroke-width:1}
+  .badge{fill:#050607cc}
+  .badgeText{fill:#fff;font-size:9px;font-weight:700}
+  .star{fill:#ffdb65;font-size:15px}
+  .section{fill:#181d23}
+  .card{fill:#1a1f26;stroke:#303844;stroke-width:1}
+  .card2{fill:#131820;stroke:#333d49;stroke-width:1}
+  .cardTitle{fill:#f6f8fb;font-size:13px;font-weight:700}
+  .metric{fill:#ffffff;font-size:21px;font-weight:800}
+  .metricLabel{fill:#9ca6b2;font-size:10px}
+  .menu{fill:#b8c0cb;font-size:17px}
+  .accentBlue{fill:#00c8e6}.accentGreen{fill:#25d68a}.accentYellow{fill:#ffd25d}.accentRed{fill:#ff6565}
+  .scrim{fill:#00000099}
+  .dialog{fill:#20252d;stroke:#48505c}
+  .dialogTitle{fill:#fff;font-size:16px;font-weight:800}
+  .dialogText{fill:#dce4ec;font-size:12px}
+  .primaryBtn{fill:#00bcd4}
+  .secondaryBtn{fill:#242b34;stroke:#46505c}
+  .btnText{fill:#001216;font-size:12px;font-weight:800}
+  .navCircle{fill:#1a2028}.navCircleOn{fill:#00bcd4}
+  .navIcon{fill:#fff;font-size:11px;font-weight:900}
+  .navText{fill:#8f99a5;font-size:9px}.navTextOn{fill:#dffaff;font-size:9px;font-weight:800}
+  .scrollTrack{fill:#20252c}.scrollThumb{fill:#00bcd4}.bubble{fill:#00bcd4}
+  .bubbleText{fill:#001216;font-size:11px;font-weight:800}
+  .num{fill:#00bcd4}.numText{fill:#001216;font-size:12px;font-weight:900}
+  .line{stroke:#00bcd4;stroke-width:1.4;stroke-opacity:.55}
+  .callTitle{fill:#f4f8fc;font-size:15px;font-weight:800}
+  .callBody{fill:#b5c0cc;font-size:12px}
+  .separator{fill:#303844}
+  .progressBg{fill:#2a313b}.progress{fill:#00bcd4}
+  .input{fill:#11161c;stroke:#4c5664}
+  .tabOn{fill:#00bcd4}.tabOff{fill:#222932}
+  .tabTextOn{fill:#001216;font-size:11px;font-weight:800}.tabText{fill:#cbd4dd;font-size:11px}
+</style><rect x="58" y="38" width="388" height="744" class="phone" rx="34"/><rect x="76" y="66" width="352" height="688" class="screen" rx="20"/><rect x="76" y="66" width="352" height="56" class="appbar" rx="20"/><rect x="76" y="102" width="352" height="20" class="appbar"/><circle cx="98" cy="94" r="2" class="sensor"/><text x="120" y="101" class="title">おすすめ</text><text x="120" y="117" class="tinyDim">視聴履歴 / 類似画像</text><rect x="392" y="80" width="32" height="32" class="icon" rx="16"/><text x="408" y="101" class="iconText" text-anchor="middle">↻</text><rect x="90" y="144" width="100" height="30" class="tabOn" rx="15"/><text x="140" y="164" class="tabTextOn" text-anchor="middle">最近よく見る</text><rect x="198" y="144" width="100" height="30" class="tabOff" rx="15"/><text x="248" y="164" class="tabText" text-anchor="middle">似た画像</text><rect x="306" y="144" width="100" height="30" class="tabOff" rx="15"/><text x="356" y="164" class="tabText" text-anchor="middle">ランダム</text><text x="92" y="206" class="cardTitle">閲覧履歴からの候補</text><rect x="90" y="226" width="324" height="78" class="card" rx="8"/><rect x="100" y="236" width="58" height="58" class="thumb" rx="7" fill="url(#thumbGrad3)"/><rect x="105" y="272" width="48" height="17" class="badge" rx="8"/><text x="112" y="285" class="badgeText">REC</text><text x="172" y="256" class="cardTitle">よく見るタグに近い画像</text><text x="172" y="280" class="smallDim">score 0.93 / viewed 8 回</text><rect x="326" y="284" width="70" height="5" class="progressBg" rx="3"/><rect x="326" y="284" width="58" height="5" class="progress" rx="3"/><rect x="90" y="318" width="324" height="78" class="card" rx="8"/><rect x="100" y="328" width="58" height="58" class="thumb" rx="7" fill="url(#thumbGrad4)"/><rect x="105" y="364" width="48" height="17" class="badge" rx="8"/><text x="112" y="377" class="badgeText">REC</text><text x="172" y="348" class="cardTitle">閲覧時間が長い作品</text><text x="172" y="372" class="smallDim">score 0.86 / viewed 16 回</text><rect x="326" y="376" width="70" height="5" class="progressBg" rx="3"/><rect x="326" y="376" width="46" height="5" class="progress" rx="3"/><rect x="90" y="410" width="324" height="78" class="card" rx="8"/><rect x="100" y="420" width="58" height="58" class="thumb" rx="7" fill="url(#thumbGrad5)"/><rect x="105" y="456" width="48" height="17" class="badge" rx="8"/><text x="112" y="469" class="badgeText">REC</text><text x="140" y="439" class="star" text-anchor="middle">★</text><text x="172" y="440" class="cardTitle">ベクトル類似候補</text><text x="172" y="464" class="smallDim">score 0.79 / viewed 24 回</text><rect x="326" y="468" width="70" height="5" class="progressBg" rx="3"/><rect x="326" y="468" width="34" height="5" class="progress" rx="3"/><rect x="90" y="586" width="324" height="78" class="card2" rx="8"/><text x="106" y="614" class="dialogTitle">計測モード</text><text x="106" y="640" class="smallDim">閲覧回数、滞在時間、タグ類似度を recommendation 表示へ反映</text><text x="486" y="52" class="docTitle">おすすめ・視聴履歴UIモック</text><text x="486" y="82" class="docSub">実装画面の構成に合わせた詳細設計用モック</text><rect x="486" y="108" width="640" height="1" class="separator"/><line x1="206" y1="164" x2="506" y2="140" class="line"/><circle cx="506" cy="140" r="12" class="num"/><text x="506" y="144" class="numText" text-anchor="middle">1</text><text x="534" y="134" class="callTitle">推薦タブ</text><text x="534" y="158" class="callBody">閲覧履歴、タグ類似、ベクトル類似、ランダム候補を切り替えます。</text><line x1="214" y1="260" x2="506" y2="204" class="line"/><circle cx="506" cy="204" r="12" class="num"/><text x="506" y="208" class="numText" text-anchor="middle">2</text><text x="534" y="198" class="callTitle">推薦カード</text><text x="534" y="222" class="callBody">サムネイル、推薦理由、スコア、閲覧指標を並べて提示します。</text><line x1="188" y1="614" x2="506" y2="268" class="line"/><circle cx="506" cy="268" r="12" class="num"/><text x="506" y="272" class="numText" text-anchor="middle">3</text><text x="534" y="262" class="callTitle">計測データ</text><text x="534" y="286" class="callBody">閲覧回数や滞在時間を保存し、おすすめ生成の入力にします。</text><line x1="374" y1="94" x2="506" y2="332" class="line"/><circle cx="506" cy="332" r="12" class="num"/><text x="506" y="336" class="numText" text-anchor="middle">4</text><text x="534" y="326" class="callTitle">再計算</text><text x="534" y="350" class="callBody">履歴やAI特徴量を使って候補を更新します。</text></svg>

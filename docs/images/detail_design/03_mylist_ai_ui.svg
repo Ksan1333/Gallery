@@ -1,19 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
-  <title id="title">My List・AI分析UIモック</title>
-  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#1f2937}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
-  <rect class="bg" width="960" height="620"/>
-  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
-  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="178" y="72">My List</text><text class="txt" x="74" y="72">☰</text><text class="small" x="330" y="72">＋</text><circle class="cyan" cx="338" cy="55" r="12"/><text class="num" x="333" y="61">1</text>
-  <rect class="card" x="76" y="122" width="132" height="88" rx="10"/><text class="small" x="96" y="156">Favorites</text><text class="txt" x="96" y="188">128</text>
-  <rect class="card" x="224" y="122" width="132" height="88" rx="10"/><text class="small" x="244" y="156">未整理</text><text class="txt" x="244" y="188">42</text>
-  <rect class="card" x="76" y="226" width="132" height="88" rx="10"/><text class="small" x="96" y="260">AI未分析</text><text class="txt" x="96" y="292">305</text>
-  <rect class="card" x="224" y="226" width="132" height="88" rx="10"/><text class="small" x="244" y="260">ベクトル未分析</text><text class="txt" x="244" y="292">198</text><circle class="cyan" cx="365" cy="238" r="12"/><text class="num" x="360" y="244">2</text>
-  <rect class="card" x="76" y="342" width="280" height="46" rx="8"/><text class="small" x="96" y="371">tag: landscape  86件  ›</text>
-  <rect class="card" x="76" y="396" width="280" height="46" rx="8"/><text class="small" x="96" y="425">tag: character  64件  ›</text><circle class="cyan" cx="365" cy="350" r="12"/><text class="num" x="360" y="356">3</text>
-  <rect x="92" y="482" width="248" height="58" rx="18" fill="#0e7490"/><text class="txt" x="130" y="518">AI分析を開始</text><circle class="cyan" cx="330" cy="484" r="12"/><text class="num" x="325" y="490">4</text>
-  <text class="txt" x="470" y="76">画面説明</text>
-  <text class="small" x="470" y="122">1. タグ作成やメニューへの導線。</text>
-  <text class="small" x="470" y="158">2. 整理カテゴリ。タップで対象一覧へ移動。</text>
-  <text class="small" x="470" y="194">3. タグ別カテゴリ。件数と代表サムネイルを表示。</text>
-  <text class="small" x="470" y="230">4. 分析種別と期間を選び、進捗画面へ遷移。</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title"><title id="title">My List・AI分析UIモック</title><defs>
+  <linearGradient id="thumbGrad0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6bff"/><stop offset="1" stop-color="#101827"/></linearGradient>
+  <linearGradient id="thumbGrad1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#19b38b"/><stop offset="1" stop-color="#162021"/></linearGradient>
+  <linearGradient id="thumbGrad2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ce5f4a"/><stop offset="1" stop-color="#271715"/></linearGradient>
+  <linearGradient id="thumbGrad3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9b94e"/><stop offset="1" stop-color="#201b12"/></linearGradient>
+  <linearGradient id="thumbGrad4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ad7cff"/><stop offset="1" stop-color="#1a1628"/></linearGradient>
+  <linearGradient id="thumbGrad5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3659d"/><stop offset="1" stop-color="#27151d"/></linearGradient>
+  <linearGradient id="thumbGrad6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4fb6d8"/><stop offset="1" stop-color="#111c22"/></linearGradient>
+  <linearGradient id="thumbGrad7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8aa25e"/><stop offset="1" stop-color="#151b14"/></linearGradient>
+</defs><style>
+  svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
+  .phone{fill:#08090b;stroke:#2a2f36;stroke-width:3}
+  .screen{fill:#111418}
+  .appbar,.bottomBar{fill:#050607}
+  .sensor{fill:#303640}
+  .title{fill:#fff;font-size:17px;font-weight:700}
+  .docTitle{fill:#f8fbff;font-size:26px;font-weight:800}
+  .docSub{fill:#9ea7b3;font-size:14px}
+  .txt{fill:#eaf0f6;font-size:13px}
+  .small{fill:#d8dee6;font-size:12px}
+  .tinyDim{fill:#89929d;font-size:10px}
+  .smallDim{fill:#9aa3ad;font-size:11px}
+  .chip{fill:#1b2027;stroke:#333a44;stroke-width:1}
+  .chip.selected{fill:#063b43;stroke:#00d5ef}
+  .chipText{fill:#dfe9ef;font-size:11px}
+  .icon{fill:#171c22;stroke:#2e3540}
+  .activeIcon{fill:#04353e;stroke:#00d5ef}
+  .iconText{fill:#f2f7fb;font-size:14px;font-weight:700}
+  .thumb{stroke:#222a33;stroke-width:1}
+  .badge{fill:#050607cc}
+  .badgeText{fill:#fff;font-size:9px;font-weight:700}
+  .star{fill:#ffdb65;font-size:15px}
+  .section{fill:#181d23}
+  .card{fill:#1a1f26;stroke:#303844;stroke-width:1}
+  .card2{fill:#131820;stroke:#333d49;stroke-width:1}
+  .cardTitle{fill:#f6f8fb;font-size:13px;font-weight:700}
+  .metric{fill:#ffffff;font-size:21px;font-weight:800}
+  .metricLabel{fill:#9ca6b2;font-size:10px}
+  .menu{fill:#b8c0cb;font-size:17px}
+  .accentBlue{fill:#00c8e6}.accentGreen{fill:#25d68a}.accentYellow{fill:#ffd25d}.accentRed{fill:#ff6565}
+  .scrim{fill:#00000099}
+  .dialog{fill:#20252d;stroke:#48505c}
+  .dialogTitle{fill:#fff;font-size:16px;font-weight:800}
+  .dialogText{fill:#dce4ec;font-size:12px}
+  .primaryBtn{fill:#00bcd4}
+  .secondaryBtn{fill:#242b34;stroke:#46505c}
+  .btnText{fill:#001216;font-size:12px;font-weight:800}
+  .navCircle{fill:#1a2028}.navCircleOn{fill:#00bcd4}
+  .navIcon{fill:#fff;font-size:11px;font-weight:900}
+  .navText{fill:#8f99a5;font-size:9px}.navTextOn{fill:#dffaff;font-size:9px;font-weight:800}
+  .scrollTrack{fill:#20252c}.scrollThumb{fill:#00bcd4}.bubble{fill:#00bcd4}
+  .bubbleText{fill:#001216;font-size:11px;font-weight:800}
+  .num{fill:#00bcd4}.numText{fill:#001216;font-size:12px;font-weight:900}
+  .line{stroke:#00bcd4;stroke-width:1.4;stroke-opacity:.55}
+  .callTitle{fill:#f4f8fc;font-size:15px;font-weight:800}
+  .callBody{fill:#b5c0cc;font-size:12px}
+  .separator{fill:#303844}
+  .progressBg{fill:#2a313b}.progress{fill:#00bcd4}
+  .input{fill:#11161c;stroke:#4c5664}
+  .tabOn{fill:#00bcd4}.tabOff{fill:#222932}
+  .tabTextOn{fill:#001216;font-size:11px;font-weight:800}.tabText{fill:#cbd4dd;font-size:11px}
+</style><rect x="58" y="38" width="388" height="744" class="phone" rx="34"/><rect x="76" y="66" width="352" height="688" class="screen" rx="20"/><rect x="76" y="66" width="352" height="56" class="appbar" rx="20"/><rect x="76" y="102" width="352" height="20" class="appbar"/><circle cx="98" cy="94" r="2" class="sensor"/><text x="120" y="101" class="title">マイリスト</text><text x="120" y="117" class="tinyDim">お気に入り / AI分析</text><rect x="316" y="80" width="32" height="32" class="icon activeIcon" rx="16"/><text x="332" y="101" class="iconText" text-anchor="middle">AI</text><rect x="354" y="80" width="32" height="32" class="icon" rx="16"/><text x="370" y="101" class="iconText" text-anchor="middle">＋</text><rect x="392" y="80" width="32" height="32" class="icon" rx="16"/><text x="408" y="101" class="iconText" text-anchor="middle">⋮</text><rect x="90" y="144" width="156" height="74" class="card" rx="8"/><text x="104" y="170" class="metric">428</text><text x="104" y="196" class="metricLabel">お気に入り</text><rect x="256" y="144" width="156" height="74" class="card" rx="8"/><text x="270" y="170" class="metric">186</text><text x="270" y="196" class="metricLabel">未整理</text><rect x="90" y="232" width="156" height="74" class="card" rx="8"/><text x="104" y="258" class="metric">324</text><text x="104" y="284" class="metricLabel">AI未分析</text><rect x="256" y="232" width="156" height="74" class="card" rx="8"/><text x="270" y="258" class="metric">91</text><text x="270" y="284" class="metricLabel">ベクトル未分析</text><text x="92" y="340" class="cardTitle">タグカテゴリ</text><rect x="90" y="362" width="324" height="48" class="card" rx="8"/><rect x="90" y="362" width="4" height="48" class="accentBlue" rx="2"/><text x="106" y="388" class="cardTitle">人物</text><text x="106" y="410" class="smallDim">82 件</text><text x="386" y="398" class="menu" text-anchor="middle">⋮</text><rect x="90" y="420" width="324" height="48" class="card" rx="8"/><rect x="90" y="420" width="4" height="48" class="accentGreen" rx="2"/><text x="106" y="446" class="cardTitle">背景</text><text x="106" y="468" class="smallDim">123 件</text><text x="386" y="456" class="menu" text-anchor="middle">⋮</text><rect x="90" y="478" width="324" height="48" class="card" rx="8"/><rect x="90" y="478" width="4" height="48" class="accentYellow" rx="2"/><text x="106" y="504" class="cardTitle">ポーズ</text><text x="106" y="526" class="smallDim">164 件</text><text x="386" y="514" class="menu" text-anchor="middle">⋮</text><rect x="90" y="536" width="324" height="48" class="card" rx="8"/><rect x="90" y="536" width="4" height="48" class="accentRed" rx="2"/><text x="106" y="562" class="cardTitle">R-18</text><text x="106" y="584" class="smallDim">205 件</text><text x="386" y="572" class="menu" text-anchor="middle">⋮</text><rect x="90" y="594" width="324" height="48" class="card" rx="8"/><rect x="90" y="594" width="4" height="48" class="accentBlue" rx="2"/><text x="106" y="620" class="cardTitle">未翻訳タグ</text><text x="106" y="642" class="smallDim">246 件</text><text x="386" y="630" class="menu" text-anchor="middle">⋮</text><rect x="110" y="460" width="284" height="220" class="scrim" rx="12"/><rect x="118" y="468" width="268" height="204" class="dialog" rx="12"/><text x="136" y="502" class="dialogTitle">AI解析の実行</text><text x="136" y="532" class="dialogText">対象画像: 324 枚</text><text x="136" y="558" class="dialogText">タグ推論: Danbooru ONNX</text><text x="136" y="584" class="dialogText">年齢判定: SFW / R-15 / R-18</text><text x="136" y="610" class="dialogText">ベクトル生成: MediaPipe</text><rect x="262" y="632" width="104" height="32" class="primaryBtn" rx="16"/><text x="314" y="653" class="btnText" text-anchor="middle">開始</text><rect x="76" y="690" width="352" height="64" class="bottomBar"/><circle cx="111" cy="713" r="15" class="navCircle"/><text x="111" y="718" class="navIcon" text-anchor="middle">H</text><text x="111" y="741" class="navText" text-anchor="middle">ホーム</text><circle cx="181" cy="713" r="15" class="navCircle"/><text x="181" y="718" class="navIcon" text-anchor="middle">F</text><text x="181" y="741" class="navText" text-anchor="middle">フォルダ</text><circle cx="252" cy="713" r="15" class="navCircleOn"/><text x="252" y="718" class="navIcon" text-anchor="middle">M</text><text x="252" y="741" class="navTextOn" text-anchor="middle">マイリスト</text><circle cx="322" cy="713" r="15" class="navCircle"/><text x="322" y="718" class="navIcon" text-anchor="middle">B</text><text x="322" y="741" class="navText" text-anchor="middle">本</text><circle cx="392" cy="713" r="15" class="navCircle"/><text x="392" y="718" class="navIcon" text-anchor="middle">T</text><text x="392" y="741" class="navText" text-anchor="middle">ゴミ箱</text><text x="486" y="52" class="docTitle">My List・AI分析UIモック</text><text x="486" y="82" class="docSub">実装画面の構成に合わせた詳細設計用モック</text><rect x="486" y="108" width="640" height="1" class="separator"/><line x1="188" y1="198" x2="506" y2="140" class="line"/><circle cx="506" cy="140" r="12" class="num"/><text x="506" y="144" class="numText" text-anchor="middle">1</text><text x="534" y="134" class="callTitle">集計カード</text><text x="534" y="158" class="callBody">お気に入り、未整理、AI未分析などの処理対象をひと目で確認します。</text><line x1="176" y1="388" x2="506" y2="204" class="line"/><circle cx="506" cy="204" r="12" class="num"/><text x="506" y="208" class="numText" text-anchor="middle">2</text><text x="534" y="198" class="callTitle">カテゴリ一覧</text><text x="534" y="222" class="callBody">保存済みタグや状態別リストから該当メディアへ移動します。</text><line x1="256" y1="514" x2="506" y2="268" class="line"/><circle cx="506" cy="268" r="12" class="num"/><text x="506" y="272" class="numText" text-anchor="middle">3</text><text x="534" y="262" class="callTitle">AI解析ダイアログ</text><text x="534" y="286" class="callBody">ONNXタグ推論、年齢判定、特徴ベクトル生成をまとめて実行します。</text><line x1="352" y1="94" x2="506" y2="332" class="line"/><circle cx="506" cy="332" r="12" class="num"/><text x="506" y="336" class="numText" text-anchor="middle">4</text><text x="534" y="326" class="callTitle">AIアクション</text><text x="534" y="350" class="callBody">未分析メディアの一括解析や進捗確認に入る導線です。</text></svg>

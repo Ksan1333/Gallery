@@ -1,18 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
-  <title id="title">お絵描き資料UIモック</title>
-  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#1d1a18}.field{fill:#111827;stroke:#475569}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
-  <rect class="bg" width="960" height="620"/>
-  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
-  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="128" y="72">お絵描き資料</text><text class="txt" x="74" y="72">☰</text><circle class="cyan" cx="92" cy="55" r="12"/><text class="num" x="87" y="61">1</text>
-  <rect class="card" x="76" y="122" width="280" height="66" rx="10"/><text class="small" x="98" y="152">🖌 キャラ立ち絵  ACTIVE</text><text class="small" x="98" y="174">資料 18件   🗑</text>
-  <rect class="card" x="76" y="206" width="280" height="66" rx="10"/><text class="small" x="98" y="236">✓ 背景練習  FINISHED</text><text class="small" x="98" y="258">資料 9件   🗑</text><circle class="cyan" cx="356" cy="126" r="12"/><text class="num" x="351" y="132">2</text>
-  <circle class="cyan" cx="340" cy="514" r="28"/><text class="num" x="335" y="520">3</text>
-  <rect class="field" x="76" y="316" width="280" height="44" rx="8"/><text class="small" x="96" y="344">検索ワード... 🔍  📷</text><circle class="cyan" cx="348" cy="316" r="12"/><text class="num" x="343" y="322">4</text>
-  <rect class="card" x="76" y="380" width="130" height="110" rx="10"/><text class="small" x="98" y="438">資料画像</text><rect class="card" x="226" y="380" width="130" height="110" rx="10"/><text class="small" x="244" y="438">URL資料</text><circle class="cyan" cx="358" cy="384" r="12"/><text class="num" x="353" y="390">5</text>
-  <text class="txt" x="470" y="76">画面説明</text>
-  <text class="small" x="470" y="122">1. 資料プロジェクト一覧のメニュー。</text>
-  <text class="small" x="470" y="158">2. 制作単位のプロジェクトカード。進行中/完了を表示。</text>
-  <text class="small" x="470" y="194">3. 新規プロジェクト作成FAB。</text>
-  <text class="small" x="470" y="230">4. WebView検索バー。検索とスクショ保存。</text>
-  <text class="small" x="470" y="266">5. 資料グリッド。タップで全画面参照、保存/削除操作。</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title"><title id="title">お絵描き資料UIモック</title><defs>
+  <linearGradient id="thumbGrad0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6bff"/><stop offset="1" stop-color="#101827"/></linearGradient>
+  <linearGradient id="thumbGrad1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#19b38b"/><stop offset="1" stop-color="#162021"/></linearGradient>
+  <linearGradient id="thumbGrad2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ce5f4a"/><stop offset="1" stop-color="#271715"/></linearGradient>
+  <linearGradient id="thumbGrad3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9b94e"/><stop offset="1" stop-color="#201b12"/></linearGradient>
+  <linearGradient id="thumbGrad4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ad7cff"/><stop offset="1" stop-color="#1a1628"/></linearGradient>
+  <linearGradient id="thumbGrad5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3659d"/><stop offset="1" stop-color="#27151d"/></linearGradient>
+  <linearGradient id="thumbGrad6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4fb6d8"/><stop offset="1" stop-color="#111c22"/></linearGradient>
+  <linearGradient id="thumbGrad7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8aa25e"/><stop offset="1" stop-color="#151b14"/></linearGradient>
+</defs><style>
+  svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
+  .phone{fill:#08090b;stroke:#2a2f36;stroke-width:3}
+  .screen{fill:#111418}
+  .appbar,.bottomBar{fill:#050607}
+  .sensor{fill:#303640}
+  .title{fill:#fff;font-size:17px;font-weight:700}
+  .docTitle{fill:#f8fbff;font-size:26px;font-weight:800}
+  .docSub{fill:#9ea7b3;font-size:14px}
+  .txt{fill:#eaf0f6;font-size:13px}
+  .small{fill:#d8dee6;font-size:12px}
+  .tinyDim{fill:#89929d;font-size:10px}
+  .smallDim{fill:#9aa3ad;font-size:11px}
+  .chip{fill:#1b2027;stroke:#333a44;stroke-width:1}
+  .chip.selected{fill:#063b43;stroke:#00d5ef}
+  .chipText{fill:#dfe9ef;font-size:11px}
+  .icon{fill:#171c22;stroke:#2e3540}
+  .activeIcon{fill:#04353e;stroke:#00d5ef}
+  .iconText{fill:#f2f7fb;font-size:14px;font-weight:700}
+  .thumb{stroke:#222a33;stroke-width:1}
+  .badge{fill:#050607cc}
+  .badgeText{fill:#fff;font-size:9px;font-weight:700}
+  .star{fill:#ffdb65;font-size:15px}
+  .section{fill:#181d23}
+  .card{fill:#1a1f26;stroke:#303844;stroke-width:1}
+  .card2{fill:#131820;stroke:#333d49;stroke-width:1}
+  .cardTitle{fill:#f6f8fb;font-size:13px;font-weight:700}
+  .metric{fill:#ffffff;font-size:21px;font-weight:800}
+  .metricLabel{fill:#9ca6b2;font-size:10px}
+  .menu{fill:#b8c0cb;font-size:17px}
+  .accentBlue{fill:#00c8e6}.accentGreen{fill:#25d68a}.accentYellow{fill:#ffd25d}.accentRed{fill:#ff6565}
+  .scrim{fill:#00000099}
+  .dialog{fill:#20252d;stroke:#48505c}
+  .dialogTitle{fill:#fff;font-size:16px;font-weight:800}
+  .dialogText{fill:#dce4ec;font-size:12px}
+  .primaryBtn{fill:#00bcd4}
+  .secondaryBtn{fill:#242b34;stroke:#46505c}
+  .btnText{fill:#001216;font-size:12px;font-weight:800}
+  .navCircle{fill:#1a2028}.navCircleOn{fill:#00bcd4}
+  .navIcon{fill:#fff;font-size:11px;font-weight:900}
+  .navText{fill:#8f99a5;font-size:9px}.navTextOn{fill:#dffaff;font-size:9px;font-weight:800}
+  .scrollTrack{fill:#20252c}.scrollThumb{fill:#00bcd4}.bubble{fill:#00bcd4}
+  .bubbleText{fill:#001216;font-size:11px;font-weight:800}
+  .num{fill:#00bcd4}.numText{fill:#001216;font-size:12px;font-weight:900}
+  .line{stroke:#00bcd4;stroke-width:1.4;stroke-opacity:.55}
+  .callTitle{fill:#f4f8fc;font-size:15px;font-weight:800}
+  .callBody{fill:#b5c0cc;font-size:12px}
+  .separator{fill:#303844}
+  .progressBg{fill:#2a313b}.progress{fill:#00bcd4}
+  .input{fill:#11161c;stroke:#4c5664}
+  .tabOn{fill:#00bcd4}.tabOff{fill:#222932}
+  .tabTextOn{fill:#001216;font-size:11px;font-weight:800}.tabText{fill:#cbd4dd;font-size:11px}
+</style><rect x="58" y="38" width="388" height="744" class="phone" rx="34"/><rect x="76" y="66" width="352" height="688" class="screen" rx="20"/><rect x="76" y="66" width="352" height="56" class="appbar" rx="20"/><rect x="76" y="102" width="352" height="20" class="appbar"/><circle cx="98" cy="94" r="2" class="sensor"/><text x="120" y="101" class="title">お絵描き資料</text><text x="120" y="117" class="tinyDim">参照プロジェクト</text><rect x="354" y="80" width="32" height="32" class="icon activeIcon" rx="16"/><text x="370" y="101" class="iconText" text-anchor="middle">＋</text><rect x="392" y="80" width="32" height="32" class="icon" rx="16"/><text x="408" y="101" class="iconText" text-anchor="middle">⋮</text><rect x="90" y="144" width="324" height="72" class="card" rx="8"/><rect x="102" y="156" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad0)"/><text x="110" y="175" class="star" text-anchor="middle">★</text><rect x="132" y="156" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad1)"/><rect x="162" y="156" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad2)"/><text x="208" y="174" class="cardTitle">キャラ立ち絵 参考</text><text x="208" y="196" class="smallDim">進行中 / 36 枚</text><text x="394" y="186" class="menu" text-anchor="middle">⋮</text><rect x="90" y="230" width="324" height="72" class="card" rx="8"/><rect x="102" y="242" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad1)"/><rect x="132" y="242" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad2)"/><rect x="162" y="242" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad3)"/><text x="208" y="260" class="cardTitle">手とポーズ資料</text><text x="208" y="282" class="smallDim">進行中 / 18 枚</text><text x="394" y="272" class="menu" text-anchor="middle">⋮</text><rect x="90" y="316" width="324" height="72" class="card" rx="8"/><rect x="102" y="328" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad2)"/><rect x="132" y="328" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad3)"/><rect x="162" y="328" width="26" height="48" class="thumb" rx="7" fill="url(#thumbGrad4)"/><text x="208" y="346" class="cardTitle">背景ラフ用</text><text x="208" y="368" class="smallDim">完了 / 54 枚</text><text x="394" y="358" class="menu" text-anchor="middle">⋮</text><rect x="90" y="438" width="324" height="170" class="card2" rx="10"/><text x="106" y="466" class="dialogTitle">プロジェクト詳細</text><rect x="106" y="484" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad0)"/><text x="140" y="503" class="star" text-anchor="middle">★</text><rect x="164" y="484" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad1)"/><rect x="222" y="484" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad2)"/><rect x="227" y="514" width="42" height="17" class="badge" rx="8"/><text x="234" y="527" class="badgeText">GIF</text><rect x="280" y="484" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad3)"/><rect x="338" y="484" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad4)"/><rect x="106" y="542" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad5)"/><rect x="111" y="572" width="42" height="17" class="badge" rx="8"/><text x="118" y="585" class="badgeText">00:12</text><text x="140" y="561" class="star" text-anchor="middle">★</text><rect x="164" y="542" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad6)"/><rect x="222" y="542" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad7)"/><rect x="280" y="542" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad0)"/><rect x="338" y="542" width="52" height="52" class="thumb" rx="7" fill="url(#thumbGrad1)"/><rect x="343" y="572" width="42" height="17" class="badge" rx="8"/><text x="350" y="585" class="badgeText">GIF</text><rect x="106" y="598" width="78" height="28" class="chip selected" rx="14"/><text x="118" y="616" class="chipText">Web検索</text><rect x="194" y="598" width="98" height="28" class="chip" rx="14"/><text x="206" y="616" class="chipText">スクショ保存</text><rect x="118" y="626" width="268" height="116" class="scrim" rx="12"/><rect x="126" y="634" width="252" height="100" class="dialog" rx="12"/><text x="144" y="668" class="dialogTitle">完了確認</text><text x="144" y="698" class="dialogText">一時フォルダから整理します。</text><rect x="254" y="694" width="104" height="32" class="primaryBtn" rx="16"/><text x="306" y="715" class="btnText" text-anchor="middle">完了</text><text x="486" y="52" class="docTitle">お絵描き資料UIモック</text><text x="486" y="82" class="docSub">実装画面の構成に合わせた詳細設計用モック</text><rect x="486" y="108" width="640" height="1" class="separator"/><line x1="340" y1="94" x2="506" y2="140" class="line"/><circle cx="506" cy="140" r="12" class="num"/><text x="506" y="144" class="numText" text-anchor="middle">1</text><text x="534" y="134" class="callTitle">プロジェクト追加</text><text x="534" y="158" class="callBody">制作テーマごとに一時資料フォルダを作成します。</text><line x1="224" y1="176" x2="506" y2="204" class="line"/><circle cx="506" cy="204" r="12" class="num"/><text x="506" y="208" class="numText" text-anchor="middle">2</text><text x="534" y="198" class="callTitle">プロジェクト一覧</text><text x="534" y="222" class="callBody">代表画像、状態、資料枚数をカードで表示します。</text><line x1="238" y1="520" x2="506" y2="268" class="line"/><circle cx="506" cy="268" r="12" class="num"/><text x="506" y="272" class="numText" text-anchor="middle">3</text><text x="534" y="262" class="callTitle">資料グリッド</text><text x="534" y="286" class="callBody">Web検索や画像長押しで追加した参考画像をまとめて参照します。</text><line x1="246" y1="676" x2="506" y2="332" class="line"/><circle cx="506" cy="332" r="12" class="num"/><text x="506" y="336" class="numText" text-anchor="middle">4</text><text x="534" y="326" class="callTitle">完了フロー</text><text x="534" y="350" class="callBody">制作終了時に一時資料を整理し、プロジェクトを完了状態にします。</text></svg>
