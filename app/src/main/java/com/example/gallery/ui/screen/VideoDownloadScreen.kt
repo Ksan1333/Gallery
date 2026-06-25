@@ -86,6 +86,7 @@ import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.entity.VideoDownloadEntity
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.util.VideoDownloadUrlUtils
 import com.squareup.gifencoder.GifEncoder
 import com.squareup.gifencoder.ImageOptions
 import kotlinx.coroutines.Dispatchers
@@ -592,22 +593,7 @@ private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
     }
 }
 
-private fun buildXApiUrls(baseUrl: String): List<String> {
-    val urlCandidates = mutableListOf<String>()
-    listOf("api.fxtwitter.com", "api.vxtwitter.com", "api.fixupx.com").forEach { host ->
-        urlCandidates += when {
-            baseUrl.contains("x.com") -> baseUrl.replace("x.com", host)
-            baseUrl.contains("twitter.com") -> baseUrl.replace("twitter.com", host)
-            else -> baseUrl
-        }
-    }
-    X_STATUS_ID_REGEX.find(baseUrl)?.groupValues?.getOrNull(1)?.let { statusId ->
-        urlCandidates += "https://api.fxtwitter.com/status/$statusId"
-        urlCandidates += "https://api.vxtwitter.com/status/$statusId"
-        urlCandidates += "https://api.fixupx.com/status/$statusId"
-    }
-    return urlCandidates.distinct()
-}
+private fun buildXApiUrls(baseUrl: String): List<String> = VideoDownloadUrlUtils.buildXApiUrls(baseUrl)
 
 private fun extractMediaUrlCandidates(json: JSONObject): List<MediaUrlCandidate> {
     val tweet = json.optJSONObject("tweet") ?: json
@@ -727,55 +713,21 @@ private fun JSONArray.toStringCandidates(isGifSource: Boolean = false): List<Med
 }
 
 private fun String.isXStatusUrl(): Boolean {
-    val lower = lowercase(Locale.US)
-    return (lower.contains("x.com") || lower.contains("twitter.com")) && lower.contains("/status/")
+    return VideoDownloadUrlUtils.isXStatusUrl(this)
 }
-
-private val X_STATUS_ID_REGEX = Regex("""/status/(\d+)""")
 
 private fun String.isDirectMediaUrl(): Boolean {
-    if (isBlank()) return false
-    val lower = lowercase(Locale.US)
-    return lower.isMp4Url() ||
-        lower.contains(".gif") ||
-        lower.contains("format=gif") ||
-        lower.contains(".webp") ||
-        lower.contains("format=webp") ||
-        lower.contains(".jpg") ||
-        lower.contains(".jpeg") ||
-        lower.contains("format=jpg") ||
-        lower.contains("format=jpeg") ||
-        lower.contains(".png") ||
-        lower.contains("format=png")
+    return VideoDownloadUrlUtils.isDirectMediaUrl(this)
 }
 
-private fun String.isMp4Url(): Boolean = lowercase(Locale.US).contains(".mp4")
+private fun String.isMp4Url(): Boolean = VideoDownloadUrlUtils.isMp4Url(this)
 
 private fun String.isGifUrl(): Boolean {
-    val lower = lowercase(Locale.US)
-    return lower.contains(".gif") || lower.contains("format=gif")
+    return VideoDownloadUrlUtils.isGifUrl(this)
 }
 
 private fun detectMediaType(url: String, contentTypeHeader: String?): Pair<String, String> {
-    val lowerUrl = url.lowercase(Locale.US)
-    val contentType = contentTypeHeader
-        ?.substringBefore(";")
-        ?.trim()
-        ?.lowercase(Locale.US)
-        .orEmpty()
-
-    return when {
-        contentType == "image/gif" || lowerUrl.contains(".gif") || lowerUrl.contains("format=gif") -> "gif" to "image/gif"
-        contentType == "image/webp" || lowerUrl.contains(".webp") || lowerUrl.contains("format=webp") -> "webp" to "image/webp"
-        contentType == "image/png" || lowerUrl.contains(".png") || lowerUrl.contains("format=png") -> "png" to "image/png"
-        contentType == "image/jpeg" ||
-            lowerUrl.contains(".jpg") ||
-            lowerUrl.contains(".jpeg") ||
-            lowerUrl.contains("format=jpg") ||
-            lowerUrl.contains("format=jpeg") -> "jpg" to "image/jpeg"
-        contentType == "video/mp4" || lowerUrl.contains(".mp4") -> "mp4" to "video/mp4"
-        else -> "mp4" to "video/mp4"
-    }
+    return VideoDownloadUrlUtils.detectMediaType(url, contentTypeHeader)
 }
 
 fun startDownloadTask(
