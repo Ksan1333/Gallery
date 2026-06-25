@@ -1,18 +1,26 @@
-# My List・AI分析 詳細設計
+﻿# My List・AI分析 詳細設計
 
 ## 1. 概要
 
 お気に入り、未整理、AI 未分析、ベクトル未分析、タグカテゴリを My List として表示し、AI 分析やカテゴリ別閲覧へ接続する。
 
-## 2. お客さん目線の説明
+## 2. 利用者向け機能説明
 
 自分が整理したいものだけをまとめて見られる画面です。まだタグがない画像、AI で分析していない画像、お気に入り、タグごとのまとまりをすぐ開けます。AI 分析は期間を選んで実行でき、進捗も確認できます。
 
-## 3. エンジニア目線の説明
+## 3. 開発者向け技術説明
 
 `MyListScreen` は `MediaRepository` の Flow と metadata map からカテゴリを組み立てる。分析開始時は Navigation で `analysis/{type}/{periodDays}` へ遷移し、`AnalysisService` が foreground service として対象メディアを順次処理する。
 
 ## 4. 画面設計
+
+### 4.1. 画面の説明
+
+My List は、全メディアを別の切り口で再分類して見せる整理用ダッシュボードである。お気に入り、未整理、AI 未分析、ベクトル未分析、タグカテゴリなど、ユーザーが次に整理したい対象をカードやカテゴリとして表示する。
+
+カテゴリを選ぶと、その条件に一致するメディア一覧へ移動する。AI 分析の導線では、分析種別と対象期間を選び、進捗画面で現在処理中のファイルや完了率を確認する。ユーザーにとっては「整理残り」と「AI に任せる作業」を見つける入口になる。
+
+### 4.2. 画面要素
 
 | 領域 | 内容 |
 | --- | --- |
@@ -20,6 +28,33 @@
 | カテゴリ詳細 | `CategoryScreen` で対象メディアをグリッド表示 |
 | 分析起動 | 分析種別と対象期間を選択 |
 | 分析進捗 | `AnalysisProgressScreen` で進捗、キャンセル、完了後 My List 復帰 |
+
+### 4.3. ユースケース図
+
+```mermaid
+flowchart LR
+    User["利用者"] --> UC1(["整理カテゴリを見る"])
+    User --> UC2(["タグカテゴリを開く"])
+    User --> UC3(["未整理メディアを確認する"])
+    User --> UC4(["AI分析を開始する"])
+    User --> UC5(["分析進捗を確認する"])
+    User --> UC6(["分析をキャンセルする"])
+    UC4 --> System(["AI分析サービス"])
+```
+
+### 4.4. 画面/操作フロー
+
+```mermaid
+flowchart TD
+    Open["My List 表示"] --> Build["お気に入り/未整理/未分析/タグカテゴリを生成"]
+    Build --> Select{"操作選択"}
+    Select -->|カテゴリを開く| Category["CategoryScreen で一覧表示"]
+    Select -->|AI分析| Period["対象期間を選択"]
+    Period --> Progress["AnalysisProgressScreen"]
+    Progress --> Service["AnalysisService 実行"]
+    Service --> Done{"完了/キャンセル"}
+    Done --> MyList["My List に戻る"]
+```
 
 ## 5. 関連 DB
 
@@ -102,3 +137,14 @@ sequenceDiagram
 - 動画は AI タグ・ベクトル分析対象から除外する。
 - 端末温度が高い場合は `AnalysisService` がクールダウンまたは一時停止する。
 - `AUTO_RATING` は設計上の分析種別として扱われるが、現状コードでは主にタグ分析とベクトル分析が実処理の中心。
+
+## 10. 利用 API・外部連携
+
+| API / ライブラリ | 用途 |
+| --- | --- |
+| ONNX Runtime Android | AI タグ推論 |
+| MediaPipe Tasks Vision Image Embedder | 画像特徴ベクトル生成 |
+| OkHttp | モデル・タグファイル取得 |
+| Android Foreground Service | 長時間分析処理 |
+| Android Notification | 分析進捗通知 |
+| Room | 分析結果、タグ、ベクトル保存 |
