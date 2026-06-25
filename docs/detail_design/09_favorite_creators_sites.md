@@ -28,7 +28,18 @@
 | `FavoriteSitesScreen` | サイトカード一覧、サイト編集、検索、import/export |
 | WebView Dialog | Google 検索から URL を拾う |
 
-### 4.3. ユースケース図
+### 4.3. UIモック
+
+![お気に入り作家・サイトUIモック](../images/detail_design/09_favorite_creators_sites_ui.svg)
+
+| 番号 | UI部品 | 機能 |
+| --- | --- | --- |
+| 1 | 上部操作 | Export、Import、編集モード切替を行う。 |
+| 2 | 作家カード | 作家名と X / pixiv / Support / 任意サイトのリンクを管理する。 |
+| 3 | サイトカード | サイト名、URL、説明をカードとして管理する。 |
+| 4 | 検索WebView | URL未入力時にGoogle検索し、選択URLを入力欄へ反映する。 |
+
+### 4.4. ユースケース図
 
 ```mermaid
 flowchart LR
@@ -40,7 +51,7 @@ flowchart LR
     User --> UC6(["JSONを読み込む"])
 ```
 
-### 4.4. 画面/操作フロー
+### 4.5. 画面/操作フロー
 
 ```mermaid
 flowchart TD

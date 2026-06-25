@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">お気に入り作家・サイトUIモック</title>
+  <style>.bg{fill:#11100f}.phone{fill:#11100f;stroke:#4b4038;stroke-width:3}.bar{fill:#11100f}.card{fill:#1d1a18;stroke:#4b4038}.field{fill:#28231f}.accent{fill:#d28a5e}.txt{font:600 18px system-ui,sans-serif;fill:#f4efe8}.small{font:500 14px system-ui,sans-serif;fill:#b8ada2}.num{font:700 16px system-ui,sans-serif;fill:#111827}</style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="170" y="72">Creators</text><text class="txt" x="74" y="72">☰</text><text class="small" x="294" y="72">↓  ↑  ✎</text><circle class="accent" cx="338" cy="55" r="12"/><text class="num" x="333" y="61">1</text>
+  <rect class="card" x="76" y="122" width="280" height="128" rx="10"/><text class="txt" x="96" y="154">Creator name</text><rect class="field" x="96" y="174" width="240" height="30" rx="6"/><text class="small" x="108" y="195">X    https://x.com/...</text><rect class="field" x="96" y="210" width="240" height="30" rx="6"/><text class="small" x="108" y="231">pixiv    https://...</text><circle class="accent" cx="352" cy="126" r="12"/><text class="num" x="347" y="132">2</text>
+  <rect class="card" x="76" y="278" width="280" height="116" rx="10"/><text class="txt" x="96" y="310">Favorite Site</text><text class="small" x="96" y="338">URL と説明をカードで管理</text><text class="small" x="96" y="366">Open in browser  ↗</text><circle class="accent" cx="352" cy="282" r="12"/><text class="num" x="347" y="288">3</text>
+  <rect class="card" x="92" y="430" width="248" height="88" rx="14"/><text class="small" x="112" y="462">Google検索WebView</text><text class="small" x="112" y="490">最初に開いたURLを自動入力</text><circle class="accent" cx="332" cy="434" r="12"/><text class="num" x="327" y="440">4</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. Export、Import、編集モード切替。</text>
+  <text class="small" x="470" y="158">2. 作家カード。X、pixiv、Support、任意サイトを登録。</text>
+  <text class="small" x="470" y="194">3. サイトカード。名前、URL、説明を管理。</text>
+  <text class="small" x="470" y="230">4. URL未入力時のGoogle検索補助。</text>
+</svg>

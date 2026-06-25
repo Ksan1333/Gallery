@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">メディアビューアUIモック</title>
+  <style>.bg{fill:#0b0b0f}.phone{fill:#000;stroke:#334155;stroke-width:3}.media{fill:#1e293b}.panel{fill:#111827}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="media" x="78" y="96" width="300" height="360" rx="10"/><text class="txt" x="174" y="286">Image / GIF / Video</text><circle class="cyan" cx="375" cy="112" r="12"/><text class="num" x="370" y="118">1</text>
+  <text class="txt" x="74" y="72">×</text><text class="small" x="286" y="72">♡  ⟳  ⋮</text><circle class="cyan" cx="314" cy="55" r="12"/><text class="num" x="309" y="61">2</text>
+  <rect class="panel" x="78" y="472" width="300" height="58" rx="14"/><text class="small" x="98" y="498">▶  00:12 ━━━━━ 01:20  🔇</text><text class="small" x="118" y="520">◀ frame     frame ▶</text><circle class="cyan" cx="366" cy="484" r="12"/><text class="num" x="361" y="490">3</text>
+  <rect class="panel" x="78" y="536" width="300" height="34" rx="12"/><text class="small" x="106" y="558">タグ  ファイル情報  関連  壁紙  保存</text><circle class="cyan" cx="370" cy="548" r="12"/><text class="num" x="365" y="554">4</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. メディア表示領域。左右スワイプで前後へ移動。</text>
+  <text class="small" x="470" y="158">2. 閉じる、お気に入り、回転、その他メニュー。</text>
+  <text class="small" x="470" y="194">3. 動画時の再生、シーク、ミュート、フレーム送り。</text>
+  <text class="small" x="470" y="230">4. 詳細、タグ、関連、壁紙、フレーム保存などの操作。</text>
+  <text class="small" x="470" y="282">ジェスチャ: ピンチズーム、ダブルタップ、パン、上下スワイプ。</text>
+</svg>

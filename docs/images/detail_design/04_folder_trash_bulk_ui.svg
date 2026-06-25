@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">フォルダ・ゴミ箱・一括編集UIモック</title>
+  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#1f2937}.warn{fill:#7f1d1d}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="170" y="72">Folders</text><text class="txt" x="74" y="72">☰</text><text class="small" x="326" y="72">＋</text><circle class="cyan" cx="338" cy="55" r="12"/><text class="num" x="333" y="61">1</text>
+  <rect class="card" x="76" y="122" width="280" height="54" rx="9"/><text class="small" x="100" y="154">📁 Camera  1,240件  ⋮</text>
+  <rect class="card" x="76" y="190" width="280" height="54" rx="9"/><text class="small" x="100" y="222">📁 Downloads  320件  ⋮</text><circle class="cyan" cx="365" cy="126" r="12"/><text class="num" x="360" y="132">2</text>
+  <rect x="76" y="274" width="86" height="86" rx="8" fill="#334155"/><rect x="174" y="274" width="86" height="86" rx="8" fill="#334155"/><rect x="272" y="274" width="86" height="86" rx="8" fill="#334155"/><circle class="cyan" cx="86" cy="284" r="12"/><text class="num" x="81" y="290">3</text>
+  <rect class="bar" x="70" y="398" width="292" height="48" rx="14"/><text class="small" x="94" y="428">選択中 8件  移動  編集  ゴミ箱</text><circle class="cyan" cx="350" cy="398" r="12"/><text class="num" x="345" y="404">4</text>
+  <rect class="warn" x="76" y="476" width="280" height="54" rx="9"/><text class="small" x="102" y="509">Trash: 復元 / 完全削除</text><circle class="cyan" cx="348" cy="476" r="12"/><text class="num" x="343" y="482">5</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. 新規フォルダ作成。DCIM直下への追加導線。</text>
+  <text class="small" x="470" y="158">2. 管理フォルダ一覧。メニューからサムネイル設定など。</text>
+  <text class="small" x="470" y="194">3. フォルダ内グリッド。通常ギャラリーと同じ操作感。</text>
+  <text class="small" x="470" y="230">4. 選択モード。移動、タグ/評価編集、ゴミ箱へ接続。</text>
+  <text class="small" x="470" y="266">5. ゴミ箱では復元と完全削除を明確に分ける。</text>
+</svg>

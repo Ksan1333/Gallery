@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">共通基盤UIモック</title>
+  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#1f2937}.overlay{fill:#0f172a;stroke:#22d3ee}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="160" y="72">Gallery</text><text class="txt" x="74" y="72">☰</text><circle class="cyan" cx="92" cy="55" r="12"/><text class="num" x="87" y="61">1</text>
+  <rect class="card" x="76" y="124" width="280" height="260" rx="12"/><text class="small" x="108" y="166">通常の機能画面</text><text class="small" x="108" y="202">Home / Folder / MyList</text><text class="small" x="108" y="238">Books / References</text>
+  <rect class="overlay" x="92" y="300" width="248" height="106" rx="16"/><text class="txt" x="116" y="334">起動タスク実行中</text><text class="small" x="116" y="362">サムネイル作成  45%</text><rect x="116" y="378" width="184" height="10" rx="5" fill="#334155"/><rect x="116" y="378" width="86" height="10" rx="5" fill="#22d3ee"/><circle class="cyan" cx="332" cy="304" r="12"/><text class="num" x="327" y="310">2</text>
+  <rect class="bar" x="48" y="524" width="360" height="60" rx="20"/><text class="small" x="90" y="560">Home   Folders   MyList   Books   Trash</text><circle class="cyan" cx="376" cy="550" r="12"/><text class="num" x="371" y="556">3</text>
+  <rect class="card" x="92" y="430" width="248" height="58" rx="14"/><text class="small" x="114" y="464">AnalysisProgressScreen / Cancel</text><circle class="cyan" cx="332" cy="432" r="12"/><text class="num" x="327" y="438">4</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. Drawer。主要画面、ガイド、設定系へ移動。</text>
+  <text class="small" x="470" y="158">2. GlobalProgressOverlay。長時間処理を画面上に重ねる。</text>
+  <text class="small" x="470" y="194">3. BottomBar。主要機能の常設ナビゲーション。</text>
+  <text class="small" x="470" y="230">4. AI分析の専用進捗画面。キャンセル導線を持つ。</text>
+</svg>

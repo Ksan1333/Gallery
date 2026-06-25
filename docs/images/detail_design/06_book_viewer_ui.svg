@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">漫画ビューアUIモック</title>
+  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.page{fill:#e5e7eb}.card{fill:#1f2937}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.dark{font:600 18px system-ui,sans-serif;fill:#111827}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="182" y="72">Books</text><text class="txt" x="74" y="72">☰</text><text class="small" x="318" y="72">↻  🔖</text><circle class="cyan" cx="338" cy="55" r="12"/><text class="num" x="333" y="61">1</text>
+  <rect class="card" x="76" y="122" width="126" height="166" rx="10"/><rect class="page" x="98" y="142" width="82" height="108" rx="4"/><text class="small" x="100" y="272">book.zip</text>
+  <rect class="card" x="230" y="122" width="126" height="166" rx="10"/><rect class="page" x="252" y="142" width="82" height="108" rx="4"/><text class="small" x="254" y="272">book.pdf</text><circle class="cyan" cx="360" cy="126" r="12"/><text class="num" x="355" y="132">2</text>
+  <rect class="page" x="92" y="326" width="110" height="150" rx="4"/><text class="dark" x="126" y="406">P12</text><rect class="page" x="218" y="326" width="110" height="150" rx="4"/><text class="dark" x="252" y="406">P13</text><circle class="cyan" cx="330" cy="326" r="12"/><text class="num" x="325" y="332">3</text>
+  <rect class="bar" x="78" y="498" width="300" height="54" rx="14"/><text class="small" x="98" y="522">×  🔖  ⋮   Page 12/180</text><text class="small" x="118" y="544">Prev book   ━━━━━   Next book</text><circle class="cyan" cx="370" cy="500" r="12"/><text class="num" x="365" y="506">4</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. 再スキャン、しおり一覧、メニュー。</text>
+  <text class="small" x="470" y="158">2. ZIP/PDF作品カード。サムネイルとページ数を表示。</text>
+  <text class="small" x="470" y="194">3. ビューア。単ページ/見開き、右開き/左開きに対応。</text>
+  <text class="small" x="470" y="230">4. 閉じる、しおり、設定、ページスライダー、前後本移動。</text>
+</svg>

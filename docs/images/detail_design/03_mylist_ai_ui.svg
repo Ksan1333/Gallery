@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">My List・AI分析UIモック</title>
+  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#1f2937}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="178" y="72">My List</text><text class="txt" x="74" y="72">☰</text><text class="small" x="330" y="72">＋</text><circle class="cyan" cx="338" cy="55" r="12"/><text class="num" x="333" y="61">1</text>
+  <rect class="card" x="76" y="122" width="132" height="88" rx="10"/><text class="small" x="96" y="156">Favorites</text><text class="txt" x="96" y="188">128</text>
+  <rect class="card" x="224" y="122" width="132" height="88" rx="10"/><text class="small" x="244" y="156">未整理</text><text class="txt" x="244" y="188">42</text>
+  <rect class="card" x="76" y="226" width="132" height="88" rx="10"/><text class="small" x="96" y="260">AI未分析</text><text class="txt" x="96" y="292">305</text>
+  <rect class="card" x="224" y="226" width="132" height="88" rx="10"/><text class="small" x="244" y="260">ベクトル未分析</text><text class="txt" x="244" y="292">198</text><circle class="cyan" cx="365" cy="238" r="12"/><text class="num" x="360" y="244">2</text>
+  <rect class="card" x="76" y="342" width="280" height="46" rx="8"/><text class="small" x="96" y="371">tag: landscape  86件  ›</text>
+  <rect class="card" x="76" y="396" width="280" height="46" rx="8"/><text class="small" x="96" y="425">tag: character  64件  ›</text><circle class="cyan" cx="365" cy="350" r="12"/><text class="num" x="360" y="356">3</text>
+  <rect x="92" y="482" width="248" height="58" rx="18" fill="#0e7490"/><text class="txt" x="130" y="518">AI分析を開始</text><circle class="cyan" cx="330" cy="484" r="12"/><text class="num" x="325" y="490">4</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. タグ作成やメニューへの導線。</text>
+  <text class="small" x="470" y="158">2. 整理カテゴリ。タップで対象一覧へ移動。</text>
+  <text class="small" x="470" y="194">3. タグ別カテゴリ。件数と代表サムネイルを表示。</text>
+  <text class="small" x="470" y="230">4. 分析種別と期間を選び、進捗画面へ遷移。</text>
+</svg>

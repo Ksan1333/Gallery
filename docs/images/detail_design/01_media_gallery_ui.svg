@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">メディア一覧UIモック</title>
+  <style>
+    .bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#20242c}.cell{fill:#334155}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}.line{stroke:#22d3ee;stroke-width:2}
+  </style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/>
+  <text class="txt" x="150" y="72">Gallery</text>
+  <text class="txt" x="72" y="72">☰</text><circle class="cyan" cx="91" cy="55" r="12"/><text class="num" x="86" y="61">1</text>
+  <text class="small" x="302" y="70">🔍  ⋮</text>
+  <rect x="68" y="112" width="320" height="42" rx="8" fill="#151923"/>
+  <text class="small" x="84" y="138">列数 7  日付  画像/GIF/動画  並び替え</text><circle class="cyan" cx="375" cy="114" r="12"/><text class="num" x="370" y="120">2</text>
+  <text class="small" x="72" y="184">2026 / 06</text><circle class="cyan" cx="150" cy="176" r="12"/><text class="num" x="145" y="182">3</text>
+  <g transform="translate(68 200)">
+    <rect class="cell" x="0" y="0" width="58" height="58" rx="5"/><rect class="cell" x="66" y="0" width="58" height="58" rx="5"/><rect class="cell" x="132" y="0" width="58" height="58" rx="5"/><rect class="cell" x="198" y="0" width="58" height="58" rx="5"/><rect class="cell" x="264" y="0" width="58" height="58" rx="5"/>
+    <rect class="cell" x="0" y="66" width="58" height="58" rx="5"/><rect class="cell" x="66" y="66" width="58" height="58" rx="5"/><rect class="cell" x="132" y="66" width="58" height="58" rx="5"/><rect class="cell" x="198" y="66" width="58" height="58" rx="5"/><rect class="cell" x="264" y="66" width="58" height="58" rx="5"/>
+    <rect class="cell" x="0" y="132" width="58" height="58" rx="5"/><rect class="cell" x="66" y="132" width="58" height="58" rx="5"/><rect class="cell" x="132" y="132" width="58" height="58" rx="5"/><rect class="cell" x="198" y="132" width="58" height="58" rx="5"/><rect class="cell" x="264" y="132" width="58" height="58" rx="5"/>
+  </g>
+  <circle class="cyan" cx="370" cy="248" r="12"/><text class="num" x="365" y="254">4</text>
+  <rect x="80" y="420" width="296" height="50" rx="14" fill="#1f2937"/><text class="small" x="104" y="451">選択中 12件  ♥  フォルダ移動  編集  ⋮</text><circle class="cyan" cx="360" cy="420" r="12"/><text class="num" x="355" y="426">5</text>
+  <rect class="bar" x="48" y="524" width="360" height="60" rx="20"/><text class="small" x="90" y="560">Home   Folders   MyList   Books   Trash</text><circle class="cyan" cx="376" cy="550" r="12"/><text class="num" x="371" y="556">6</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. ドロワーを開き、主要機能へ移動する。</text>
+  <text class="small" x="470" y="158">2. メディア種別、年齢制限、ソート、列数を切り替える。</text>
+  <text class="small" x="470" y="194">3. 日/月/年などのグルーピング見出し。</text>
+  <text class="small" x="470" y="230">4. メディアセル。タップでビューア、長押しで選択。</text>
+  <text class="small" x="470" y="266">5. 選択モードの一括操作バー。</text>
+  <text class="small" x="470" y="302">6. ボトムナビ。ホーム、フォルダ、My List などへ移動。</text>
+</svg>

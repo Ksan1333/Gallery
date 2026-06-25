@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title">
+  <title id="title">お絵描き資料UIモック</title>
+  <style>.bg{fill:#101014}.phone{fill:#050505;stroke:#334155;stroke-width:3}.bar{fill:#000}.card{fill:#1d1a18}.field{fill:#111827;stroke:#475569}.cyan{fill:#22d3ee}.txt{font:600 18px system-ui,sans-serif;fill:#f8fafc}.small{font:500 14px system-ui,sans-serif;fill:#cbd5e1}.num{font:700 16px system-ui,sans-serif;fill:#0f172a}</style>
+  <rect class="bg" width="960" height="620"/>
+  <rect class="phone" x="48" y="36" width="360" height="548" rx="28"/>
+  <rect class="bar" x="48" y="36" width="360" height="58" rx="28"/><text class="txt" x="128" y="72">お絵描き資料</text><text class="txt" x="74" y="72">☰</text><circle class="cyan" cx="92" cy="55" r="12"/><text class="num" x="87" y="61">1</text>
+  <rect class="card" x="76" y="122" width="280" height="66" rx="10"/><text class="small" x="98" y="152">🖌 キャラ立ち絵  ACTIVE</text><text class="small" x="98" y="174">資料 18件   🗑</text>
+  <rect class="card" x="76" y="206" width="280" height="66" rx="10"/><text class="small" x="98" y="236">✓ 背景練習  FINISHED</text><text class="small" x="98" y="258">資料 9件   🗑</text><circle class="cyan" cx="356" cy="126" r="12"/><text class="num" x="351" y="132">2</text>
+  <circle class="cyan" cx="340" cy="514" r="28"/><text class="num" x="335" y="520">3</text>
+  <rect class="field" x="76" y="316" width="280" height="44" rx="8"/><text class="small" x="96" y="344">検索ワード... 🔍  📷</text><circle class="cyan" cx="348" cy="316" r="12"/><text class="num" x="343" y="322">4</text>
+  <rect class="card" x="76" y="380" width="130" height="110" rx="10"/><text class="small" x="98" y="438">資料画像</text><rect class="card" x="226" y="380" width="130" height="110" rx="10"/><text class="small" x="244" y="438">URL資料</text><circle class="cyan" cx="358" cy="384" r="12"/><text class="num" x="353" y="390">5</text>
+  <text class="txt" x="470" y="76">画面説明</text>
+  <text class="small" x="470" y="122">1. 資料プロジェクト一覧のメニュー。</text>
+  <text class="small" x="470" y="158">2. 制作単位のプロジェクトカード。進行中/完了を表示。</text>
+  <text class="small" x="470" y="194">3. 新規プロジェクト作成FAB。</text>
+  <text class="small" x="470" y="230">4. WebView検索バー。検索とスクショ保存。</text>
+  <text class="small" x="470" y="266">5. 資料グリッド。タップで全画面参照、保存/削除操作。</text>
+</svg>

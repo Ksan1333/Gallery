@@ -29,7 +29,18 @@
 | `TutorialDialog` | 初回チュートリアル |
 | Drawer / BottomBar | 主要機能への導線 |
 
-### 4.3. ユースケース図
+### 4.3. UIモック
+
+![共通基盤UIモック](../images/detail_design/10_shared_services_ui.svg)
+
+| 番号 | UI部品 | 機能 |
+| --- | --- | --- |
+| 1 | Drawer | 主要機能、ガイド、補助画面への入口を提供する。 |
+| 2 | GlobalProgressOverlay | 起動時タスクや分析などの進捗を現在画面の上に表示する。 |
+| 3 | BottomBar | ホーム、フォルダ、My List、漫画、ゴミ箱などへ移動する。 |
+| 4 | AnalysisProgressScreen | AI分析の専用進捗とキャンセル操作を提供する。 |
+
+### 4.4. ユースケース図
 
 ```mermaid
 flowchart LR
@@ -41,7 +52,7 @@ flowchart LR
     System --> UC6(["起動時タスクを実行する"])
 ```
 
-### 4.4. 画面/操作フロー
+### 4.5. 画面/操作フロー
 
 ```mermaid
 flowchart TD
