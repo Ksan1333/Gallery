@@ -46,7 +46,13 @@
 | 3 | GlobalProgressOverlay | 起動時タスク、サムネイル生成、AI分析などの進捗を現在画面の上に表示する。 |
 | 4 | 共通状態 | `GalleryState`、Room、Repository、サービス処理が各画面の状態を支える。 |
 
-### 4.4. ユースケース図
+### 4.4. 機能内画面遷移図
+
+現在画面、Drawer、基本機能、便利機能、使い方ガイド、このアプリについて、共通進捗オーバーレイの関係を、画面タイトル付きのミニUIモックと矢印で示す。
+
+![共通基盤 機能内画面遷移図](../images/detail_design/10_shared_services_transition.svg)
+
+### 4.5. ユースケース図
 
 ```mermaid
 flowchart LR
@@ -58,7 +64,7 @@ flowchart LR
     System --> UC6(["起動時タスクを実行する"])
 ```
 
-### 4.5. 画面/操作フロー
+### 4.6. 画面/操作フロー
 
 ```mermaid
 flowchart TD

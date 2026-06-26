@@ -45,7 +45,13 @@
 | 3 | お気に入りサイト | サイト名、説明、URLテンプレート、外部表示をカードとして管理する。 |
 | 4 | URL未入力時検索 | 作家/サイト登録時にGoogle検索し、選択URLを入力欄へ反映する。 |
 
-### 4.4. ユースケース図
+### 4.4. 機能内画面遷移図
+
+お気に入り作家、編集モード、検索ダイアログ、削除確認、お気に入りサイト、Import/Exportの流れを、画面タイトル付きのミニUIモックと矢印で示す。
+
+![お気に入り作家・サイト 機能内画面遷移図](../images/detail_design/09_favorite_creators_sites_transition.svg)
+
+### 4.5. ユースケース図
 
 ```mermaid
 flowchart LR
@@ -57,7 +63,7 @@ flowchart LR
     User --> UC6(["JSONを読み込む"])
 ```
 
-### 4.5. 画面/操作フロー
+### 4.6. 画面/操作フロー
 
 ```mermaid
 flowchart TD

@@ -46,7 +46,13 @@ My List は、全メディアを別の切り口で再分類して見せる整理
 | 3 | AI分析ダイアログ | 対象期間、対象枚数、予測時間を確認して分析開始する。 |
 | 4 | 分析後の導線 | 分析開始後は `AnalysisProgressScreen` へ遷移し、完了後にMy Listへ戻る。 |
 
-### 4.4. ユースケース図
+### 4.4. 機能内画面遷移図
+
+My List、タグカテゴリ一覧、AI分析ダイアログ、日付選択、分析進捗、ビューア表示の関係を、画面タイトル付きのミニUIモックと矢印で示す。
+
+![My List・AI分析 機能内画面遷移図](../images/detail_design/03_mylist_ai_transition.svg)
+
+### 4.5. ユースケース図
 
 ```mermaid
 flowchart LR
@@ -59,7 +65,7 @@ flowchart LR
     UC4 --> System(["AI分析サービス"])
 ```
 
-### 4.5. 画面/操作フロー
+### 4.6. 画面/操作フロー
 
 ```mermaid
 flowchart TD
