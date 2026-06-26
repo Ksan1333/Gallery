@@ -31,14 +31,20 @@
 
 ### 4.3. UIモック
 
+#### ナビゲーションドロワー
+
 ![共通基盤UIモック](../images/detail_design/10_shared_services_ui.svg)
+
+#### グローバル進捗オーバーレイ
+
+![共通進捗オーバーレイUIモック](../images/detail_design/10_global_progress_ui.svg)
 
 | 番号 | UI部品 | 機能 |
 | --- | --- | --- |
 | 1 | Drawer | 主要機能、ガイド、補助画面への入口を提供する。 |
-| 2 | GlobalProgressOverlay | 起動時タスクや分析などの進捗を現在画面の上に表示する。 |
-| 3 | BottomBar | ホーム、フォルダ、My List、漫画、ゴミ箱などへ移動する。 |
-| 4 | AnalysisProgressScreen | AI分析の専用進捗とキャンセル操作を提供する。 |
+| 2 | ドロワー項目 | 実装ラベルとアイコンでホーム、フォルダ、タグ、本、ゴミ箱、動画DLなどへ遷移する。 |
+| 3 | GlobalProgressOverlay | 起動時タスク、サムネイル生成、AI分析などの進捗を現在画面の上に表示する。 |
+| 4 | 共通状態 | `GalleryState`、Room、Repository、サービス処理が各画面の状態を支える。 |
 
 ### 4.4. ユースケース図
 
