@@ -4,232 +4,286 @@ from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 from textwrap import dedent
-from typing import Iterable
 
 
 OUT_DIR = Path(__file__).resolve().parent / "images" / "detail_design"
-W, H = 1200, 820
-PX, PY, PW, PH = 58, 38, 388, 744
+
+W, H = 920, 980
+PX, PY, PW, PH = 54, 38, 430, 900
 SX, SY, SW, SH = PX + 18, PY + 28, PW - 36, PH - 56
+LEGX = 532
+
+BLACK = "#000000"
+APP_BG = "#444444"
+CONTROL_BG = "#444444"
+CARD = "#1E1E1E"
+TEXT = "#FFFFFF"
+MUTED = "#9E9E9E"
+CYAN = "#00BCD4"
+X_BLUE = "#1DA1F2"
+CREATOR_BG = "#11100F"
+CREATOR_CARD = "#1D1A18"
+CREATOR_FIELD = "#28231F"
+CREATOR_INK = "#F4EFE8"
+CREATOR_MUTED = "#B8ADA2"
+CREATOR_ACCENT = "#D28A5E"
 
 
-@dataclass
-class Callout:
+@dataclass(frozen=True)
+class Legend:
     n: int
-    x: int
-    y: int
     title: str
     body: str
 
 
-def tag(name: str, attrs: dict[str, object] | None = None, body: str | None = None) -> str:
-    attrs = attrs or {}
-    attr = " ".join(f'{k.replace("_", "-")}="{escape(str(v), quote=True)}"' for k, v in attrs.items())
-    if attr:
-        attr = " " + attr
+def attrs(values: dict[str, object]) -> str:
+    return " ".join(f'{k.replace("_", "-")}="{escape(str(v), quote=True)}"' for k, v in values.items())
+
+
+def tag(name: str, values: dict[str, object], body: str | None = None) -> str:
+    a = attrs(values)
     if body is None:
-        return f"<{name}{attr}/>"
-    return f"<{name}{attr}>{body}</{name}>"
+        return f"<{name} {a}/>"
+    return f"<{name} {a}>{body}</{name}>"
 
 
-def text(x: int, y: int, value: str, cls: str = "txt", **attrs: object) -> str:
-    merged = {"x": x, "y": y, "class": cls, **attrs}
-    return tag("text", merged, escape(value))
+def rect(x: float, y: float, w: float, h: float, cls: str = "", **values: object) -> str:
+    data = {"x": x, "y": y, "width": w, "height": h}
+    if cls:
+        data["class"] = cls
+    data.update(values)
+    return tag("rect", data)
 
 
-def rect(x: int, y: int, w: int, h: int, cls: str = "panel", **attrs: object) -> str:
-    return tag("rect", {"x": x, "y": y, "width": w, "height": h, "class": cls, **attrs})
+def circle(x: float, y: float, r: float, cls: str = "", **values: object) -> str:
+    data = {"cx": x, "cy": y, "r": r}
+    if cls:
+        data["class"] = cls
+    data.update(values)
+    return tag("circle", data)
 
 
-def line(x1: int, y1: int, x2: int, y2: int, cls: str = "line") -> str:
+def text(x: float, y: float, value: str, cls: str = "txt", **values: object) -> str:
+    data = {"x": x, "y": y, "class": cls}
+    data.update(values)
+    return tag("text", data, escape(value))
+
+
+def line(x1: float, y1: float, x2: float, y2: float, cls: str = "line") -> str:
     return tag("line", {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "class": cls})
 
 
-def circle(x: int, y: int, r: int, cls: str = "dot") -> str:
-    return tag("circle", {"cx": x, "cy": y, "r": r, "class": cls})
+def marker(n: int, x: float, y: float) -> str:
+    return circle(x, y, 11, "marker") + text(x, y + 4, str(n), "markerText", text_anchor="middle")
 
 
-def number(n: int, x: int, y: int) -> str:
-    return (
-        circle(x, y, 12, "num")
-        + text(x, y + 4, str(n), "numText", **{"text-anchor": "middle"})
-    )
+def icon_text(x: float, y: float, label: str, cls: str = "iconLabel") -> str:
+    return text(x, y, label, cls, text_anchor="middle")
 
 
-def chip(x: int, y: int, label: str, selected: bool = False, w: int | None = None) -> str:
-    width = w or max(48, 18 + len(label) * 9)
-    cls = "chip selected" if selected else "chip"
-    return rect(x, y, width, 28, cls, rx=14) + text(x + 12, y + 18, label, "chipText")
-
-
-def icon_button(x: int, y: int, label: str, active: bool = False) -> str:
-    cls = "icon activeIcon" if active else "icon"
-    return rect(x, y, 32, 32, cls, rx=16) + text(x + 16, y + 21, label, "iconText", **{"text-anchor": "middle"})
-
-
-def phone_base(title: str, subtitle: str = "") -> list[str]:
-    e: list[str] = [
-        rect(PX, PY, PW, PH, "phone", rx=34),
-        rect(SX, SY, SW, SH, "screen", rx=20),
-        rect(SX, SY, SW, 56, "appbar", rx=20),
-        rect(SX, SY + 36, SW, 20, "appbar"),
-        circle(SX + 22, SY + 28, 2, "sensor"),
-        text(SX + 44, SY + 35, title, "title"),
+def phone(screen_bg: str = APP_BG) -> list[str]:
+    return [
+        rect(PX, PY, PW, PH, "device", rx=34),
+        rect(SX, SY, SW, SH, "screen", rx=18, fill=screen_bg),
+        circle(SX + SW / 2, SY - 10, 4, "camera"),
     ]
-    if subtitle:
-        e.append(text(SX + 44, SY + 51, subtitle, "tinyDim"))
-    return e
+
+
+def app_bar(title: str, left: str = "≡", actions: list[str] | None = None, centered: bool = False, bg: str = BLACK, fg: str = TEXT) -> str:
+    actions = actions or []
+    parts = [rect(SX, SY, SW, 56, fill=bg)]
+    if left:
+        parts.append(text(SX + 28, SY + 35, left, "barIcon", fill=fg, text_anchor="middle"))
+    tx = SX + SW / 2 if centered else SX + 58
+    parts.append(text(tx, SY + 36, title, "barTitle", fill=fg, text_anchor="middle" if centered else "start"))
+    for i, label in enumerate(reversed(actions)):
+        x = SX + SW - 28 - i * 38
+        parts.append(text(x, SY + 35, label, "barIconSmall", fill=fg, text_anchor="middle"))
+    return "".join(parts)
+
+
+def gallery_control_bar(disabled_filter: bool = False) -> str:
+    y = SY + 56
+    parts = [rect(SX, y, SW, 56, fill=CONTROL_BG, opacity=0.95)]
+    icons = [("F", MUTED if disabled_filter else TEXT), ("P", "#4CAF50"), ("S", MUTED if disabled_filter else TEXT)]
+    for i, (label, fill) in enumerate(icons):
+        x = SX + SW - 28 - (len(icons) - 1 - i) * 42
+        parts.append(circle(x, y + 28, 18, "iconCircle"))
+        parts.append(text(x, y + 34, label, "iconLabel", fill=fill, text_anchor="middle"))
+    return "".join(parts)
 
 
 def bottom_nav(active: str) -> str:
-    labels = [("ホーム", "H"), ("フォルダ", "F"), ("マイリスト", "M"), ("本", "B"), ("ゴミ箱", "T")]
-    y = SY + SH - 64
-    item_w = SW / len(labels)
-    parts = [rect(SX, y, SW, 64, "bottomBar")]
-    for i, (label, short) in enumerate(labels):
-        cx = int(SX + item_w * i + item_w / 2)
+    labels = [("すべて", "H"), ("フォルダ", "L"), ("マイリスト", "♥"), ("本", "B"), ("ゴミ箱", "D")]
+    y = SY + SH - 80
+    x = SX + 8
+    w = SW - 16
+    item = w / len(labels)
+    parts = [rect(x, y, w, 64, "bottomPill", rx=32)]
+    for i, (label, glyph) in enumerate(labels):
+        cx = x + item * i + item / 2
         selected = label == active
-        parts.append(circle(cx, y + 23, 15, "navCircleOn" if selected else "navCircle"))
-        parts.append(text(cx, y + 28, short, "navIcon", **{"text-anchor": "middle"}))
-        parts.append(text(cx, y + 51, label, "navTextOn" if selected else "navText", **{"text-anchor": "middle"}))
+        parts.append(text(cx, y + 25, glyph, "navGlyphOn" if selected else "navGlyph", text_anchor="middle"))
+        parts.append(text(cx, y + 48, label, "navTextOn" if selected else "navText", text_anchor="middle"))
     return "".join(parts)
 
 
-def thumb(x: int, y: int, w: int, h: int, i: int, label: str = "") -> str:
-    g = f"thumbGrad{i % 8}"
-    parts = [rect(x, y, w, h, "thumb", rx=7, fill=f"url(#{g})")]
+def legend(title: str, items: list[Legend]) -> str:
+    parts = [
+        text(LEGX, 68, title, "docTitle"),
+        text(LEGX, 96, "実装画面に近い詳細設計モック", "docSub"),
+        rect(LEGX, 118, 320, 1, fill="#30343A"),
+    ]
+    y = 154
+    for item in items:
+        parts.append(circle(LEGX + 12, y - 6, 11, "marker"))
+        parts.append(text(LEGX + 12, y - 2, str(item.n), "markerText", text_anchor="middle"))
+        parts.append(text(LEGX + 34, y - 10, item.title, "legendTitle"))
+        parts.append(text(LEGX + 34, y + 14, item.body, "legendBody"))
+        y += 74
+    return "".join(parts)
+
+
+def thumb(x: float, y: float, w: float, h: float, i: int, label: str = "", square: bool = False) -> str:
+    rx = 1 if square else 8
+    parts = [rect(x, y, w, h, "thumb", rx=rx, fill=f"url(#thumb{i % 8})")]
     if label:
-        parts.append(rect(x + 5, y + h - 22, min(w - 10, 52), 17, "badge", rx=8))
-        parts.append(text(x + 12, y + h - 9, label, "badgeText"))
-    if i % 5 == 0:
-        parts.append(text(x + w - 18, y + 19, "★", "star", **{"text-anchor": "middle"}))
+        parts.append(rect(x + w - 42, y + h - 18, 38, 15, "badge", rx=2))
+        parts.append(text(x + w - 23, y + h - 7, label, "badgeText", text_anchor="middle"))
+    if i % 6 == 0:
+        parts.append(text(x + 10, y + h - 6, "♥", "fav"))
     return "".join(parts)
 
 
-def grid(x: int, y: int, cols: int, rows: int, cell_w: int, cell_h: int, gap: int = 8) -> str:
+def media_grid(x: float, y: float, cols: int, rows: int, cell: float, gap: float = 1.0) -> str:
     parts: list[str] = []
     for r in range(rows):
         for c in range(cols):
-            idx = r * cols + c
-            label = "GIF" if idx in (2, 9) else ("00:12" if idx in (5, 11) else "")
-            parts.append(thumb(x + c * (cell_w + gap), y + r * (cell_h + gap), cell_w, cell_h, idx, label))
+            i = r * cols + c
+            label = "GIF" if i in (2, 13) else ("0:12" if i in (5, 11) else "")
+            parts.append(thumb(x + c * (cell + gap), y + r * (cell + gap), cell, cell, i, label, square=True))
     return "".join(parts)
 
 
-def row_card(x: int, y: int, w: int, h: int, title: str, sub: str, accent: str = "") -> str:
-    parts = [rect(x, y, w, h, "card", rx=8)]
-    if accent:
-        parts.append(rect(x, y, 4, h, accent, rx=2))
-    parts.append(text(x + 16, y + 26, title, "cardTitle"))
-    parts.append(text(x + 16, y + 48, sub, "smallDim"))
-    parts.append(text(x + w - 28, y + 36, "⋮", "menu", **{"text-anchor": "middle"}))
+def category_tile(x: float, y: float, w: float, title: str, count: str, i: int, show_thumb: bool = True) -> str:
+    parts: list[str] = [rect(x, y, w, 134 if show_thumb else 62, fill="transparent")]
+    if show_thumb:
+        parts.append(thumb(x, y, w, w, i))
+        ty = y + w + 17
+    else:
+        ty = y + 22
+    parts.append(text(x + 4, ty, title, "catTitle"))
+    parts.append(text(x + 4, ty + 18, count, "catSub"))
     return "".join(parts)
 
 
-def dialog(x: int, y: int, w: int, h: int, title: str, lines: Iterable[str], action: str) -> str:
-    parts = [rect(x, y, w, h, "scrim", rx=12), rect(x + 8, y + 8, w - 16, h - 16, "dialog", rx=12)]
-    parts.append(text(x + 26, y + 42, title, "dialogTitle"))
-    yy = y + 72
-    for line_value in lines:
-        parts.append(text(x + 26, yy, line_value, "dialogText"))
-        yy += 26
-    parts.append(rect(x + w - 132, y + h - 48, 104, 32, "primaryBtn", rx=16))
-    parts.append(text(x + w - 80, y + h - 27, action, "btnText", **{"text-anchor": "middle"}))
+def card_row(x: float, y: float, w: float, h: float, title: str, sub: str, icon: str = "") -> str:
+    parts = [rect(x, y, w, h, "m3Card", rx=8)]
+    if icon:
+        parts.append(circle(x + 30, y + h / 2, 18, "iconCircle"))
+        parts.append(text(x + 30, y + h / 2 + 6, icon, "iconLabel", text_anchor="middle"))
+        tx = x + 62
+    else:
+        tx = x + 16
+    parts.append(text(tx, y + 30, title, "cardTitle"))
+    parts.append(text(tx, y + 52, sub, "cardSub"))
     return "".join(parts)
 
 
-def annotation_panel(title: str, callouts: list[Callout]) -> str:
-    x, y = 486, 52
-    parts = [
-        text(x, y, title, "docTitle"),
-        text(x, y + 30, "実装画面の構成に合わせた詳細設計用モック", "docSub"),
-        rect(x, y + 56, 640, 1, "separator"),
-    ]
-    cy = y + 94
-    for item in callouts:
-        parts.append(line(item.x, item.y, x + 20, cy - 6))
-        parts.append(number(item.n, x + 20, cy - 6))
-        parts.append(text(x + 48, cy - 12, item.title, "callTitle"))
-        parts.append(text(x + 48, cy + 12, item.body, "callBody"))
-        cy += 64
+def button(x: float, y: float, w: float, label: str, color: str = CYAN, text_color: str = "#001216") -> str:
+    return rect(x, y, w, 42, fill=color, rx=21) + text(x + w / 2, y + 27, label, "buttonText", fill=text_color, text_anchor="middle")
+
+
+def dialog_box(x: float, y: float, w: float, h: float, title: str, rows: list[str], action: str) -> str:
+    parts = [rect(SX, SY, SW, SH, fill="#000000", opacity=0.55), rect(x, y, w, h, "dialog", rx=18)]
+    parts.append(text(x + 22, y + 38, title, "dialogTitle"))
+    yy = y + 70
+    for row in rows:
+        parts.append(text(x + 22, yy, row, "dialogText"))
+        yy += 30
+    parts.append(button(x + w - 132, y + h - 52, 104, action))
     return "".join(parts)
 
 
-def render(title: str, body: list[str], callouts: list[Callout], filename: str) -> None:
-    defs = dedent("""
-    <defs>
-      <linearGradient id="thumbGrad0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6bff"/><stop offset="1" stop-color="#101827"/></linearGradient>
-      <linearGradient id="thumbGrad1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#19b38b"/><stop offset="1" stop-color="#162021"/></linearGradient>
-      <linearGradient id="thumbGrad2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ce5f4a"/><stop offset="1" stop-color="#271715"/></linearGradient>
-      <linearGradient id="thumbGrad3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9b94e"/><stop offset="1" stop-color="#201b12"/></linearGradient>
-      <linearGradient id="thumbGrad4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ad7cff"/><stop offset="1" stop-color="#1a1628"/></linearGradient>
-      <linearGradient id="thumbGrad5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3659d"/><stop offset="1" stop-color="#27151d"/></linearGradient>
-      <linearGradient id="thumbGrad6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4fb6d8"/><stop offset="1" stop-color="#111c22"/></linearGradient>
-      <linearGradient id="thumbGrad7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8aa25e"/><stop offset="1" stop-color="#151b14"/></linearGradient>
-    </defs>
-    """).strip()
-    style = dedent("""
-    <style>
-      svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
-      .phone{fill:#08090b;stroke:#2a2f36;stroke-width:3}
-      .screen{fill:#111418}
-      .appbar,.bottomBar{fill:#050607}
-      .sensor{fill:#303640}
-      .title{fill:#fff;font-size:17px;font-weight:700}
-      .docTitle{fill:#f8fbff;font-size:26px;font-weight:800}
-      .docSub{fill:#9ea7b3;font-size:14px}
-      .txt{fill:#eaf0f6;font-size:13px}
-      .small{fill:#d8dee6;font-size:12px}
-      .tinyDim{fill:#89929d;font-size:10px}
-      .smallDim{fill:#9aa3ad;font-size:11px}
-      .chip{fill:#1b2027;stroke:#333a44;stroke-width:1}
-      .chip.selected{fill:#063b43;stroke:#00d5ef}
-      .chipText{fill:#dfe9ef;font-size:11px}
-      .icon{fill:#171c22;stroke:#2e3540}
-      .activeIcon{fill:#04353e;stroke:#00d5ef}
-      .iconText{fill:#f2f7fb;font-size:14px;font-weight:700}
-      .thumb{stroke:#222a33;stroke-width:1}
-      .badge{fill:#050607cc}
-      .badgeText{fill:#fff;font-size:9px;font-weight:700}
-      .star{fill:#ffdb65;font-size:15px}
-      .section{fill:#181d23}
-      .card{fill:#1a1f26;stroke:#303844;stroke-width:1}
-      .card2{fill:#131820;stroke:#333d49;stroke-width:1}
-      .cardTitle{fill:#f6f8fb;font-size:13px;font-weight:700}
-      .metric{fill:#ffffff;font-size:21px;font-weight:800}
-      .metricLabel{fill:#9ca6b2;font-size:10px}
-      .menu{fill:#b8c0cb;font-size:17px}
-      .accentBlue{fill:#00c8e6}.accentGreen{fill:#25d68a}.accentYellow{fill:#ffd25d}.accentRed{fill:#ff6565}
-      .scrim{fill:#00000099}
-      .dialog{fill:#20252d;stroke:#48505c}
-      .dialogTitle{fill:#fff;font-size:16px;font-weight:800}
-      .dialogText{fill:#dce4ec;font-size:12px}
-      .primaryBtn{fill:#00bcd4}
-      .secondaryBtn{fill:#242b34;stroke:#46505c}
-      .btnText{fill:#001216;font-size:12px;font-weight:800}
-      .navCircle{fill:#1a2028}.navCircleOn{fill:#00bcd4}
-      .navIcon{fill:#fff;font-size:11px;font-weight:900}
-      .navText{fill:#8f99a5;font-size:9px}.navTextOn{fill:#dffaff;font-size:9px;font-weight:800}
-      .scrollTrack{fill:#20252c}.scrollThumb{fill:#00bcd4}.bubble{fill:#00bcd4}
-      .bubbleText{fill:#001216;font-size:11px;font-weight:800}
-      .num{fill:#00bcd4}.numText{fill:#001216;font-size:12px;font-weight:900}
-      .line{stroke:#00bcd4;stroke-width:1.4;stroke-opacity:.55}
-      .callTitle{fill:#f4f8fc;font-size:15px;font-weight:800}
-      .callBody{fill:#b5c0cc;font-size:12px}
-      .separator{fill:#303844}
-      .progressBg{fill:#2a313b}.progress{fill:#00bcd4}
-      .input{fill:#11161c;stroke:#4c5664}
-      .tabOn{fill:#00bcd4}.tabOff{fill:#222932}
-      .tabTextOn{fill:#001216;font-size:11px;font-weight:800}.tabText{fill:#cbd4dd;font-size:11px}
-    </style>
-    """).strip()
+def render(title: str, body: list[str], legends: list[Legend], filename: str) -> None:
+    defs = dedent(
+        """
+        <defs>
+          <linearGradient id="thumb0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6C8BFF"/><stop offset="1" stop-color="#15203D"/></linearGradient>
+          <linearGradient id="thumb1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3EB489"/><stop offset="1" stop-color="#14251D"/></linearGradient>
+          <linearGradient id="thumb2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D77A61"/><stop offset="1" stop-color="#301915"/></linearGradient>
+          <linearGradient id="thumb3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D7B95F"/><stop offset="1" stop-color="#2C2412"/></linearGradient>
+          <linearGradient id="thumb4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8F7CFF"/><stop offset="1" stop-color="#21193A"/></linearGradient>
+          <linearGradient id="thumb5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#E56B9F"/><stop offset="1" stop-color="#351826"/></linearGradient>
+          <linearGradient id="thumb6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6EC6E8"/><stop offset="1" stop-color="#132836"/></linearGradient>
+          <linearGradient id="thumb7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#92A76A"/><stop offset="1" stop-color="#1A2214"/></linearGradient>
+        </defs>
+        """
+    ).strip()
+    style = dedent(
+        """
+        <style>
+          svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
+          .device{fill:#07080A;stroke:#2B3038;stroke-width:3}
+          .screen{stroke:#171A1F;stroke-width:1}
+          .camera{fill:#1E242C}
+          .barTitle{font-size:20px;font-weight:500}
+          .barIcon{font-size:25px;font-weight:600}
+          .barIconSmall{font-size:18px;font-weight:600}
+          .iconCircle{fill:#2D2D2D}
+          .iconLabel{font-size:14px;font-weight:700;fill:#FFFFFF}
+          .thumb{stroke:#222;stroke-width:.6}
+          .badge{fill:#000000AA}
+          .badgeText{fill:#fff;font-size:9px;font-weight:700}
+          .fav{fill:#F44336;font-size:13px;font-weight:700}
+          .txt{fill:#fff;font-size:13px}
+          .headerText{fill:#fff;font-size:20px;font-weight:500}
+          .small{fill:#E8EAED;font-size:12px}
+          .muted{fill:#9E9E9E;font-size:12px}
+          .bottomPill{fill:#000000D9}
+          .navGlyph,.navText{fill:#8F8F8F}
+          .navGlyphOn,.navTextOn{fill:#FFFFFF;font-weight:700}
+          .navGlyph,.navGlyphOn{font-size:19px}
+          .navText,.navTextOn{font-size:9px}
+          .scrollThumb{fill:#FFFFFFCC}
+          .scrollLabel{fill:#000000C7}
+          .scrollLabelText{fill:#fff;font-size:13px}
+          .marker{fill:#00BCD4}
+          .markerText{fill:#001216;font-size:12px;font-weight:900}
+          .docTitle{fill:#F8FAFC;font-size:25px;font-weight:800}
+          .docSub{fill:#AAB2BD;font-size:13px}
+          .legendTitle{fill:#F5F7FA;font-size:15px;font-weight:800}
+          .legendBody{fill:#B9C2CE;font-size:12px}
+          .catTitle{fill:#FFFFFF;font-size:13px}
+          .catSub{fill:#A0A0A0;font-size:11px}
+          .m3Card{fill:#1E1E1E}
+          .cardTitle{fill:#FFFFFF;font-size:15px;font-weight:700}
+          .cardSub{fill:#AAAAAA;font-size:11px}
+          .buttonText{font-size:14px;font-weight:700}
+          .inputBox{fill:#00000000;stroke:#80868B;stroke-width:1.2}
+          .inputLabel{fill:#BDBDBD;font-size:12px}
+          .inputText{fill:#FFFFFF;font-size:13px}
+          .dialog{fill:#1A1A1A;stroke:#2C2C2C}
+          .dialogTitle{fill:#fff;font-size:18px;font-weight:700}
+          .dialogText{fill:#D5D5D5;font-size:13px}
+          .brownCard{fill:#1D1A18;stroke:#4B4038}
+          .brownField{fill:#28231F}
+          .brownTitle{fill:#F4EFE8;font-size:18px;font-weight:700}
+          .brownText{fill:#B8ADA2;font-size:13px}
+          .brownAccent{fill:#D28A5E;font-size:13px;font-weight:700}
+          .progressTrack{fill:#FFFFFF26}
+          .progress{fill:#00BCD4}
+          .line{stroke:#00BCD4;stroke-width:1.2;opacity:.65}
+        </style>
+        """
+    ).strip()
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-labelledby="title">'
-        + f'<title id="title">{escape(title)}</title>'
+        f'<title id="title">{escape(title)}</title>'
         + defs
         + style
         + "".join(body)
-        + annotation_panel(title, callouts)
+        + legend(title, legends)
         + "</svg>\n"
     )
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -237,304 +291,312 @@ def render(title: str, body: list[str], callouts: list[Callout], filename: str) 
 
 
 def screen_media_gallery() -> None:
-    e = phone_base("Gallery", "MediaStore / 日別グリッド")
-    e += [icon_button(SX + SW - 112, SY + 14, "🔍"), icon_button(SX + SW - 74, SY + 14, "4"), icon_button(SX + SW - 36, SY + 14, "⋮")]
-    y = SY + 70
-    x = SX + 12
-    for label, selected, width in [("すべて", True, 62), ("画像", False, 52), ("動画", False, 52), ("GIF", False, 46), ("日別", True, 52)]:
-        e.append(chip(x, y, label, selected, width))
-        x += width + 8
-    e.append(text(SX + 16, y + 54, "2026年6月25日", "cardTitle"))
-    e.append(text(SX + SW - 20, y + 54, "12,089 件", "smallDim", **{"text-anchor": "end"}))
-    e.append(grid(SX + 14, y + 70, 4, 4, 76, 92))
-    e.append(rect(SX + SW - 9, y + 80, 5, 430, "scrollTrack", rx=3))
-    e.append(rect(SX + SW - 10, y + 184, 7, 86, "scrollThumb", rx=4))
-    e.append(rect(SX + SW - 124, y + 192, 105, 32, "bubble", rx=16))
-    e.append(text(SX + SW - 72, y + 213, "2025年11月", "bubbleText", **{"text-anchor": "middle"}))
-    e.append(rect(SX, SY + SH - 118, SW, 54, "appbar"))
-    e.append(text(SX + 18, SY + SH - 85, "12 件選択中", "title"))
-    for i, icon in enumerate(["★", "移", "タグ", "削"]):
-        e.append(icon_button(SX + SW - 152 + i * 36, SY + SH - 104, icon, i == 0))
-    e.append(bottom_nav("ホーム"))
-    calls = [
-        Callout(1, SX + 105, SY + 28, "トップバー", "検索、列数、フィルタ/並び替えをホーム画面から直接操作します。"),
-        Callout(2, SX + 90, y + 84, "日別ヘッダー", "日/月/年/ストレージ単位のグルーピング見出しをグリッド内に挿入します。"),
-        Callout(3, SX + 170, y + 220, "メディアセル", "画像、GIF、動画バッジ、お気に入り状態を同じタイルで扱います。"),
-        Callout(4, SX + SW - 62, y + 204, "スクロールバー位置ラベル", "バー操作中は左側に現在位置の年月を表示します。"),
-        Callout(5, SX + 120, SY + SH - 90, "選択モード", "複数選択中は一括移動、タグ編集、削除などの操作を表示します。"),
-    ]
-    render("メディア一覧UIモック", e, calls, "01_media_gallery_ui.svg")
+    e = phone(APP_BG)
+    e.append(app_bar("すべて", left="≡"))
+    e.append(gallery_control_bar())
+    y = SY + 126
+    e.append(text(SX + 16, y, "2026年6月25日", "headerText"))
+    e.append(media_grid(SX + 10, y + 16, 4, 6, (SW - 44) / 4))
+    e.append(rect(SX + SW - 10, SY + 138, 4, 520, "scrollThumb", rx=2))
+    e.append(rect(SX + SW - 124, SY + 350, 106, 30, "scrollLabel", rx=6))
+    e.append(text(SX + SW - 71, SY + 370, "2025年11月", "scrollLabelText", text_anchor="middle"))
+    e.append(bottom_nav("すべて"))
+    e += [marker(1, SX + 150, SY + 28), marker(2, SX + SW - 73, SY + 84), marker(3, SX + 92, y + 18), marker(4, SX + SW - 58, SY + 366), marker(5, SX + SW / 2, SY + SH - 48)]
+    render(
+        "メディア一覧UIモック",
+        e,
+        [
+            Legend(1, "黒ヘッダー", "実装の title は「すべて」。左にドロワーメニューを置きます。"),
+            Legend(2, "操作バー", "フィルタ、年齢制限、並び替えアイコンだけを右寄せ表示します。"),
+            Legend(3, "LazyVerticalGrid", "日付ヘッダーと正方形サムネイルを同じグリッドに表示します。"),
+            Legend(4, "スクロールバー", "ドラッグ中のみ年月日ラベルをバー左に表示します。"),
+            Legend(5, "ボトムナビ", "実装文言は「すべて / フォルダ / マイリスト / 本 / ゴミ箱」です。"),
+        ],
+        "01_media_gallery_ui.svg",
+    )
 
 
 def screen_media_viewer() -> None:
-    e = phone_base("", "")
-    e.append(rect(SX, SY, SW, SH, "screen", rx=20))
-    e.append(rect(SX, SY, SW, 58, "scrim"))
-    e.append(text(SX + 22, SY + 36, "×", "title"))
-    e.append(text(SX + SW // 2, SY + 36, "124 / 12089", "title", **{"text-anchor": "middle"}))
-    for i, ic in enumerate(["★", "↻", "⋮"]):
-        e.append(icon_button(SX + SW - 114 + i * 38, SY + 13, ic, i == 0))
-    e.append(rect(SX + 20, SY + 96, SW - 40, 438, "card2", rx=12))
-    e.append(thumb(SX + 38, SY + 116, SW - 76, 398, 4, "00:12"))
-    e.append(circle(SX + SW // 2, SY + 312, 42, "scrim"))
-    e.append(text(SX + SW // 2 + 3, SY + 326, "▶", "title", **{"text-anchor": "middle"}))
-    e.append(rect(SX + 18, SY + 550, SW - 36, 66, "appbar", rx=12))
-    e.append(text(SX + 30, SY + 574, "00:08", "small"))
-    e.append(rect(SX + 78, SY + 567, 210, 5, "progressBg", rx=3))
-    e.append(rect(SX + 78, SY + 567, 104, 5, "progress", rx=3))
-    for i, ic in enumerate(["-1f", "▶", "+1f"]):
-        e.append(chip(SX + 86 + i * 72, SY + 585, ic, i == 1, 58))
-    e.append(rect(SX, SY + SH - 164, SW, 164, "section", rx=16))
-    e.append(text(SX + 18, SY + SH - 132, "詳細・レコメンド", "dialogTitle"))
-    e.append(chip(SX + 18, SY + SH - 110, "似た雰囲気", True, 86))
-    e.append(chip(SX + 112, SY + SH - 110, "タグ編集", False, 76))
-    e.append(text(SX + 20, SY + SH - 68, "danbooru: landscape / blue sky / original", "smallDim"))
-    e.append(text(SX + 20, SY + SH - 42, "storage/emulated/0/Pictures/sample.mp4", "smallDim"))
-    calls = [
-        Callout(1, SX + SW // 2, SY + 36, "ビューアオーバーレイ", "閉じる、ページ番号、お気に入り、回転、メニューを全画面上に重ねます。"),
-        Callout(2, SX + SW // 2, SY + 312, "画像/GIF/動画表示", "Coil と動画プレイヤーを切り替え、ズームやスワイプを同じ領域で扱います。"),
-        Callout(3, SX + 190, SY + 590, "動画・フレーム操作", "再生、シーク、フレーム送り、フレーム保存などの動画操作をまとめます。"),
-        Callout(4, SX + 120, SY + SH - 104, "詳細ボトムシート", "タグ、ファイル情報、似た画像候補、編集導線を下部に表示します。"),
-    ]
-    render("メディアビューアUIモック", e, calls, "02_media_viewer_ui.svg")
+    e = phone(BLACK)
+    e.append(rect(SX, SY, SW, SH, fill=BLACK))
+    e.append(thumb(SX + 18, SY + 72, SW - 36, 520, 4))
+    overlay_y = SY + SH - 184
+    e.append(rect(SX, overlay_y, SW, 184, fill="#000000D9"))
+    e.append(text(SX + 16, overlay_y + 28, "0:08 / 1:20", "small"))
+    e.append(rect(SX + 96, overlay_y + 19, SW - 156, 4, "progressTrack", rx=2))
+    e.append(rect(SX + 96, overlay_y + 19, 112, 4, "progress", rx=2))
+    e.append(text(SX + SW - 28, overlay_y + 30, "V", "barIconSmall", text_anchor="middle"))
+    tx = SX + 10
+    for i in range(8):
+        e.append(thumb(tx + i * 47, overlay_y + 46, 42, 42, i, square=False))
+    for i, label in enumerate(["D", "R", "♥", "⋮"]):
+        x = SX + 54 + i * 88
+        e.append(circle(x, overlay_y + 132, 18, "iconCircle"))
+        e.append(text(x, overlay_y + 138, label, "iconLabel", fill="#F44336" if label == "♥" else TEXT, text_anchor="middle"))
+    e += [marker(1, SX + SW / 2, SY + 320), marker(2, SX + 182, overlay_y + 22), marker(3, SX + 88, overlay_y + 67), marker(4, SX + 230, overlay_y + 132)]
+    render(
+        "メディアビューアUIモック",
+        e,
+        [
+            Legend(1, "表示領域", "黒背景に画像/GIF/動画を Fit 表示し、スワイプやズームを受けます。"),
+            Legend(2, "動画シーク", "動画時だけ時間表示、Slider、ミュートボタンを表示します。"),
+            Legend(3, "サムネイル列", "下部 LazyRow で前後メディアまたはGIFフレームを表示します。"),
+            Legend(4, "操作ボタン", "削除、回転、お気に入り、その他メニューを丸ボタンで並べます。"),
+        ],
+        "02_media_viewer_ui.svg",
+    )
 
 
 def screen_mylist_ai() -> None:
-    e = phone_base("マイリスト", "お気に入り / AI分析")
-    e += [icon_button(SX + SW - 112, SY + 14, "AI", True), icon_button(SX + SW - 74, SY + 14, "＋"), icon_button(SX + SW - 36, SY + 14, "⋮")]
-    y = SY + 78
-    metrics = [("お気に入り", "428"), ("未整理", "186"), ("AI未分析", "324"), ("ベクトル未分析", "91")]
-    for i, (label, value) in enumerate(metrics):
-        x = SX + 14 + (i % 2) * 166
-        yy = y + (i // 2) * 88
-        e.append(rect(x, yy, 156, 74, "card", rx=8))
-        e.append(text(x + 14, yy + 26, value, "metric"))
-        e.append(text(x + 14, yy + 52, label, "metricLabel"))
-    e.append(text(SX + 16, y + 196, "タグカテゴリ", "cardTitle"))
-    for i, label in enumerate(["人物", "背景", "ポーズ", "R-18", "未翻訳タグ"]):
-        e.append(row_card(SX + 14, y + 218 + i * 58, SW - 28, 48, label, f"{(i + 2) * 41} 件", ["accentBlue", "accentGreen", "accentYellow", "accentRed", "accentBlue"][i]))
-    e.append(dialog(SX + 34, SY + 394, SW - 68, 220, "AI解析の実行", ["対象画像: 324 枚", "タグ推論: Danbooru ONNX", "年齢判定: SFW / R-15 / R-18", "ベクトル生成: MediaPipe"], "開始"))
+    e = phone(APP_BG)
+    e.append(app_bar("マイリスト", left="≡", actions=["＋", "AI"]))
+    e.append(gallery_control_bar(disabled_filter=True))
+    start_y = SY + 138
+    labels = [("Favorites", "428 枚"), ("Untagged", "186 枚"), ("landscape", "94 枚"), ("portrait", "76 枚"), ("blue_sky", "51 枚"), ("AI未分析", "324 枚")]
+    cell_w = (SW - 48) / 3
+    for i, (title, count) in enumerate(labels):
+        x = SX + 16 + (i % 3) * (cell_w + 8)
+        y = start_y + (i // 3) * 80
+        e.append(category_tile(x, y, cell_w, title, count, i, show_thumb=False))
+    e.append(dialog_box(SX + 32, SY + 364, SW - 64, 274, "AI解析の実行", ["解析対象の期間を選択してください:", "○ 直近7日間", "● 直近30日間", "○ すべての期間", "対象画像: 324 枚", "予想時間: 約 16 分"], "解析開始"))
     e.append(bottom_nav("マイリスト"))
-    calls = [
-        Callout(1, SX + 112, y + 54, "集計カード", "お気に入り、未整理、AI未分析などの処理対象をひと目で確認します。"),
-        Callout(2, SX + 100, y + 244, "カテゴリ一覧", "保存済みタグや状態別リストから該当メディアへ移動します。"),
-        Callout(3, SX + 180, SY + 448, "AI解析ダイアログ", "ONNXタグ推論、年齢判定、特徴ベクトル生成をまとめて実行します。"),
-        Callout(4, SX + 276, SY + 28, "AIアクション", "未分析メディアの一括解析や進捗確認に入る導線です。"),
-    ]
-    render("My List・AI分析UIモック", e, calls, "03_mylist_ai_ui.svg")
+    e += [marker(1, SX + 118, SY + 28), marker(2, SX + SW - 66, SY + 28), marker(3, SX + 68, start_y + 22), marker(4, SX + SW / 2, SY + 404)]
+    render(
+        "My List・AI分析UIモック",
+        e,
+        [
+            Legend(1, "CategoryScreen", "My List はカテゴリ一覧画面として表示されます。"),
+            Legend(2, "AI/タグ追加", "右上に AI解析 と タグ作成 の IconButton を追加します。"),
+            Legend(3, "3列カテゴリ", "実装では初期3列、サムネイルなしでカテゴリ名と件数を並べます。"),
+            Legend(4, "AI解析ダイアログ", "期間選択、対象枚数、予想時間、解析開始を表示します。"),
+        ],
+        "03_mylist_ai_ui.svg",
+    )
 
 
-def screen_folder_trash() -> None:
-    e = phone_base("フォルダ", "フォルダ管理 / 一括編集")
-    e += [icon_button(SX + SW - 74, SY + 14, "＋", True), icon_button(SX + SW - 36, SY + 14, "⋮")]
-    y = SY + 78
-    for i, title in enumerate(["Camera", "Download", "X_Downloads"]):
-        yy = y + i * 94
-        e.append(rect(SX + 14, yy, SW - 28, 78, "card", rx=8))
-        e.append(thumb(SX + 26, yy + 12, 54, 54, i))
-        e.append(text(SX + 94, yy + 31, title, "cardTitle"))
-        e.append(text(SX + 94, yy + 54, f"{(i + 3) * 142} 枚 / 最新 2026-06-{25 - i}", "smallDim"))
-        e.append(text(SX + SW - 34, yy + 44, "⋮", "menu", **{"text-anchor": "middle"}))
-    e.append(rect(SX, SY + 382, SW, 58, "appbar"))
-    e.append(text(SX + 18, SY + 417, "8 件選択中", "title"))
-    for i, ic in enumerate(["移", "タグ", "年齢", "削"]):
-        e.append(icon_button(SX + SW - 152 + i * 36, SY + 395, ic, i == 0))
-    e.append(rect(SX + 14, SY + 464, SW - 28, 124, "card2", rx=10))
-    e.append(text(SX + 30, SY + 492, "ゴミ箱", "dialogTitle"))
-    e.append(text(SX + 30, SY + 520, "削除済みメディア 23 件", "smallDim"))
-    e.append(chip(SX + 30, SY + 540, "復元", True, 68))
-    e.append(chip(SX + 108, SY + 540, "完全に削除", False, 98))
-    e.append(thumb(SX + 228, SY + 486, 48, 64, 3))
-    e.append(thumb(SX + 284, SY + 486, 48, 64, 5))
+def screen_folder_trash_bulk() -> None:
+    e = phone(APP_BG)
+    e.append(app_bar("フォルダ", left="≡", actions=["＋"]))
+    e.append(gallery_control_bar(disabled_filter=True))
+    start_y = SY + 138
+    folders = [("Camera", "142 枚"), ("Download", "283 枚"), ("X_Downloads", "71 枚"), ("References", "36 枚"), ("Screenshots", "204 枚"), ("Wallpapers", "58 枚"), ("Manga", "19 枚"), ("AI", "93 枚")]
+    cell_w = (SW - 56) / 4
+    for i, (title, count) in enumerate(folders):
+        x = SX + 12 + (i % 4) * (cell_w + 10)
+        y = start_y + (i // 4) * 128
+        e.append(category_tile(x, y, cell_w, title, count, i, show_thumb=True))
+    sel_y = SY + 410
+    e.append(rect(SX, sel_y, SW, 56, fill="#D0BCFF"))
+    e.append(text(SX + 28, sel_y + 35, "×", "barIcon", fill="#1D192B", text_anchor="middle"))
+    e.append(text(SX + 62, sel_y + 34, "8 件選択中", "cardTitle", fill="#1D192B"))
+    e.append(text(SX + SW - 70, sel_y + 34, "♥  ⋮", "barIconSmall", fill="#1D192B", text_anchor="middle"))
+    e.append(rect(SX + 28, SY + 500, SW - 56, 116, "m3Card", rx=8))
+    e.append(text(SX + 48, SY + 532, "ゴミ箱", "cardTitle"))
+    e.append(text(SX + 48, SY + 556, "復元 / 完全に削除は TrashScreen の上部ボタンで実行", "cardSub"))
+    e.append(button(SX + 48, SY + 572, 86, "復元"))
+    e.append(button(SX + 146, SY + 572, 118, "完全に削除", "#B3261E", "#FFFFFF"))
     e.append(bottom_nav("フォルダ"))
-    calls = [
-        Callout(1, SX + 260, SY + 28, "フォルダ操作", "追加、並び替え、メニューから名称変更や削除を行います。"),
-        Callout(2, SX + 116, y + 34, "フォルダカード", "代表サムネイル、件数、最新日付を表示してフォルダへ遷移します。"),
-        Callout(3, SX + 120, SY + 410, "一括編集バー", "選択中メディアの移動、タグ/年齢編集、ゴミ箱移動を実行します。"),
-        Callout(4, SX + 116, SY + 546, "ゴミ箱操作", "アプリ内削除済みデータの復元と完全削除を分けて扱います。"),
-    ]
-    render("フォルダ・ゴミ箱・一括編集UIモック", e, calls, "04_folder_trash_bulk_ui.svg")
+    e += [marker(1, SX + 116, SY + 28), marker(2, SX + SW - 54, SY + 28), marker(3, SX + 64, start_y + 52), marker(4, SX + 145, sel_y + 28), marker(5, SX + 68, SY + 532)]
+    render(
+        "フォルダ・ゴミ箱・一括編集UIモック",
+        e,
+        [
+            Legend(1, "フォルダ画面", "CategoryScreen を使い、黒ヘッダーとDarkGray操作バーを表示します。"),
+            Legend(2, "作成ボタン", "フォルダ一覧では右上にフォルダ作成 IconButton を表示します。"),
+            Legend(3, "4列カテゴリ", "フォルダは代表サムネイル、名称、件数を4列グリッドで表示します。"),
+            Legend(4, "選択モード", "長押し後は選択バーに件数、お気に入り、その他メニューを表示します。"),
+            Legend(5, "TrashScreen", "ゴミ箱は別画面で復元と完全削除ボタンを持ちます。"),
+        ],
+        "04_folder_trash_bulk_ui.svg",
+    )
 
 
 def screen_x_downloader() -> None:
-    e = phone_base("Video Downloader", "X / Twitter URL")
-    e.append(icon_button(SX + SW - 36, SY + 14, "↻"))
-    y = SY + 80
-    e.append(text(SX + 16, y, "X (Twitter) URL", "cardTitle"))
-    e.append(rect(SX + 14, y + 14, SW - 28, 46, "input", rx=8))
-    e.append(text(SX + 28, y + 43, "https://x.com/user/status/...", "smallDim"))
-    e.append(rect(SX + 14, y + 76, SW - 28, 44, "primaryBtn", rx=22))
-    e.append(text(SX + SW // 2, y + 104, "Show download options", "btnText", **{"text-anchor": "middle"}))
-    e.append(text(SX + 16, y + 158, "Download history", "cardTitle"))
-    for i, label in enumerate(["COMPLETED  18.4MB", "GIF SAVED  6.1MB", "FAILED  Retry available"]):
-        yy = y + 178 + i * 70
-        e.append(rect(SX + 14, yy, SW - 28, 58, "card", rx=8))
-        e.append(thumb(SX + 24, yy + 8, 48, 42, i, "X"))
-        e.append(text(SX + 84, yy + 28, label, "cardTitle"))
-        e.append(text(SX + 84, yy + 48, "2026-06-25  /  Pictures/X_Downloads", "smallDim"))
-    e.append(dialog(SX + 34, SY + 418, SW - 68, 210, "Download settings", ["Quality: High / Medium / Low", "Duplicate check: enabled", "GIFはGIFとして保存", "共有URLをクリップボードより優先"], "Start"))
-    calls = [
-        Callout(1, SX + 82, y + 42, "URL入力", "共有、VIEW、クリップボード、手入力のURLを同じ入力欄に反映します。"),
-        Callout(2, SX + 190, y + 100, "オプション表示", "URL解決後に画質や保存形式を選んでダウンロードを開始します。"),
-        Callout(3, SX + 132, y + 238, "履歴リスト", "成功、失敗、GIF保存、重複判定の結果を履歴として残します。"),
-        Callout(4, SX + 170, SY + 472, "設定ダイアログ", "解決したメディア候補ごとに保存品質と実行/キャンセルを選びます。"),
-    ]
-    render("XダウンロードUIモック", e, calls, "05_x_downloader_ui.svg")
+    e = phone(BLACK)
+    e.append(app_bar("Video Downloader", left="≡"))
+    y = SY + 88
+    e.append(rect(SX + 16, y, SW - 32, 58, "inputBox", rx=4))
+    e.append(text(SX + 30, y - 4, "X (Twitter) URL", "inputLabel"))
+    e.append(text(SX + 48, y + 36, "https://x.com/user/status/...", "inputText"))
+    e.append(text(SX + 30, y + 36, "🔗", "inputText"))
+    e.append(button(SX + 16, y + 78, SW - 32, "Show download options", X_BLUE, "#FFFFFF"))
+    hist_y = y + 170
+    e.append(text(SX + 48, hist_y, "Download history", "cardTitle"))
+    e.append(text(SX + SW - 60, hist_y, "Clear history", "muted", text_anchor="middle"))
+    for i, status in enumerate(["COMPLETED", "COMPLETED", "FAILED"]):
+        yy = hist_y + 22 + i * 86
+        e.append(rect(SX + 16, yy, SW - 32, 74, "m3Card", rx=8))
+        e.append(thumb(SX + 28, yy + 10, 96, 54, i, square=False))
+        e.append(text(SX + 140, yy + 28, f"X download #{i + 1}", "cardTitle"))
+        e.append(text(SX + 140, yy + 48, "https://x.com/...", "cardSub"))
+        e.append(text(SX + SW - 50, yy + 64, status, "cardSub", fill="#4CAF50" if status == "COMPLETED" else "#F44336", text_anchor="middle"))
+    e.append(dialog_box(SX + 42, SY + 470, SW - 84, 248, "Download settings", ["Select quality:", "● High (1080p)", "○ Medium (720p)", "○ Low (480p)", "HOME     Cancel"], "Start download"))
+    e += [marker(1, SX + 110, SY + 28), marker(2, SX + 92, y + 30), marker(3, SX + SW / 2, y + 100), marker(4, SX + 120, hist_y + 58), marker(5, SX + SW / 2, SY + 512)]
+    render(
+        "XダウンロードUIモック",
+        e,
+        [
+            Legend(1, "TopAppBar", "実装タイトルは Video Downloader。左にメニューを表示します。"),
+            Legend(2, "OutlinedTextField", "ラベルは X (Twitter) URL、Link アイコン付きです。"),
+            Legend(3, "実行ボタン", "青いボタンで Download settings ダイアログを開きます。"),
+            Legend(4, "履歴カード", "黒背景に Card、96x64 のプレビュー、URL、日時、状態を表示します。"),
+            Legend(5, "設定ダイアログ", "画質選択、GIF検出、HOME/Cancel、Start download を表示します。"),
+        ],
+        "05_x_downloader_ui.svg",
+    )
 
 
 def screen_book_viewer() -> None:
-    e = phone_base("", "")
-    e.append(rect(SX, SY, SW, SH, "screen", rx=20))
-    e.append(rect(SX, SY, SW, 58, "scrim"))
-    e.append(text(SX + 20, SY + 36, "×", "title"))
-    e.append(text(SX + 62, SY + 36, "sample_book.zip", "title"))
-    for i, ic in enumerate(["🔖", "⋮"]):
-        e.append(icon_button(SX + SW - 74 + i * 38, SY + 13, ic, i == 0))
-    e.append(rect(SX + 24, SY + 104, 145, 432, "card2", rx=4))
-    e.append(thumb(SX + 34, SY + 116, 125, 408, 6))
-    e.append(rect(SX + 183, SY + 104, 145, 432, "card2", rx=4))
-    e.append(thumb(SX + 193, SY + 116, 125, 408, 1))
-    e.append(text(SX + SW // 2, SY + 570, "128 / 240", "title", **{"text-anchor": "middle"}))
-    e.append(rect(SX + 54, SY + 588, SW - 108, 5, "progressBg", rx=3))
-    e.append(rect(SX + 54, SY + 588, 142, 5, "progress", rx=3))
-    e.append(chip(SX + 72, SY + 608, "前の本", False, 84))
-    e.append(chip(SX + 196, SY + 608, "次の本", True, 84))
-    e.append(rect(SX, SY + SH - 144, SW, 144, "section", rx=16))
-    e.append(text(SX + 18, SY + SH - 112, "本ビュワー設定", "dialogTitle"))
-    for i, label in enumerate(["自動", "見開き", "右から左", "画面内", "高画質"]):
-        e.append(chip(SX + 18 + (i % 3) * 102, SY + SH - 88 + (i // 3) * 36, label, i in (0, 2), 92))
-    calls = [
-        Callout(1, SX + 136, SY + 36, "ビューアヘッダー", "本タイトル、しおり、検索、表示設定、スクリーンショットを扱います。"),
-        Callout(2, SX + 176, SY + 300, "ページ表示", "ZIP/PDFを単ページまたは見開きで表示し、読み方向に応じてページを並べます。"),
-        Callout(3, SX + 176, SY + 590, "ページ操作", "ページ数、シーク、前後の本への移動を下部にまとめます。"),
-        Callout(4, SX + 130, SY + SH - 88, "表示設定", "レイアウト、読み方向、フィット、背景、画質、先読みを変更します。"),
-    ]
-    render("漫画ビューアUIモック", e, calls, "06_book_viewer_ui.svg")
+    e = phone(BLACK)
+    e.append(rect(SX, SY, SW, SH, fill=BLACK))
+    e.append(rect(SX, SY, SW, 56, fill="#00000099"))
+    e.append(text(SX + 28, SY + 36, "×", "barIcon", text_anchor="middle"))
+    e.append(text(SX + 64, SY + 35, "sample_book.zip", "barTitle"))
+    e.append(text(SX + SW - 70, SY + 35, "🔖", "barIconSmall", text_anchor="middle"))
+    e.append(text(SX + SW - 28, SY + 35, "⋮", "barIconSmall", text_anchor="middle"))
+    e.append(rect(SX + 38, SY + 110, 145, 440, fill="#141414"))
+    e.append(thumb(SX + 48, SY + 124, 125, 412, 1))
+    e.append(rect(SX + 202, SY + 110, 145, 440, fill="#141414"))
+    e.append(thumb(SX + 212, SY + 124, 125, 412, 2))
+    e.append(rect(SX, SY + SH - 134, SW, 134, fill="#00000099"))
+    e.append(text(SX + SW / 2, SY + SH - 102, "128 / 240", "small", text_anchor="middle"))
+    e.append(rect(SX + 74, SY + SH - 82, SW - 148, 5, "progressTrack", rx=3))
+    e.append(rect(SX + 74, SY + SH - 82, 126, 5, "progress", rx=3))
+    e.append(text(SX + 120, SY + SH - 42, "前の本", "muted", text_anchor="middle"))
+    e.append(text(SX + SW - 120, SY + SH - 42, "次の本", "muted", text_anchor="middle"))
+    e += [marker(1, SX + 145, SY + 28), marker(2, SX + SW / 2, SY + 320), marker(3, SX + SW / 2, SY + SH - 98), marker(4, SX + SW - 46, SY + 28)]
+    render(
+        "漫画ビューアUIモック",
+        e,
+        [
+            Legend(1, "ヘッダー", "閉じる、タイトル、しおり、その他メニューを黒半透明で重ねます。"),
+            Legend(2, "ページ表示", "ZIP/PDF を単ページまたは見開きで、黒背景に表示します。"),
+            Legend(3, "下部操作", "ページ数、シークバー、前の本/次の本を下部に表示します。"),
+            Legend(4, "その他メニュー", "タイトル検索、表示設定、スクリーンショット、画面回転を開きます。"),
+        ],
+        "06_book_viewer_ui.svg",
+    )
 
 
 def screen_reference_projects() -> None:
-    e = phone_base("お絵描き資料", "参照プロジェクト")
-    e += [icon_button(SX + SW - 74, SY + 14, "＋", True), icon_button(SX + SW - 36, SY + 14, "⋮")]
+    e = phone(BLACK)
+    e.append(app_bar("お絵描き資料", left="≡", centered=True))
     y = SY + 78
-    for i, (title, sub) in enumerate([("キャラ立ち絵 参考", "進行中 / 36 枚"), ("手とポーズ資料", "進行中 / 18 枚"), ("背景ラフ用", "完了 / 54 枚")]):
+    projects = [("キャラ立ち絵 参考", "進行中"), ("手とポーズ資料", "進行中"), ("背景ラフ用", "完了")]
+    for i, (title, status) in enumerate(projects):
         yy = y + i * 86
-        e.append(rect(SX + 14, yy, SW - 28, 72, "card", rx=8))
-        for t in range(3):
-            e.append(thumb(SX + 26 + t * 30, yy + 12, 26, 48, i + t))
-        e.append(text(SX + 132, yy + 30, title, "cardTitle"))
-        e.append(text(SX + 132, yy + 52, sub, "smallDim"))
-        e.append(text(SX + SW - 34, yy + 42, "⋮", "menu", **{"text-anchor": "middle"}))
-    e.append(rect(SX + 14, SY + 372, SW - 28, 170, "card2", rx=10))
-    e.append(text(SX + 30, SY + 400, "プロジェクト詳細", "dialogTitle"))
-    e.append(grid(SX + 30, SY + 418, 5, 2, 52, 52, 6))
-    e.append(chip(SX + 30, SY + 532, "Web検索", True, 78))
-    e.append(chip(SX + 118, SY + 532, "スクショ保存", False, 98))
-    e.append(dialog(SX + 42, SY + 560, SW - 84, 116, "完了確認", ["一時フォルダから整理します。"], "完了"))
-    calls = [
-        Callout(1, SX + 264, SY + 28, "プロジェクト追加", "制作テーマごとに一時資料フォルダを作成します。"),
-        Callout(2, SX + 148, y + 32, "プロジェクト一覧", "代表画像、状態、資料枚数をカードで表示します。"),
-        Callout(3, SX + 162, SY + 454, "資料グリッド", "Web検索や画像長押しで追加した参考画像をまとめて参照します。"),
-        Callout(4, SX + 170, SY + 610, "完了フロー", "制作終了時に一時資料を整理し、プロジェクトを完了状態にします。"),
-    ]
-    render("お絵描き資料UIモック", e, calls, "07_reference_projects_ui.svg")
+        e.append(rect(SX + 16, yy, SW - 32, 70, "brownCard", rx=8))
+        e.append(circle(SX + 48, yy + 35, 18, "iconCircle", fill="#263238"))
+        e.append(text(SX + 48, yy + 41, "B" if status == "進行中" else "✓", "iconLabel", fill=CYAN if status == "進行中" else MUTED, text_anchor="middle"))
+        e.append(text(SX + 80, yy + 30, title, "cardTitle"))
+        e.append(text(SX + 80, yy + 52, status, "cardSub", fill="#4CAF50" if status == "進行中" else MUTED))
+        e.append(text(SX + SW - 36, yy + 42, "D", "barIconSmall", fill=MUTED, text_anchor="middle"))
+    e.append(circle(SX + SW - 50, SY + SH - 128, 28, fill=CYAN))
+    e.append(text(SX + SW - 50, SY + SH - 119, "＋", "barIcon", fill="#001216", text_anchor="middle"))
+    e.append(dialog_box(SX + 42, SY + 384, SW - 84, 196, "新規プロジェクト", ["プロジェクト名 (例: エルフの描き方)", "資料は Gallery/References に保存"], "作成"))
+    e += [marker(1, SX + SW / 2, SY + 28), marker(2, SX + 120, y + 35), marker(3, SX + SW - 50, SY + SH - 128), marker(4, SX + SW / 2, SY + 424)]
+    render(
+        "お絵描き資料UIモック",
+        e,
+        [
+            Legend(1, "CenterAlignedTopAppBar", "黒背景でタイトル中央、左にメニューを配置します。"),
+            Legend(2, "プロジェクトカード", "Brush/Check アイコン、タイトル、進行中/完了、削除ボタンを持ちます。"),
+            Legend(3, "FAB", "右下の FloatingActionButton から新規プロジェクトを作成します。"),
+            Legend(4, "作成ダイアログ", "プロジェクト名入力と作成/キャンセルを表示します。"),
+        ],
+        "07_reference_projects_ui.svg",
+    )
 
 
 def screen_recommendations() -> None:
-    e = phone_base("おすすめ", "視聴履歴 / 類似画像")
-    e.append(icon_button(SX + SW - 36, SY + 14, "↻"))
-    y = SY + 78
-    tabs = [("最近よく見る", True), ("似た画像", False), ("ランダム", False)]
-    x = SX + 14
-    for label, selected in tabs:
-        e.append(rect(x, y, 100, 30, "tabOn" if selected else "tabOff", rx=15))
-        e.append(text(x + 50, y + 20, label, "tabTextOn" if selected else "tabText", **{"text-anchor": "middle"}))
-        x += 108
-    e.append(text(SX + 16, y + 62, "閲覧履歴からの候補", "cardTitle"))
-    for i in range(3):
-        yy = y + 82 + i * 92
-        e.append(rect(SX + 14, yy, SW - 28, 78, "card", rx=8))
-        e.append(thumb(SX + 24, yy + 10, 58, 58, i + 3, "REC"))
-        e.append(text(SX + 96, yy + 30, ["よく見るタグに近い画像", "閲覧時間が長い作品", "ベクトル類似候補"][i], "cardTitle"))
-        e.append(text(SX + 96, yy + 54, f"score 0.{93 - i * 7} / viewed {(i + 1) * 8} 回", "smallDim"))
-        e.append(rect(SX + 250, yy + 58, 70, 5, "progressBg", rx=3))
-        e.append(rect(SX + 250, yy + 58, 58 - i * 12, 5, "progress", rx=3))
-    e.append(rect(SX + 14, SY + 520, SW - 28, 78, "card2", rx=8))
-    e.append(text(SX + 30, SY + 548, "計測モード", "dialogTitle"))
-    e.append(text(SX + 30, SY + 574, "閲覧回数、滞在時間、タグ類似度を recommendation 表示へ反映", "smallDim"))
-    calls = [
-        Callout(1, SX + 130, y + 20, "推薦タブ", "閲覧履歴、タグ類似、ベクトル類似、ランダム候補を切り替えます。"),
-        Callout(2, SX + 138, y + 116, "推薦カード", "サムネイル、推薦理由、スコア、閲覧指標を並べて提示します。"),
-        Callout(3, SX + 112, SY + 548, "計測データ", "閲覧回数や滞在時間を保存し、おすすめ生成の入力にします。"),
-        Callout(4, SX + 298, SY + 28, "再計算", "履歴やAI特徴量を使って候補を更新します。"),
-    ]
-    render("おすすめ・視聴履歴UIモック", e, calls, "08_recommendations_history_ui.svg")
+    e = phone(BLACK)
+    e.append(app_bar("おすすめ", left="≡"))
+    e.append(text(SX + SW / 2, SY + SH / 2 - 20, "おすすめのデータがまだありません。", "muted", text_anchor="middle"))
+    e.append(text(SX + SW / 2, SY + SH / 2 + 4, "計測モードで画像を鑑賞してください。", "muted", text_anchor="middle"))
+    e += [marker(1, SX + 112, SY + 28), marker(2, SX + 76, SY + SH / 2 - 8)]
+    render(
+        "おすすめ・視聴履歴UIモック",
+        e,
+        [
+            Legend(1, "おすすめ画面", "実装は黒い TopAppBar と空状態メッセージのシンプルな構成です。"),
+            Legend(2, "空状態", "計測モードで閲覧データが貯まるまで案内文を中央表示します。"),
+        ],
+        "08_recommendations_history_ui.svg",
+    )
 
 
 def screen_creators_sites() -> None:
-    e = phone_base("お気に入りクリエイター", "Creators / Sites")
-    e += [icon_button(SX + SW - 112, SY + 14, "⇅"), icon_button(SX + SW - 74, SY + 14, "＋", True), icon_button(SX + SW - 36, SY + 14, "⋮")]
+    e = phone(CREATOR_BG)
+    e.append(app_bar("Creators", left="≡", actions=["✎", "UP", "DL"], centered=True, bg=CREATOR_BG, fg=CREATOR_INK))
     y = SY + 78
-    e.append(rect(SX + 14, y, 156, 30, "tabOn", rx=15))
-    e.append(text(SX + 92, y + 20, "クリエイター", "tabTextOn", **{"text-anchor": "middle"}))
-    e.append(rect(SX + 180, y, 156, 30, "tabOff", rx=15))
-    e.append(text(SX + 258, y + 20, "お気に入りサイト", "tabText", **{"text-anchor": "middle"}))
-    for i, name in enumerate(["artist_name", "illustrator_02", "manga_creator"]):
-        yy = y + 54 + i * 88
-        e.append(rect(SX + 14, yy, SW - 28, 74, "card", rx=8))
-        e.append(circle(SX + 48, yy + 37, 24, "navCircleOn" if i == 0 else "navCircle"))
-        e.append(text(SX + 92, yy + 28, name, "cardTitle"))
-        e.append(text(SX + 92, yy + 52, "pixiv / X / Fantia / custom links", "smallDim"))
-        e.append(chip(SX + SW - 118, yy + 22, "開く", i == 0, 58))
-    e.append(rect(SX + 14, SY + 432, SW - 28, 142, "card2", rx=10))
-    e.append(text(SX + 30, SY + 462, "お気に入りサイト", "dialogTitle"))
-    e.append(row_card(SX + 30, SY + 480, SW - 60, 46, "Pose Reference Search", "https://example.com/search?q={query}", "accentBlue"))
-    e.append(row_card(SX + 30, SY + 532, SW - 60, 46, "Texture Archive", "カスタム検索サイト / JSONバックアップ対象", "accentGreen"))
-    calls = [
-        Callout(1, SX + 252, SY + 28, "インポート/追加", "JSONバックアップ、追加、編集メニューをトップバーに集約します。"),
-        Callout(2, SX + 144, y + 20, "タブ切替", "作家リンク管理とサイトリンク管理を同じ導線で切り替えます。"),
-        Callout(3, SX + 124, y + 88, "作家カード", "pixiv、X、支援サイト、検索リンクを作家単位で保存します。"),
-        Callout(4, SX + 126, SY + 500, "サイトカード", "カスタム検索URLや説明を登録し、資料探しへ素早く移動します。"),
-    ]
-    render("お気に入り作家・サイトUIモック", e, calls, "09_favorite_creators_sites_ui.svg")
+    creators = [("artist_name", "pixiv / X / Support"), ("illustrator_02", "User sites / custom"), ("Untitled creator", "URL未設定")]
+    for i, (name, sub) in enumerate(creators):
+        yy = y + i * 118
+        e.append(rect(SX + 16, yy, SW - 32, 100, "brownCard", rx=8))
+        e.append(text(SX + 32, yy + 31, name, "brownTitle"))
+        e.append(rect(SX + 32, yy + 48, SW - 64, 34, "brownField", rx=8))
+        e.append(text(SX + 46, yy + 70, sub, "brownText"))
+        e.append(text(SX + SW - 42, yy + 70, "↗", "brownAccent", text_anchor="middle"))
+    sites_y = SY + 474
+    e.append(rect(SX + 16, sites_y, SW - 32, 128, "brownCard", rx=8))
+    e.append(text(SX + 32, sites_y + 30, "お気に入りサイト", "brownTitle"))
+    e.append(text(SX + 32, sites_y + 58, "別画面: CenterAlignedTopAppBar「お気に入りサイト」", "brownText"))
+    e.append(rect(SX + 32, sites_y + 74, SW - 64, 34, "brownField", rx=6))
+    e.append(text(SX + 44, sites_y + 96, "https://example.com/search?q={query}", "brownAccent"))
+    e += [marker(1, SX + SW / 2, SY + 28), marker(2, SX + 108, y + 32), marker(3, SX + SW - 64, SY + 28), marker(4, SX + 118, sites_y + 30)]
+    render(
+        "お気に入り作家・サイトUIモック",
+        e,
+        [
+            Legend(1, "Creators画面", "実装は茶系テーマで CenterAlignedTopAppBar を使います。"),
+            Legend(2, "作家カード", "作家名と登録済みリンクを Card / Surface で表示します。"),
+            Legend(3, "DL/UP/編集", "バックアップ書き出し、読み込み、表示/編集切替を右上に置きます。"),
+            Legend(4, "お気に入りサイト", "別画面も同じ茶系テーマでサイト名、説明、URLカードを表示します。"),
+        ],
+        "09_favorite_creators_sites_ui.svg",
+    )
 
 
 def screen_shared_services() -> None:
-    e = phone_base("Gallery", "共通基盤 / 起動タスク")
-    y = SY + 76
-    e.append(rect(SX + 10, y, 156, 504, "card2", rx=8))
-    e.append(text(SX + 26, y + 30, "Gallery", "dialogTitle"))
-    drawer_items = ["ホーム", "フォルダ", "タグ", "本", "動画DL", "お絵描き資料", "おすすめ（開発中）", "使い方ガイド"]
-    for i, label in enumerate(drawer_items):
-        yy = y + 58 + i * 42
-        e.append(rect(SX + 22, yy, 132, 30, "tabOn" if i == 0 else "tabOff", rx=15))
-        e.append(text(SX + 88, yy + 20, label, "tabTextOn" if i == 0 else "tabText", **{"text-anchor": "middle"}))
-    e.append(rect(SX + 180, y, 158, 88, "card", rx=8))
-    e.append(text(SX + 194, y + 28, "起動処理", "cardTitle"))
-    e.append(text(SX + 194, y + 52, "MediaStore同期 / サムネ生成", "smallDim"))
-    e.append(rect(SX + 194, y + 66, 118, 5, "progressBg", rx=3))
-    e.append(rect(SX + 194, y + 66, 74, 5, "progress", rx=3))
-    e.append(rect(SX + 180, y + 110, 158, 90, "card", rx=8))
-    e.append(text(SX + 194, y + 140, "AIモデル", "cardTitle"))
-    e.append(text(SX + 194, y + 164, "ONNX / MediaPipe", "smallDim"))
-    e.append(rect(SX + 180, y + 224, 158, 90, "card", rx=8))
-    e.append(text(SX + 194, y + 254, "Room DB", "cardTitle"))
-    e.append(text(SX + 194, y + 278, "metadata / tags / history", "smallDim"))
-    e.append(dialog(SX + 184, y + 342, 146, 144, "一括処理", ["サムネイル生成中", "42% 完了"], "詳細"))
-    e.append(bottom_nav("ホーム"))
-    calls = [
-        Callout(1, SX + 90, y + 86, "ナビゲーションドロワー", "主要画面、開発中機能、ガイド、アプリ情報へ移動します。"),
-        Callout(2, SX + 250, y + 66, "起動タスク", "MediaStore同期、サムネイル生成、モデル準備を共通サービスで実行します。"),
-        Callout(3, SX + 246, y + 254, "Room / Repository", "メディアメタデータ、タグ、履歴、参照資料を永続化します。"),
-        Callout(4, SX + 250, y + 398, "グローバル進捗", "AI解析や一括処理の進行状況をアプリ全体で共有します。"),
-    ]
-    render("共通基盤UIモック", e, calls, "10_shared_services_ui.svg")
+    e = phone(APP_BG)
+    e.append(app_bar("すべて", left="≡"))
+    e.append(gallery_control_bar())
+    e.append(rect(SX, SY, SW * 0.76, SH, fill="#121212"))
+    e.append(text(SX + 20, SY + 44, "Gallery", "barTitle"))
+    e.append(text(SX + 20, SY + 72, "高機能ギャラリー", "muted"))
+    drawer = ["ホーム", "フォルダ", "タグ", "本", "ゴミ箱", "動画DL", "お気に入りクリエイター", "お気に入りサイト", "お絵描き資料", "おすすめ（開発中）", "使い方ガイド", "このアプリについて"]
+    y = SY + 108
+    for i, label in enumerate(drawer[:10]):
+        yy = y + i * 38
+        if i == 0:
+            e.append(rect(SX + 12, yy - 20, SW * 0.69, 34, fill="#2A2A2A", rx=17))
+        e.append(text(SX + 32, yy, label, "txt"))
+    op_y = SY + SH - 158
+    e.append(rect(SX + 16, op_y, SW - 32, 84, fill="#000000D9", stroke="#FFFFFF22", rx=12))
+    e.append(text(SX + 32, op_y + 28, "サムネイル生成", "cardTitle"))
+    e.append(text(SX + SW - 52, op_y + 28, "42%", "cardTitle", fill=CYAN, text_anchor="middle"))
+    e.append(rect(SX + 32, op_y + 48, SW - 64, 4, "progressTrack", rx=2))
+    e.append(rect(SX + 32, op_y + 48, 132, 4, "progress", rx=2))
+    e.append(text(SX + 32, op_y + 68, "MediaStore同期 / AIモデル準備 / Room更新", "muted"))
+    e += [marker(1, SX + 52, SY + 28), marker(2, SX + 84, SY + 132), marker(3, SX + 130, op_y + 28), marker(4, SX + 242, SY + 278)]
+    render(
+        "共通基盤UIモック",
+        e,
+        [
+            Legend(1, "ModalNavigationDrawer", "左スワイプ/メニューで主要機能と設定系へ移動します。"),
+            Legend(2, "ドロワー項目", "MainActivity の実装ラベルをそのまま並べています。"),
+            Legend(3, "GlobalProgressOverlay", "起動タスクや一括処理の進捗を黒いカードで重ねます。"),
+            Legend(4, "共通状態", "GalleryState、Room、Repository、サービス処理が各画面を支えます。"),
+        ],
+        "10_shared_services_ui.svg",
+    )
 
 
 def main() -> None:
     screen_media_gallery()
     screen_media_viewer()
     screen_mylist_ai()
-    screen_folder_trash()
+    screen_folder_trash_bulk()
     screen_x_downloader()
     screen_book_viewer()
     screen_reference_projects()

@@ -1,62 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title"><title id="title">XダウンロードUIモック</title><defs>
-  <linearGradient id="thumbGrad0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6bff"/><stop offset="1" stop-color="#101827"/></linearGradient>
-  <linearGradient id="thumbGrad1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#19b38b"/><stop offset="1" stop-color="#162021"/></linearGradient>
-  <linearGradient id="thumbGrad2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ce5f4a"/><stop offset="1" stop-color="#271715"/></linearGradient>
-  <linearGradient id="thumbGrad3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9b94e"/><stop offset="1" stop-color="#201b12"/></linearGradient>
-  <linearGradient id="thumbGrad4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ad7cff"/><stop offset="1" stop-color="#1a1628"/></linearGradient>
-  <linearGradient id="thumbGrad5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3659d"/><stop offset="1" stop-color="#27151d"/></linearGradient>
-  <linearGradient id="thumbGrad6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4fb6d8"/><stop offset="1" stop-color="#111c22"/></linearGradient>
-  <linearGradient id="thumbGrad7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8aa25e"/><stop offset="1" stop-color="#151b14"/></linearGradient>
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="980" viewBox="0 0 920 980" role="img" aria-labelledby="title"><title id="title">XダウンロードUIモック</title><defs>
+  <linearGradient id="thumb0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6C8BFF"/><stop offset="1" stop-color="#15203D"/></linearGradient>
+  <linearGradient id="thumb1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3EB489"/><stop offset="1" stop-color="#14251D"/></linearGradient>
+  <linearGradient id="thumb2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D77A61"/><stop offset="1" stop-color="#301915"/></linearGradient>
+  <linearGradient id="thumb3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D7B95F"/><stop offset="1" stop-color="#2C2412"/></linearGradient>
+  <linearGradient id="thumb4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8F7CFF"/><stop offset="1" stop-color="#21193A"/></linearGradient>
+  <linearGradient id="thumb5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#E56B9F"/><stop offset="1" stop-color="#351826"/></linearGradient>
+  <linearGradient id="thumb6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6EC6E8"/><stop offset="1" stop-color="#132836"/></linearGradient>
+  <linearGradient id="thumb7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#92A76A"/><stop offset="1" stop-color="#1A2214"/></linearGradient>
 </defs><style>
   svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
-  .phone{fill:#08090b;stroke:#2a2f36;stroke-width:3}
-  .screen{fill:#111418}
-  .appbar,.bottomBar{fill:#050607}
-  .sensor{fill:#303640}
-  .title{fill:#fff;font-size:17px;font-weight:700}
-  .docTitle{fill:#f8fbff;font-size:26px;font-weight:800}
-  .docSub{fill:#9ea7b3;font-size:14px}
-  .txt{fill:#eaf0f6;font-size:13px}
-  .small{fill:#d8dee6;font-size:12px}
-  .tinyDim{fill:#89929d;font-size:10px}
-  .smallDim{fill:#9aa3ad;font-size:11px}
-  .chip{fill:#1b2027;stroke:#333a44;stroke-width:1}
-  .chip.selected{fill:#063b43;stroke:#00d5ef}
-  .chipText{fill:#dfe9ef;font-size:11px}
-  .icon{fill:#171c22;stroke:#2e3540}
-  .activeIcon{fill:#04353e;stroke:#00d5ef}
-  .iconText{fill:#f2f7fb;font-size:14px;font-weight:700}
-  .thumb{stroke:#222a33;stroke-width:1}
-  .badge{fill:#050607cc}
+  .device{fill:#07080A;stroke:#2B3038;stroke-width:3}
+  .screen{stroke:#171A1F;stroke-width:1}
+  .camera{fill:#1E242C}
+  .barTitle{font-size:20px;font-weight:500}
+  .barIcon{font-size:25px;font-weight:600}
+  .barIconSmall{font-size:18px;font-weight:600}
+  .iconCircle{fill:#2D2D2D}
+  .iconLabel{font-size:14px;font-weight:700;fill:#FFFFFF}
+  .thumb{stroke:#222;stroke-width:.6}
+  .badge{fill:#000000AA}
   .badgeText{fill:#fff;font-size:9px;font-weight:700}
-  .star{fill:#ffdb65;font-size:15px}
-  .section{fill:#181d23}
-  .card{fill:#1a1f26;stroke:#303844;stroke-width:1}
-  .card2{fill:#131820;stroke:#333d49;stroke-width:1}
-  .cardTitle{fill:#f6f8fb;font-size:13px;font-weight:700}
-  .metric{fill:#ffffff;font-size:21px;font-weight:800}
-  .metricLabel{fill:#9ca6b2;font-size:10px}
-  .menu{fill:#b8c0cb;font-size:17px}
-  .accentBlue{fill:#00c8e6}.accentGreen{fill:#25d68a}.accentYellow{fill:#ffd25d}.accentRed{fill:#ff6565}
-  .scrim{fill:#00000099}
-  .dialog{fill:#20252d;stroke:#48505c}
-  .dialogTitle{fill:#fff;font-size:16px;font-weight:800}
-  .dialogText{fill:#dce4ec;font-size:12px}
-  .primaryBtn{fill:#00bcd4}
-  .secondaryBtn{fill:#242b34;stroke:#46505c}
-  .btnText{fill:#001216;font-size:12px;font-weight:800}
-  .navCircle{fill:#1a2028}.navCircleOn{fill:#00bcd4}
-  .navIcon{fill:#fff;font-size:11px;font-weight:900}
-  .navText{fill:#8f99a5;font-size:9px}.navTextOn{fill:#dffaff;font-size:9px;font-weight:800}
-  .scrollTrack{fill:#20252c}.scrollThumb{fill:#00bcd4}.bubble{fill:#00bcd4}
-  .bubbleText{fill:#001216;font-size:11px;font-weight:800}
-  .num{fill:#00bcd4}.numText{fill:#001216;font-size:12px;font-weight:900}
-  .line{stroke:#00bcd4;stroke-width:1.4;stroke-opacity:.55}
-  .callTitle{fill:#f4f8fc;font-size:15px;font-weight:800}
-  .callBody{fill:#b5c0cc;font-size:12px}
-  .separator{fill:#303844}
-  .progressBg{fill:#2a313b}.progress{fill:#00bcd4}
-  .input{fill:#11161c;stroke:#4c5664}
-  .tabOn{fill:#00bcd4}.tabOff{fill:#222932}
-  .tabTextOn{fill:#001216;font-size:11px;font-weight:800}.tabText{fill:#cbd4dd;font-size:11px}
-</style><rect x="58" y="38" width="388" height="744" class="phone" rx="34"/><rect x="76" y="66" width="352" height="688" class="screen" rx="20"/><rect x="76" y="66" width="352" height="56" class="appbar" rx="20"/><rect x="76" y="102" width="352" height="20" class="appbar"/><circle cx="98" cy="94" r="2" class="sensor"/><text x="120" y="101" class="title">Video Downloader</text><text x="120" y="117" class="tinyDim">X / Twitter URL</text><rect x="392" y="80" width="32" height="32" class="icon" rx="16"/><text x="408" y="101" class="iconText" text-anchor="middle">↻</text><text x="92" y="146" class="cardTitle">X (Twitter) URL</text><rect x="90" y="160" width="324" height="46" class="input" rx="8"/><text x="104" y="189" class="smallDim">https://x.com/user/status/...</text><rect x="90" y="222" width="324" height="44" class="primaryBtn" rx="22"/><text x="252" y="250" class="btnText" text-anchor="middle">Show download options</text><text x="92" y="304" class="cardTitle">Download history</text><rect x="90" y="324" width="324" height="58" class="card" rx="8"/><rect x="100" y="332" width="48" height="42" class="thumb" rx="7" fill="url(#thumbGrad0)"/><rect x="105" y="352" width="38" height="17" class="badge" rx="8"/><text x="112" y="365" class="badgeText">X</text><text x="130" y="351" class="star" text-anchor="middle">★</text><text x="160" y="352" class="cardTitle">COMPLETED  18.4MB</text><text x="160" y="372" class="smallDim">2026-06-25  /  Pictures/X_Downloads</text><rect x="90" y="394" width="324" height="58" class="card" rx="8"/><rect x="100" y="402" width="48" height="42" class="thumb" rx="7" fill="url(#thumbGrad1)"/><rect x="105" y="422" width="38" height="17" class="badge" rx="8"/><text x="112" y="435" class="badgeText">X</text><text x="160" y="422" class="cardTitle">GIF SAVED  6.1MB</text><text x="160" y="442" class="smallDim">2026-06-25  /  Pictures/X_Downloads</text><rect x="90" y="464" width="324" height="58" class="card" rx="8"/><rect x="100" y="472" width="48" height="42" class="thumb" rx="7" fill="url(#thumbGrad2)"/><rect x="105" y="492" width="38" height="17" class="badge" rx="8"/><text x="112" y="505" class="badgeText">X</text><text x="160" y="492" class="cardTitle">FAILED  Retry available</text><text x="160" y="512" class="smallDim">2026-06-25  /  Pictures/X_Downloads</text><rect x="110" y="484" width="284" height="210" class="scrim" rx="12"/><rect x="118" y="492" width="268" height="194" class="dialog" rx="12"/><text x="136" y="526" class="dialogTitle">Download settings</text><text x="136" y="556" class="dialogText">Quality: High / Medium / Low</text><text x="136" y="582" class="dialogText">Duplicate check: enabled</text><text x="136" y="608" class="dialogText">GIFはGIFとして保存</text><text x="136" y="634" class="dialogText">共有URLをクリップボードより優先</text><rect x="262" y="646" width="104" height="32" class="primaryBtn" rx="16"/><text x="314" y="667" class="btnText" text-anchor="middle">Start</text><text x="486" y="52" class="docTitle">XダウンロードUIモック</text><text x="486" y="82" class="docSub">実装画面の構成に合わせた詳細設計用モック</text><rect x="486" y="108" width="640" height="1" class="separator"/><line x1="158" y1="188" x2="506" y2="140" class="line"/><circle cx="506" cy="140" r="12" class="num"/><text x="506" y="144" class="numText" text-anchor="middle">1</text><text x="534" y="134" class="callTitle">URL入力</text><text x="534" y="158" class="callBody">共有、VIEW、クリップボード、手入力のURLを同じ入力欄に反映します。</text><line x1="266" y1="246" x2="506" y2="204" class="line"/><circle cx="506" cy="204" r="12" class="num"/><text x="506" y="208" class="numText" text-anchor="middle">2</text><text x="534" y="198" class="callTitle">オプション表示</text><text x="534" y="222" class="callBody">URL解決後に画質や保存形式を選んでダウンロードを開始します。</text><line x1="208" y1="384" x2="506" y2="268" class="line"/><circle cx="506" cy="268" r="12" class="num"/><text x="506" y="272" class="numText" text-anchor="middle">3</text><text x="534" y="262" class="callTitle">履歴リスト</text><text x="534" y="286" class="callBody">成功、失敗、GIF保存、重複判定の結果を履歴として残します。</text><line x1="246" y1="538" x2="506" y2="332" class="line"/><circle cx="506" cy="332" r="12" class="num"/><text x="506" y="336" class="numText" text-anchor="middle">4</text><text x="534" y="326" class="callTitle">設定ダイアログ</text><text x="534" y="350" class="callBody">解決したメディア候補ごとに保存品質と実行/キャンセルを選びます。</text></svg>
+  .fav{fill:#F44336;font-size:13px;font-weight:700}
+  .txt{fill:#fff;font-size:13px}
+  .headerText{fill:#fff;font-size:20px;font-weight:500}
+  .small{fill:#E8EAED;font-size:12px}
+  .muted{fill:#9E9E9E;font-size:12px}
+  .bottomPill{fill:#000000D9}
+  .navGlyph,.navText{fill:#8F8F8F}
+  .navGlyphOn,.navTextOn{fill:#FFFFFF;font-weight:700}
+  .navGlyph,.navGlyphOn{font-size:19px}
+  .navText,.navTextOn{font-size:9px}
+  .scrollThumb{fill:#FFFFFFCC}
+  .scrollLabel{fill:#000000C7}
+  .scrollLabelText{fill:#fff;font-size:13px}
+  .marker{fill:#00BCD4}
+  .markerText{fill:#001216;font-size:12px;font-weight:900}
+  .docTitle{fill:#F8FAFC;font-size:25px;font-weight:800}
+  .docSub{fill:#AAB2BD;font-size:13px}
+  .legendTitle{fill:#F5F7FA;font-size:15px;font-weight:800}
+  .legendBody{fill:#B9C2CE;font-size:12px}
+  .catTitle{fill:#FFFFFF;font-size:13px}
+  .catSub{fill:#A0A0A0;font-size:11px}
+  .m3Card{fill:#1E1E1E}
+  .cardTitle{fill:#FFFFFF;font-size:15px;font-weight:700}
+  .cardSub{fill:#AAAAAA;font-size:11px}
+  .buttonText{font-size:14px;font-weight:700}
+  .inputBox{fill:#00000000;stroke:#80868B;stroke-width:1.2}
+  .inputLabel{fill:#BDBDBD;font-size:12px}
+  .inputText{fill:#FFFFFF;font-size:13px}
+  .dialog{fill:#1A1A1A;stroke:#2C2C2C}
+  .dialogTitle{fill:#fff;font-size:18px;font-weight:700}
+  .dialogText{fill:#D5D5D5;font-size:13px}
+  .brownCard{fill:#1D1A18;stroke:#4B4038}
+  .brownField{fill:#28231F}
+  .brownTitle{fill:#F4EFE8;font-size:18px;font-weight:700}
+  .brownText{fill:#B8ADA2;font-size:13px}
+  .brownAccent{fill:#D28A5E;font-size:13px;font-weight:700}
+  .progressTrack{fill:#FFFFFF26}
+  .progress{fill:#00BCD4}
+  .line{stroke:#00BCD4;stroke-width:1.2;opacity:.65}
+</style><rect x="54" y="38" width="430" height="900" class="device" rx="34"/><rect x="72" y="66" width="394" height="844" class="screen" rx="18" fill="#000000"/><circle cx="269.0" cy="56" r="4" class="camera"/><rect x="72" y="66" width="394" height="56" fill="#000000"/><text x="100" y="101" class="barIcon" fill="#FFFFFF" text-anchor="middle">≡</text><text x="130" y="102" class="barTitle" fill="#FFFFFF" text-anchor="start">Video Downloader</text><rect x="88" y="154" width="362" height="58" class="inputBox" rx="4"/><text x="102" y="150" class="inputLabel">X (Twitter) URL</text><text x="120" y="190" class="inputText">https://x.com/user/status/...</text><text x="102" y="190" class="inputText">🔗</text><rect x="88" y="232" width="362" height="42" fill="#1DA1F2" rx="21"/><text x="269.0" y="259" class="buttonText" fill="#FFFFFF" text-anchor="middle">Show download options</text><text x="120" y="324" class="cardTitle">Download history</text><text x="406" y="324" class="muted" text-anchor="middle">Clear history</text><rect x="88" y="346" width="362" height="74" class="m3Card" rx="8"/><rect x="100" y="356" width="96" height="54" class="thumb" rx="8" fill="url(#thumb0)"/><text x="110" y="404" class="fav">♥</text><text x="212" y="374" class="cardTitle">X download #1</text><text x="212" y="394" class="cardSub">https://x.com/...</text><text x="416" y="410" class="cardSub" fill="#4CAF50" text-anchor="middle">COMPLETED</text><rect x="88" y="432" width="362" height="74" class="m3Card" rx="8"/><rect x="100" y="442" width="96" height="54" class="thumb" rx="8" fill="url(#thumb1)"/><text x="212" y="460" class="cardTitle">X download #2</text><text x="212" y="480" class="cardSub">https://x.com/...</text><text x="416" y="496" class="cardSub" fill="#4CAF50" text-anchor="middle">COMPLETED</text><rect x="88" y="518" width="362" height="74" class="m3Card" rx="8"/><rect x="100" y="528" width="96" height="54" class="thumb" rx="8" fill="url(#thumb2)"/><text x="212" y="546" class="cardTitle">X download #3</text><text x="212" y="566" class="cardSub">https://x.com/...</text><text x="416" y="582" class="cardSub" fill="#F44336" text-anchor="middle">FAILED</text><rect x="72" y="66" width="394" height="844" fill="#000000" opacity="0.55"/><rect x="114" y="536" width="310" height="248" class="dialog" rx="18"/><text x="136" y="574" class="dialogTitle">Download settings</text><text x="136" y="606" class="dialogText">Select quality:</text><text x="136" y="636" class="dialogText">● High (1080p)</text><text x="136" y="666" class="dialogText">○ Medium (720p)</text><text x="136" y="696" class="dialogText">○ Low (480p)</text><text x="136" y="726" class="dialogText">HOME     Cancel</text><rect x="292" y="732" width="104" height="42" fill="#00BCD4" rx="21"/><text x="344.0" y="759" class="buttonText" fill="#001216" text-anchor="middle">Start download</text><circle cx="182" cy="94" r="11" class="marker"/><text x="182" y="98" class="markerText" text-anchor="middle">1</text><circle cx="164" cy="184" r="11" class="marker"/><text x="164" y="188" class="markerText" text-anchor="middle">2</text><circle cx="269.0" cy="254" r="11" class="marker"/><text x="269.0" y="258" class="markerText" text-anchor="middle">3</text><circle cx="192" cy="382" r="11" class="marker"/><text x="192" y="386" class="markerText" text-anchor="middle">4</text><circle cx="269.0" cy="578" r="11" class="marker"/><text x="269.0" y="582" class="markerText" text-anchor="middle">5</text><text x="532" y="68" class="docTitle">XダウンロードUIモック</text><text x="532" y="96" class="docSub">実装画面に近い詳細設計モック</text><rect x="532" y="118" width="320" height="1" fill="#30343A"/><circle cx="544" cy="148" r="11" class="marker"/><text x="544" y="152" class="markerText" text-anchor="middle">1</text><text x="566" y="144" class="legendTitle">TopAppBar</text><text x="566" y="168" class="legendBody">実装タイトルは Video Downloader。左にメニューを表示します。</text><circle cx="544" cy="222" r="11" class="marker"/><text x="544" y="226" class="markerText" text-anchor="middle">2</text><text x="566" y="218" class="legendTitle">OutlinedTextField</text><text x="566" y="242" class="legendBody">ラベルは X (Twitter) URL、Link アイコン付きです。</text><circle cx="544" cy="296" r="11" class="marker"/><text x="544" y="300" class="markerText" text-anchor="middle">3</text><text x="566" y="292" class="legendTitle">実行ボタン</text><text x="566" y="316" class="legendBody">青いボタンで Download settings ダイアログを開きます。</text><circle cx="544" cy="370" r="11" class="marker"/><text x="544" y="374" class="markerText" text-anchor="middle">4</text><text x="566" y="366" class="legendTitle">履歴カード</text><text x="566" y="390" class="legendBody">黒背景に Card、96x64 のプレビュー、URL、日時、状態を表示します。</text><circle cx="544" cy="444" r="11" class="marker"/><text x="544" y="448" class="markerText" text-anchor="middle">5</text><text x="566" y="440" class="legendTitle">設定ダイアログ</text><text x="566" y="464" class="legendBody">画質選択、GIF検出、HOME/Cancel、Start download を表示します。</text></svg>

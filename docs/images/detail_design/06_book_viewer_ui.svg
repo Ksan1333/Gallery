@@ -1,62 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title"><title id="title">漫画ビューアUIモック</title><defs>
-  <linearGradient id="thumbGrad0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e6bff"/><stop offset="1" stop-color="#101827"/></linearGradient>
-  <linearGradient id="thumbGrad1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#19b38b"/><stop offset="1" stop-color="#162021"/></linearGradient>
-  <linearGradient id="thumbGrad2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ce5f4a"/><stop offset="1" stop-color="#271715"/></linearGradient>
-  <linearGradient id="thumbGrad3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9b94e"/><stop offset="1" stop-color="#201b12"/></linearGradient>
-  <linearGradient id="thumbGrad4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ad7cff"/><stop offset="1" stop-color="#1a1628"/></linearGradient>
-  <linearGradient id="thumbGrad5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3659d"/><stop offset="1" stop-color="#27151d"/></linearGradient>
-  <linearGradient id="thumbGrad6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4fb6d8"/><stop offset="1" stop-color="#111c22"/></linearGradient>
-  <linearGradient id="thumbGrad7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8aa25e"/><stop offset="1" stop-color="#151b14"/></linearGradient>
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="980" viewBox="0 0 920 980" role="img" aria-labelledby="title"><title id="title">漫画ビューアUIモック</title><defs>
+  <linearGradient id="thumb0" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6C8BFF"/><stop offset="1" stop-color="#15203D"/></linearGradient>
+  <linearGradient id="thumb1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3EB489"/><stop offset="1" stop-color="#14251D"/></linearGradient>
+  <linearGradient id="thumb2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D77A61"/><stop offset="1" stop-color="#301915"/></linearGradient>
+  <linearGradient id="thumb3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D7B95F"/><stop offset="1" stop-color="#2C2412"/></linearGradient>
+  <linearGradient id="thumb4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#8F7CFF"/><stop offset="1" stop-color="#21193A"/></linearGradient>
+  <linearGradient id="thumb5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#E56B9F"/><stop offset="1" stop-color="#351826"/></linearGradient>
+  <linearGradient id="thumb6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6EC6E8"/><stop offset="1" stop-color="#132836"/></linearGradient>
+  <linearGradient id="thumb7" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#92A76A"/><stop offset="1" stop-color="#1A2214"/></linearGradient>
 </defs><style>
   svg{background:#101316;font-family:'Yu Gothic','Meiryo',system-ui,sans-serif}
-  .phone{fill:#08090b;stroke:#2a2f36;stroke-width:3}
-  .screen{fill:#111418}
-  .appbar,.bottomBar{fill:#050607}
-  .sensor{fill:#303640}
-  .title{fill:#fff;font-size:17px;font-weight:700}
-  .docTitle{fill:#f8fbff;font-size:26px;font-weight:800}
-  .docSub{fill:#9ea7b3;font-size:14px}
-  .txt{fill:#eaf0f6;font-size:13px}
-  .small{fill:#d8dee6;font-size:12px}
-  .tinyDim{fill:#89929d;font-size:10px}
-  .smallDim{fill:#9aa3ad;font-size:11px}
-  .chip{fill:#1b2027;stroke:#333a44;stroke-width:1}
-  .chip.selected{fill:#063b43;stroke:#00d5ef}
-  .chipText{fill:#dfe9ef;font-size:11px}
-  .icon{fill:#171c22;stroke:#2e3540}
-  .activeIcon{fill:#04353e;stroke:#00d5ef}
-  .iconText{fill:#f2f7fb;font-size:14px;font-weight:700}
-  .thumb{stroke:#222a33;stroke-width:1}
-  .badge{fill:#050607cc}
+  .device{fill:#07080A;stroke:#2B3038;stroke-width:3}
+  .screen{stroke:#171A1F;stroke-width:1}
+  .camera{fill:#1E242C}
+  .barTitle{font-size:20px;font-weight:500}
+  .barIcon{font-size:25px;font-weight:600}
+  .barIconSmall{font-size:18px;font-weight:600}
+  .iconCircle{fill:#2D2D2D}
+  .iconLabel{font-size:14px;font-weight:700;fill:#FFFFFF}
+  .thumb{stroke:#222;stroke-width:.6}
+  .badge{fill:#000000AA}
   .badgeText{fill:#fff;font-size:9px;font-weight:700}
-  .star{fill:#ffdb65;font-size:15px}
-  .section{fill:#181d23}
-  .card{fill:#1a1f26;stroke:#303844;stroke-width:1}
-  .card2{fill:#131820;stroke:#333d49;stroke-width:1}
-  .cardTitle{fill:#f6f8fb;font-size:13px;font-weight:700}
-  .metric{fill:#ffffff;font-size:21px;font-weight:800}
-  .metricLabel{fill:#9ca6b2;font-size:10px}
-  .menu{fill:#b8c0cb;font-size:17px}
-  .accentBlue{fill:#00c8e6}.accentGreen{fill:#25d68a}.accentYellow{fill:#ffd25d}.accentRed{fill:#ff6565}
-  .scrim{fill:#00000099}
-  .dialog{fill:#20252d;stroke:#48505c}
-  .dialogTitle{fill:#fff;font-size:16px;font-weight:800}
-  .dialogText{fill:#dce4ec;font-size:12px}
-  .primaryBtn{fill:#00bcd4}
-  .secondaryBtn{fill:#242b34;stroke:#46505c}
-  .btnText{fill:#001216;font-size:12px;font-weight:800}
-  .navCircle{fill:#1a2028}.navCircleOn{fill:#00bcd4}
-  .navIcon{fill:#fff;font-size:11px;font-weight:900}
-  .navText{fill:#8f99a5;font-size:9px}.navTextOn{fill:#dffaff;font-size:9px;font-weight:800}
-  .scrollTrack{fill:#20252c}.scrollThumb{fill:#00bcd4}.bubble{fill:#00bcd4}
-  .bubbleText{fill:#001216;font-size:11px;font-weight:800}
-  .num{fill:#00bcd4}.numText{fill:#001216;font-size:12px;font-weight:900}
-  .line{stroke:#00bcd4;stroke-width:1.4;stroke-opacity:.55}
-  .callTitle{fill:#f4f8fc;font-size:15px;font-weight:800}
-  .callBody{fill:#b5c0cc;font-size:12px}
-  .separator{fill:#303844}
-  .progressBg{fill:#2a313b}.progress{fill:#00bcd4}
-  .input{fill:#11161c;stroke:#4c5664}
-  .tabOn{fill:#00bcd4}.tabOff{fill:#222932}
-  .tabTextOn{fill:#001216;font-size:11px;font-weight:800}.tabText{fill:#cbd4dd;font-size:11px}
-</style><rect x="58" y="38" width="388" height="744" class="phone" rx="34"/><rect x="76" y="66" width="352" height="688" class="screen" rx="20"/><rect x="76" y="66" width="352" height="56" class="appbar" rx="20"/><rect x="76" y="102" width="352" height="20" class="appbar"/><circle cx="98" cy="94" r="2" class="sensor"/><text x="120" y="101" class="title"></text><rect x="76" y="66" width="352" height="688" class="screen" rx="20"/><rect x="76" y="66" width="352" height="58" class="scrim"/><text x="96" y="102" class="title">×</text><text x="138" y="102" class="title">sample_book.zip</text><rect x="354" y="79" width="32" height="32" class="icon activeIcon" rx="16"/><text x="370" y="100" class="iconText" text-anchor="middle">🔖</text><rect x="392" y="79" width="32" height="32" class="icon" rx="16"/><text x="408" y="100" class="iconText" text-anchor="middle">⋮</text><rect x="100" y="170" width="145" height="432" class="card2" rx="4"/><rect x="110" y="182" width="125" height="408" class="thumb" rx="7" fill="url(#thumbGrad6)"/><rect x="259" y="170" width="145" height="432" class="card2" rx="4"/><rect x="269" y="182" width="125" height="408" class="thumb" rx="7" fill="url(#thumbGrad1)"/><text x="252" y="636" class="title" text-anchor="middle">128 / 240</text><rect x="130" y="654" width="244" height="5" class="progressBg" rx="3"/><rect x="130" y="654" width="142" height="5" class="progress" rx="3"/><rect x="148" y="674" width="84" height="28" class="chip" rx="14"/><text x="160" y="692" class="chipText">前の本</text><rect x="272" y="674" width="84" height="28" class="chip selected" rx="14"/><text x="284" y="692" class="chipText">次の本</text><rect x="76" y="610" width="352" height="144" class="section" rx="16"/><text x="94" y="642" class="dialogTitle">本ビュワー設定</text><rect x="94" y="666" width="92" height="28" class="chip selected" rx="14"/><text x="106" y="684" class="chipText">自動</text><rect x="196" y="666" width="92" height="28" class="chip" rx="14"/><text x="208" y="684" class="chipText">見開き</text><rect x="298" y="666" width="92" height="28" class="chip selected" rx="14"/><text x="310" y="684" class="chipText">右から左</text><rect x="94" y="702" width="92" height="28" class="chip" rx="14"/><text x="106" y="720" class="chipText">画面内</text><rect x="196" y="702" width="92" height="28" class="chip" rx="14"/><text x="208" y="720" class="chipText">高画質</text><text x="486" y="52" class="docTitle">漫画ビューアUIモック</text><text x="486" y="82" class="docSub">実装画面の構成に合わせた詳細設計用モック</text><rect x="486" y="108" width="640" height="1" class="separator"/><line x1="212" y1="102" x2="506" y2="140" class="line"/><circle cx="506" cy="140" r="12" class="num"/><text x="506" y="144" class="numText" text-anchor="middle">1</text><text x="534" y="134" class="callTitle">ビューアヘッダー</text><text x="534" y="158" class="callBody">本タイトル、しおり、検索、表示設定、スクリーンショットを扱います。</text><line x1="252" y1="366" x2="506" y2="204" class="line"/><circle cx="506" cy="204" r="12" class="num"/><text x="506" y="208" class="numText" text-anchor="middle">2</text><text x="534" y="198" class="callTitle">ページ表示</text><text x="534" y="222" class="callBody">ZIP/PDFを単ページまたは見開きで表示し、読み方向に応じてページを並べます。</text><line x1="252" y1="656" x2="506" y2="268" class="line"/><circle cx="506" cy="268" r="12" class="num"/><text x="506" y="272" class="numText" text-anchor="middle">3</text><text x="534" y="262" class="callTitle">ページ操作</text><text x="534" y="286" class="callBody">ページ数、シーク、前後の本への移動を下部にまとめます。</text><line x1="206" y1="666" x2="506" y2="332" class="line"/><circle cx="506" cy="332" r="12" class="num"/><text x="506" y="336" class="numText" text-anchor="middle">4</text><text x="534" y="326" class="callTitle">表示設定</text><text x="534" y="350" class="callBody">レイアウト、読み方向、フィット、背景、画質、先読みを変更します。</text></svg>
+  .fav{fill:#F44336;font-size:13px;font-weight:700}
+  .txt{fill:#fff;font-size:13px}
+  .headerText{fill:#fff;font-size:20px;font-weight:500}
+  .small{fill:#E8EAED;font-size:12px}
+  .muted{fill:#9E9E9E;font-size:12px}
+  .bottomPill{fill:#000000D9}
+  .navGlyph,.navText{fill:#8F8F8F}
+  .navGlyphOn,.navTextOn{fill:#FFFFFF;font-weight:700}
+  .navGlyph,.navGlyphOn{font-size:19px}
+  .navText,.navTextOn{font-size:9px}
+  .scrollThumb{fill:#FFFFFFCC}
+  .scrollLabel{fill:#000000C7}
+  .scrollLabelText{fill:#fff;font-size:13px}
+  .marker{fill:#00BCD4}
+  .markerText{fill:#001216;font-size:12px;font-weight:900}
+  .docTitle{fill:#F8FAFC;font-size:25px;font-weight:800}
+  .docSub{fill:#AAB2BD;font-size:13px}
+  .legendTitle{fill:#F5F7FA;font-size:15px;font-weight:800}
+  .legendBody{fill:#B9C2CE;font-size:12px}
+  .catTitle{fill:#FFFFFF;font-size:13px}
+  .catSub{fill:#A0A0A0;font-size:11px}
+  .m3Card{fill:#1E1E1E}
+  .cardTitle{fill:#FFFFFF;font-size:15px;font-weight:700}
+  .cardSub{fill:#AAAAAA;font-size:11px}
+  .buttonText{font-size:14px;font-weight:700}
+  .inputBox{fill:#00000000;stroke:#80868B;stroke-width:1.2}
+  .inputLabel{fill:#BDBDBD;font-size:12px}
+  .inputText{fill:#FFFFFF;font-size:13px}
+  .dialog{fill:#1A1A1A;stroke:#2C2C2C}
+  .dialogTitle{fill:#fff;font-size:18px;font-weight:700}
+  .dialogText{fill:#D5D5D5;font-size:13px}
+  .brownCard{fill:#1D1A18;stroke:#4B4038}
+  .brownField{fill:#28231F}
+  .brownTitle{fill:#F4EFE8;font-size:18px;font-weight:700}
+  .brownText{fill:#B8ADA2;font-size:13px}
+  .brownAccent{fill:#D28A5E;font-size:13px;font-weight:700}
+  .progressTrack{fill:#FFFFFF26}
+  .progress{fill:#00BCD4}
+  .line{stroke:#00BCD4;stroke-width:1.2;opacity:.65}
+</style><rect x="54" y="38" width="430" height="900" class="device" rx="34"/><rect x="72" y="66" width="394" height="844" class="screen" rx="18" fill="#000000"/><circle cx="269.0" cy="56" r="4" class="camera"/><rect x="72" y="66" width="394" height="844" fill="#000000"/><rect x="72" y="66" width="394" height="56" fill="#00000099"/><text x="100" y="102" class="barIcon" text-anchor="middle">×</text><text x="136" y="101" class="barTitle">sample_book.zip</text><text x="396" y="101" class="barIconSmall" text-anchor="middle">🔖</text><text x="438" y="101" class="barIconSmall" text-anchor="middle">⋮</text><rect x="110" y="176" width="145" height="440" fill="#141414"/><rect x="120" y="190" width="125" height="412" class="thumb" rx="8" fill="url(#thumb1)"/><rect x="274" y="176" width="145" height="440" fill="#141414"/><rect x="284" y="190" width="125" height="412" class="thumb" rx="8" fill="url(#thumb2)"/><rect x="72" y="776" width="394" height="134" fill="#00000099"/><text x="269.0" y="808" class="small" text-anchor="middle">128 / 240</text><rect x="146" y="828" width="246" height="5" class="progressTrack" rx="3"/><rect x="146" y="828" width="126" height="5" class="progress" rx="3"/><text x="192" y="868" class="muted" text-anchor="middle">前の本</text><text x="346" y="868" class="muted" text-anchor="middle">次の本</text><circle cx="217" cy="94" r="11" class="marker"/><text x="217" y="98" class="markerText" text-anchor="middle">1</text><circle cx="269.0" cy="386" r="11" class="marker"/><text x="269.0" y="390" class="markerText" text-anchor="middle">2</text><circle cx="269.0" cy="812" r="11" class="marker"/><text x="269.0" y="816" class="markerText" text-anchor="middle">3</text><circle cx="420" cy="94" r="11" class="marker"/><text x="420" y="98" class="markerText" text-anchor="middle">4</text><text x="532" y="68" class="docTitle">漫画ビューアUIモック</text><text x="532" y="96" class="docSub">実装画面に近い詳細設計モック</text><rect x="532" y="118" width="320" height="1" fill="#30343A"/><circle cx="544" cy="148" r="11" class="marker"/><text x="544" y="152" class="markerText" text-anchor="middle">1</text><text x="566" y="144" class="legendTitle">ヘッダー</text><text x="566" y="168" class="legendBody">閉じる、タイトル、しおり、その他メニューを黒半透明で重ねます。</text><circle cx="544" cy="222" r="11" class="marker"/><text x="544" y="226" class="markerText" text-anchor="middle">2</text><text x="566" y="218" class="legendTitle">ページ表示</text><text x="566" y="242" class="legendBody">ZIP/PDF を単ページまたは見開きで、黒背景に表示します。</text><circle cx="544" cy="296" r="11" class="marker"/><text x="544" y="300" class="markerText" text-anchor="middle">3</text><text x="566" y="292" class="legendTitle">下部操作</text><text x="566" y="316" class="legendBody">ページ数、シークバー、前の本/次の本を下部に表示します。</text><circle cx="544" cy="370" r="11" class="marker"/><text x="544" y="374" class="markerText" text-anchor="middle">4</text><text x="566" y="366" class="legendTitle">その他メニュー</text><text x="566" y="390" class="legendBody">タイトル検索、表示設定、スクリーンショット、画面回転を開きます。</text></svg>
