@@ -11,6 +11,7 @@ object AppRoutes {
     const val FAVORITE_ARTISTS = "favorite_artists"
     const val FAVORITE_SITES = "favorite_sites"
     const val RECOMMENDATIONS = "recommendations"
+    const val GOOGLE_PHOTOS = "google_photos"
     const val SETTINGS = "settings"
     const val SEARCH = "search"
     const val ABOUT = "about"
@@ -30,12 +31,9 @@ object AppRoutes {
 
 object AppText {
     const val APP_NAME = "Gallery"
-    const val DRAWER_MEASURE_START = "項目"
-    const val DRAWER_MEASURE_STOP = "計測を停止"
     const val DRAWER_TITLE = "ギャラリーメニュー"
     const val DRAWER_BASIC = "基本機能"
     const val DRAWER_TOOLS = "便利機能"
-    const val DRAWER_MEASURE = "險域ｸｬ"
     const val DRAWER_INFO = "情報"
     const val HOME = "ホーム"
     const val ALL_MEDIA = "すべて"

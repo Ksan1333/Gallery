@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.gallery"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.4.0"
+        versionCode = 2
+        versionName = "0.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -87,6 +87,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.conscrypt)
+    implementation(libs.play.services.auth)
+    implementation(libs.kotlinx.coroutines.play.services)
 
     // Paging 3
     implementation(libs.androidx.paging.runtime)

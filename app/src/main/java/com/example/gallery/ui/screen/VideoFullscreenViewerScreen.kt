@@ -394,6 +394,7 @@ fun VideoFullscreenViewerScreen(
                 AndroidView(
                     factory = {
                         PlayerView(it).apply {
+                            tag = currentVideo?.uri
                             this.player = player
                             useController = false
                             setShutterBackgroundColor(AndroidColor.BLACK)
@@ -407,6 +408,10 @@ fun VideoFullscreenViewerScreen(
                         }
                     },
                     update = {
+                        if (it.tag != currentVideo?.uri) {
+                            it.player = null
+                            it.tag = currentVideo?.uri
+                        }
                         it.setShutterBackgroundColor(AndroidColor.BLACK)
                         it.setBackgroundColor(AndroidColor.BLACK)
                         it.player = player

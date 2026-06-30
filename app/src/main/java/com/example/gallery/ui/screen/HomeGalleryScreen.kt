@@ -461,7 +461,8 @@ fun HomeGalleryScreen(
                 }
             )
         }
-        if (isSearchFiltering) {
+        val shouldShowSearchProgress = isSearchFiltering || ((isSearchActive || isFavoriteFilterActive) && isLoading)
+        if (shouldShowSearchProgress) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

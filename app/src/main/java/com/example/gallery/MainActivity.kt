@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -414,7 +415,7 @@ fun AppNavigation(
             val isFullScreenRoute = currentRoute == "folders_select" ||
                                    currentRoute?.startsWith("analysis") == true
 
-            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == AppRoutes.SETTINGS || currentRoute == AppRoutes.SEARCH || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
+            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == AppRoutes.SETTINGS || currentRoute == AppRoutes.SEARCH || currentRoute == AppRoutes.GOOGLE_PHOTOS || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
                 currentRoute == "references" || currentRoute?.startsWith("reference_detail") == true || currentRoute?.startsWith("reference_search") == true
 
             if (isAlwaysShowNavBarRoute) {
@@ -657,6 +658,18 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
+                        label = { Text("Google Photos") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == AppRoutes.GOOGLE_PHOTOS,
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate(AppRoutes.GOOGLE_PHOTOS)
+                        },
+                        icon = { Icon(Icons.Default.PhotoLibrary, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = drawerItemColors
+                    )
+
+                    NavigationDrawerItem(
                         label = { Text("本のしおり($bookmarksCount)") },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "book_bookmarks",
                         onClick = {
@@ -671,37 +684,6 @@ fun AppNavigation(
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 4.dp),
                         color = colors.divider
-                    )
-
-                    Text(
-                        "計測",
-                        modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = AppConstants.ExtraSmallFontSize,
-                        color = colors.mutedText
-                    )
-
-                    NavigationDrawerItem(
-                        label = { Text(if (galleryState.isMeasureModeActive) AppText.DRAWER_MEASURE_STOP else AppText.DRAWER_MEASURE_START) },
-                        selected = galleryState.isMeasureModeActive,
-                        onClick = {
-                            galleryState.isMeasureModeActive = !galleryState.isMeasureModeActive
-                        },
-                        icon = { 
-                            Icon(
-                                if (galleryState.isMeasureModeActive) Icons.Default.Pause else Icons.Default.PlayArrow, 
-                                null,
-                                tint = if (galleryState.isMeasureModeActive) colors.danger else colors.accent
-                            ) 
-                        },
-                        modifier = Modifier.height(44.dp),
-                        colors = NavigationDrawerItemDefaults.colors(
-                            unselectedContainerColor = Color.Transparent,
-                            unselectedTextColor = colors.primaryText,
-                            unselectedIconColor = colors.primaryText,
-                            selectedContainerColor = colors.accentSoft,
-                            selectedTextColor = colors.danger,
-                            selectedIconColor = colors.danger
-                        )
                     )
 
                     NavigationDrawerItem(
@@ -1089,6 +1071,13 @@ fun AppNavigation(
                     ReferenceProjectScreen(
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onProjectClick = { id -> navController.navigate("reference_detail/$id") }
+                    )
+                }
+                composable(AppRoutes.GOOGLE_PHOTOS) {
+                    isBottomBarVisible = false
+                    GooglePhotosScreen(
+                        galleryState = galleryState,
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 composable("reference_detail/{projectId}") { backStackEntry ->

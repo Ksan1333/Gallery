@@ -164,53 +164,6 @@ fun MediaViewerScreen(
 
     val currentMedia = remember(pagerState.currentPage, imageList) { imageList.getOrNull(pagerState.currentPage) }
 
-    // 計測モード用。
-    var viewStartTime by remember { mutableLongStateOf(0L) }
-    var lastViewedUriInMode by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(pagerState.currentPage, galleryState?.isMeasureModeActive) {
-        val state = galleryState ?: return@LaunchedEffect
-        val currentUri = currentMedia?.uri
-        if (state.isMeasureModeActive) {
-            // 前の画像の表示時間を記録する。
-            if (lastViewedUriInMode != null && viewStartTime > 0) {
-                val duration = (System.currentTimeMillis() - viewStartTime) / 1000
-                if (duration > 0) {
-                    state.repository.updateMeasureStats(lastViewedUriInMode!!, duration)
-                }
-            }
-            // 新しい画像の開始時間を記録する。
-            viewStartTime = System.currentTimeMillis()
-            lastViewedUriInMode = currentUri
-        } else {
-            // モード終了時に最後の画像を記録する。
-            if (lastViewedUriInMode != null && viewStartTime > 0) {
-                val duration = (System.currentTimeMillis() - viewStartTime) / 1000
-                if (duration > 0) {
-                    state.repository.updateMeasureStats(lastViewedUriInMode!!, duration)
-                }
-            }
-            viewStartTime = 0L
-            lastViewedUriInMode = null
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            val state = galleryState
-            if (state?.isMeasureModeActive == true && lastViewedUriInMode != null && viewStartTime > 0) {
-                val duration = (System.currentTimeMillis() - viewStartTime) / 1000
-                if (duration > 0) {
-                    val uri = lastViewedUriInMode!!
-                    val repo = state.repository
-                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        repo.updateMeasureStats(uri, duration)
-                    }
-                }
-            }
-        }
-    }
-
     val currentMetadata by remember(currentMedia?.uri) {
         galleryState?.repository?.mediaDao?.getMetadataSummaryFlow(currentMedia?.uri ?: "")
             ?: kotlinx.coroutines.flow.flowOf(null)
@@ -273,15 +226,8 @@ fun MediaViewerScreen(
             window?.isNavigationBarContrastEnforced = false
         }
         insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (!isUiVisible) {
-            insetsController?.hide(WindowInsetsCompat.Type.statusBars())
-            insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-        } else if (keepNavigationBarsHidden) {
-            insetsController?.show(WindowInsetsCompat.Type.statusBars())
-            insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-        } else {
-            insetsController?.show(WindowInsetsCompat.Type.systemBars())
-        }
+        insetsController?.hide(WindowInsetsCompat.Type.statusBars())
+        insetsController?.show(WindowInsetsCompat.Type.navigationBars())
     }
 
     DisposableEffect(Unit) {
@@ -1800,31 +1746,42 @@ fun VideoPlayer(
         }
         .pointerInput(Unit) { awaitPointerEventScope { while (true) { val event = awaitPointerEvent(); if (event.changes.all { !it.pressed }) onDragEnd() } } }
     ) {
-        AndroidView(
-            factory = {
-                PlayerView(it).apply {
-                    logVideoViewerTrace("player_view_create uriHash=${uri.hashCode()} viewHash=${hashCode()}")
-                    player = exoPlayer
-                    useController = false
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    setKeepContentOnPlayerReset(false)
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    controllerAutoShow = false
-                    hideController()
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                }
-            },
-            update = {
-                logVideoViewerTrace(
-                    "player_view_update uriHash=${uri.hashCode()} viewHash=${it.hashCode()} " +
-                        "isPlaying=$isPlaying muted=$isMuted scroll=$isScrollInProgress"
-                )
-                exoPlayer.playWhenReady = isPlaying
-                exoPlayer.volume = if (isMuted) 0f else 1f
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        key(uri) {
+            AndroidView(
+                factory = {
+                    PlayerView(it).apply {
+                        logVideoViewerTrace("player_view_create uriHash=${uri.hashCode()} viewHash=${hashCode()}")
+                        tag = uri
+                        player = exoPlayer
+                        useController = false
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                        setKeepContentOnPlayerReset(false)
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        setBackgroundColor(android.graphics.Color.BLACK)
+                        controllerAutoShow = false
+                        hideController()
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                    }
+                },
+                update = {
+                    logVideoViewerTrace(
+                        "player_view_update uriHash=${uri.hashCode()} viewHash=${it.hashCode()} " +
+                            "isPlaying=$isPlaying muted=$isMuted scroll=$isScrollInProgress"
+                    )
+                    if (it.tag != uri) {
+                        it.player = null
+                        it.tag = uri
+                    }
+                    it.setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    it.setBackgroundColor(android.graphics.Color.BLACK)
+                    it.player = exoPlayer
+                    exoPlayer.playWhenReady = isPlaying
+                    exoPlayer.volume = if (isMuted) 0f else 1f
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         Box(
             modifier = Modifier.matchParentSize()
