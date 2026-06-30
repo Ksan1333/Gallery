@@ -1,22 +1,69 @@
 package com.example.gallery.ui
 
-import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
+import com.example.gallery.ui.theme.GalleryColorTokens
+import com.example.gallery.ui.theme.GalleryThemeTokens
 
 object AppConstants {
-    // 背景色
-    val BackgroundColor = Color.DarkGray
+    // 旧コード互換用。新規UIは GalleryThemeTokens.colors を優先する。
+    val BackgroundColor = GalleryColorTokens.Dark.background
 
     // レイアウト
     val HeaderHeight = 56.dp
+    val DrawerWidth = AppDefaults.DRAWER_WIDTH_DP.dp
+    val DrawerItemHeight = AppDefaults.DRAWER_ITEM_HEIGHT_DP.dp
+    val DrawerEdgeHitWidth = AppDefaults.DRAWER_EDGE_HIT_WIDTH_DP.dp
 
     // フォントサイズ
-    val TitleFontSize = 24.sp
-    val HeaderFontSize = 20.sp
-    val BodyFontSize = 16.sp
-    val SubtitleFontSize = 14.sp
-    val SmallFontSize = 12.sp
+    val TitleFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.title
+    val HeaderFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.header
+    val BodyFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.body
+    val SubtitleFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.subtitle
+    val SmallFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.small
+    val ExtraSmallFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.extraSmall
+    val TinyFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.tiny
+    val BottomNavFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.bottomNav
+    val ScrollbarLabelFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.scrollbarLabel
+    val BadgeFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.badge
+    val DenseBadgeFontSize: TextUnit
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryThemeTokens.textSizes.denseBadge
+    const val GRID_IMAGE_LOAD_PAUSE_VELOCITY_ITEMS_PER_SEC = 90f
+    const val GALLERY_SELECTION_LONG_PRESS_EXTRA_MS = 220L
 
     // センシティブなワード (これらが含まれていたら自動的に R15/R18)
     val R15Keywords = setOf(

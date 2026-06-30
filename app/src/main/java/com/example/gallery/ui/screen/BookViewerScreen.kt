@@ -57,13 +57,13 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.data.repository.BookType
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -73,9 +73,12 @@ import java.util.Locale
 
 private enum class BookPageLayout { AUTO, SINGLE, DOUBLE }
 private enum class BookReadingDirection { RIGHT_TO_LEFT, LEFT_TO_RIGHT }
-private enum class BookFitMode { SCREEN, WIDTH, HEIGHT }
+private enum class BookFitMode { SCREEN, WIDTH, HEIGHT, FULL_SIZE, FIXED_SIZE, STRETCH }
 private enum class BookBackground { BLACK, GRAY, WHITE }
-private enum class BookRenderQuality { STANDARD, HIGH }
+private enum class BookRenderQuality { STANDARD, HIGH, ULTRA }
+private enum class BookScrollMode { PAGE, VERTICAL, HORIZONTAL }
+private enum class BookSmoothFilter { AVERAGING, BILINEAR, BICUBIC, LANCZOS3 }
+private enum class BookColorMode { NORMAL, GRAYSCALE, COLORIZE }
 
 private data class BookViewerSettings(
     val pageLayout: BookPageLayout = BookPageLayout.AUTO,
@@ -83,8 +86,20 @@ private data class BookViewerSettings(
     val fitMode: BookFitMode = BookFitMode.SCREEN,
     val background: BookBackground = BookBackground.BLACK,
     val renderQuality: BookRenderQuality = BookRenderQuality.STANDARD,
+    val scrollMode: BookScrollMode = BookScrollMode.PAGE,
+    val smoothFilter: BookSmoothFilter = BookSmoothFilter.BILINEAR,
+    val colorMode: BookColorMode = BookColorMode.NORMAL,
     val pageGapDp: Int = 0,
     val preloadPages: Int = 1,
+    val fixedSizePercent: Int = 100,
+    val brightness: Int = 0,
+    val contrast: Int = 0,
+    val gamma: Int = 100,
+    val tapZoneCount: Int = 3,
+    val slideshowSeconds: Int = 0,
+    val autoTrimWhiteBorder: Boolean = false,
+    val cacheAroundPages: Boolean = true,
+    val balloonMagnifier: Boolean = false,
     val tapNavigation: Boolean = true,
     val keepScreenOn: Boolean = true
 )
@@ -122,7 +137,7 @@ fun BookViewerScreen(
         viewerSettings = updated
         saveBookViewerSettings(preferences, updated)
     }
-    
+
     var screenOrientation by rememberSaveable { mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) }
     val isLandscape = when (screenOrientation) {
         ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> true
@@ -139,21 +154,24 @@ fun BookViewerScreen(
         BookFitMode.SCREEN -> ContentScale.Fit
         BookFitMode.WIDTH -> ContentScale.FillWidth
         BookFitMode.HEIGHT -> ContentScale.FillHeight
+        BookFitMode.FULL_SIZE -> ContentScale.None
+        BookFitMode.FIXED_SIZE -> ContentScale.Fit
+        BookFitMode.STRETCH -> ContentScale.FillBounds
     }
     val viewerBackground = when (viewerSettings.background) {
         BookBackground.BLACK -> Color.Black
-        BookBackground.GRAY -> Color(0xFF303030)
+        BookBackground.GRAY -> GalleryThemeTokens.colors.surfaceVariant
         BookBackground.WHITE -> Color.White
     }
 
     val spreadCount = if (isTwoPageMode) (book.pageCount + 1) / 2 else book.pageCount
     var currentAbsolutePage by rememberSaveable { mutableIntStateOf(initialPage.coerceAtMost(book.pageCount - 1)) }
-    
+
     val pagerState = rememberPagerState(
         initialPage = if (isTwoPageMode) currentAbsolutePage / 2 else currentAbsolutePage,
         pageCount = { spreadCount }
     )
-    
+
     LaunchedEffect(isTwoPageMode) {
         val targetSpread = if (isTwoPageMode) currentAbsolutePage / 2 else currentAbsolutePage
         if (pagerState.currentPage != targetSpread) {
@@ -164,7 +182,7 @@ fun BookViewerScreen(
     LaunchedEffect(pagerState.currentPage, isTwoPageMode) {
         currentAbsolutePage = if (isTwoPageMode) pagerState.currentPage * 2 else pagerState.currentPage
     }
-    
+
     var isUiVisible by remember { mutableStateOf(false) }
     var seekValue by remember { mutableFloatStateOf(0f) }
     var isSeeking by remember { mutableStateOf(false) }
@@ -234,6 +252,7 @@ fun BookViewerScreen(
         val maxLongSide = when (viewerSettings.renderQuality) {
             BookRenderQuality.STANDARD -> 1800
             BookRenderQuality.HIGH -> 2800
+            BookRenderQuality.ULTRA -> 3600
         }
         try {
             if (book.type == BookType.ZIP) {
@@ -271,15 +290,16 @@ fun BookViewerScreen(
         }
     }
 
-    LaunchedEffect(currentAbsolutePage, viewerSettings.preloadPages, isTwoPageMode) {
-        val keepRadius = (viewerSettings.preloadPages + 2) * if (isTwoPageMode) 2 else 1
+    val effectivePreloadPages = if (viewerSettings.cacheAroundPages) viewerSettings.preloadPages else 0
+    LaunchedEffect(currentAbsolutePage, effectivePreloadPages, isTwoPageMode) {
+        val keepRadius = (effectivePreloadPages + 2) * if (isTwoPageMode) 2 else 1
         val keysToRemove = pageCache.keys.filter { kotlin.math.abs(it - currentAbsolutePage) > keepRadius }
         keysToRemove.forEach { key ->
             pageCache.remove(key)?.let { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
         }
     }
 
-    LaunchedEffect(viewerSettings.renderQuality) {
+    LaunchedEffect(viewerSettings.renderQuality, viewerSettings.smoothFilter) {
         pageCache.values.filterNotNull().distinct().forEach { bitmap ->
             if (!bitmap.isRecycled) bitmap.recycle()
         }
@@ -352,7 +372,7 @@ fun BookViewerScreen(
                         }
                     }
                 },
-            beyondViewportPageCount = viewerSettings.preloadPages,
+            beyondViewportPageCount = effectivePreloadPages,
             reverseLayout = isRightToLeft,
             userScrollEnabled = scale <= 1.01f
         ) { spreadIndex ->
@@ -456,7 +476,7 @@ fun BookViewerScreen(
                         color = Color.White,
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = 56.dp, end = 192.dp),
                         maxLines = 1,
-                        fontSize = 14.sp
+                        fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize
                     )
                     Row(modifier = Modifier.align(Alignment.CenterEnd)) {
                         IconButton(onClick = {
@@ -468,32 +488,32 @@ fun BookViewerScreen(
                                     .put("page", currentAbsolutePage)
                                     .toString()
                                 bookmarksPrefs.edit().putString(book.id, bookmarkData).apply()
-                                Toast.makeText(context, "ページをしおりに挟みました", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "ブックマークしました", Toast.LENGTH_SHORT).show()
                             } else {
                                 bookmarksPrefs.edit().remove(book.id).apply()
-                                Toast.makeText(context, "しおりを外しました", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "ブックマークを解除しました", Toast.LENGTH_SHORT).show()
                             }
                             onBookmarksChanged()
                         }) {
                             Icon(
                                 if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                contentDescription = "しおり",
+                                contentDescription = "ブックマーク",
                                 tint = if (isBookmarked) Color.Cyan else Color.White
                             )
                         }
-                        
+
                         var showMoreMenu by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { showMoreMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "もっと見る", tint = Color.White)
+                                Icon(Icons.Default.MoreVert, contentDescription = "メニュー", tint = Color.White)
                             }
                             DropdownMenu(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false },
-                                containerColor = Color(0xFF1D1A18)
+                                containerColor = GalleryThemeTokens.colors.card
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("タイトルで検索", color = Color.White) },
+                                    text = { Text("この本を検索", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.White) },
                                     onClick = {
                                         showMoreMenu = false
@@ -501,7 +521,7 @@ fun BookViewerScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("表示設定", color = Color.White) },
+                                    text = { Text("設定", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Settings, null, tint = Color.White) },
                                     onClick = {
                                         showMoreMenu = false
@@ -514,7 +534,7 @@ fun BookViewerScreen(
                                     onClick = {
                                         showMoreMenu = false
                                         val bitmap = captureViewToBitmap(context, isTwoPageMode, book.pageCount, pagerState.currentPage, pageCache, viewSize)
-                                        if (bitmap != null) saveBitmapToGallery(context, bitmap) else Toast.makeText(context, "保存失敗", Toast.LENGTH_SHORT).show()
+                                        if (bitmap != null) saveBitmapToGallery(context, bitmap) else Toast.makeText(context, "失敗", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 DropdownMenuItem(
@@ -537,10 +557,10 @@ fun BookViewerScreen(
             Surface(color = Color.Black.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                 Column(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${currentAbsolutePage + 1} / ${book.pageCount}", color = Color.White, fontSize = 12.sp)
+                        Text("${currentAbsolutePage + 1} / ${book.pageCount}", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
                         Slider(
                             value = seekValue,
-                            onValueChange = { 
+                            onValueChange = {
                                 seekValue = it
                                 isSeeking = true
                             },
@@ -562,7 +582,7 @@ fun BookViewerScreen(
                         TextButton(onClick = { onPreviousBook?.invoke() }, enabled = onPreviousBook != null) {
                             Icon(Icons.Default.SkipPrevious, contentDescription = null)
                             Spacer(Modifier.width(4.dp))
-                            Text("前の本")
+                        Text("前の本")
                         }
                         TextButton(onClick = { onNextBook?.invoke() }, enabled = onNextBook != null) {
                             Text("次の本")
@@ -604,13 +624,13 @@ fun BookViewerScreen(
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Text(
                         text = if (estimateMs == null) {
-                            "ページを読み込み中  ${formatBookLoadTime(pageLoadElapsedMs)}経過"
+                            "ページを読み込み中 ${formatBookLoadTime(pageLoadElapsedMs)}経過"
                         } else {
                             val remainingMs = (estimateMs - pageLoadElapsedMs).coerceAtLeast(0L)
-                            "ページを読み込み中  残り約${formatBookLoadTime(remainingMs)}"
+                            "ページを読み込み中 残り約 ${formatBookLoadTime(remainingMs)}"
                         },
                         color = Color.White,
-                        fontSize = 12.sp
+                        fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
                     )
                     Spacer(Modifier.height(6.dp))
                     if (progress == null) {
@@ -629,7 +649,7 @@ fun BookViewerScreen(
     if (showSettings) {
         ModalBottomSheet(
             onDismissRequest = { showSettings = false },
-            containerColor = Color(0xFF1D1A18),
+            containerColor = GalleryThemeTokens.colors.card,
             contentColor = Color.White
         ) {
             BookViewerSettingsPanel(
@@ -652,7 +672,12 @@ private fun BookViewerSettingsPanel(
             .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("本ビュワー設定", fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Text("本ビューア設定", fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Text(
+            "Perfect Viewer の主要項目を参考に、ページ表示、読み方向、表示倍率、補正、キャッシュをここで調整できます。",
+            color = Color.LightGray,
+            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
+        )
 
         BookChoiceSetting(
             title = "ページ表示",
@@ -661,14 +686,27 @@ private fun BookViewerSettingsPanel(
             onSelected = { onSettingsChange(settings.copy(pageLayout = it)) }
         )
         BookChoiceSetting(
-            title = "読む方向",
+            title = "読み方向",
             options = listOf("右から左" to BookReadingDirection.RIGHT_TO_LEFT, "左から右" to BookReadingDirection.LEFT_TO_RIGHT),
             selected = settings.readingDirection,
             onSelected = { onSettingsChange(settings.copy(readingDirection = it)) }
         )
         BookChoiceSetting(
+            title = "ページ送り",
+            options = listOf("ページ" to BookScrollMode.PAGE, "縦" to BookScrollMode.VERTICAL, "横" to BookScrollMode.HORIZONTAL),
+            selected = settings.scrollMode,
+            onSelected = { onSettingsChange(settings.copy(scrollMode = it)) }
+        )
+        BookChoiceSetting(
             title = "ページの合わせ方",
-            options = listOf("画面内" to BookFitMode.SCREEN, "幅" to BookFitMode.WIDTH, "高さ" to BookFitMode.HEIGHT),
+            options = listOf(
+                "画面内" to BookFitMode.SCREEN,
+                "幅" to BookFitMode.WIDTH,
+                "高さ" to BookFitMode.HEIGHT,
+                "原寸" to BookFitMode.FULL_SIZE,
+                "固定" to BookFitMode.FIXED_SIZE,
+                "伸縮" to BookFitMode.STRETCH
+            ),
             selected = settings.fitMode,
             onSelected = { onSettingsChange(settings.copy(fitMode = it)) }
         )
@@ -680,37 +718,42 @@ private fun BookViewerSettingsPanel(
         )
         BookChoiceSetting(
             title = "表示画質",
-            options = listOf("標準" to BookRenderQuality.STANDARD, "高画質" to BookRenderQuality.HIGH),
+            options = listOf("標準" to BookRenderQuality.STANDARD, "高画質" to BookRenderQuality.HIGH, "最高" to BookRenderQuality.ULTRA),
             selected = settings.renderQuality,
             onSelected = { onSettingsChange(settings.copy(renderQuality = it)) }
         )
-
-        Text("ページ間隔 ${settings.pageGapDp}dp", color = Color.LightGray)
-        Slider(
-            value = settings.pageGapDp.toFloat(),
-            onValueChange = { onSettingsChange(settings.copy(pageGapDp = it.toInt())) },
-            valueRange = 0f..24f,
-            steps = 5
+        BookChoiceSetting(
+            title = "スムージング",
+            options = listOf(
+                "平均" to BookSmoothFilter.AVERAGING,
+                "Bilinear" to BookSmoothFilter.BILINEAR,
+                "Bicubic" to BookSmoothFilter.BICUBIC,
+                "Lanczos3" to BookSmoothFilter.LANCZOS3
+            ),
+            selected = settings.smoothFilter,
+            onSelected = { onSettingsChange(settings.copy(smoothFilter = it)) }
+        )
+        BookChoiceSetting(
+            title = "色補正",
+            options = listOf("通常" to BookColorMode.NORMAL, "グレー" to BookColorMode.GRAYSCALE, "色味補正" to BookColorMode.COLORIZE),
+            selected = settings.colorMode,
+            onSelected = { onSettingsChange(settings.copy(colorMode = it)) }
         )
 
-        Text("先読み ${settings.preloadPages}ページ", color = Color.LightGray)
-        Slider(
-            value = settings.preloadPages.toFloat(),
-            onValueChange = { onSettingsChange(settings.copy(preloadPages = it.toInt())) },
-            valueRange = 0f..2f,
-            steps = 1
-        )
+        BookIntSlider("ページ間隔", settings.pageGapDp, 0f..24f, 5, "dp") { onSettingsChange(settings.copy(pageGapDp = it)) }
+        BookIntSlider("先読み", settings.preloadPages, 0f..5f, 4, "ページ") { onSettingsChange(settings.copy(preloadPages = it)) }
+        BookIntSlider("固定サイズ", settings.fixedSizePercent, 50f..200f, 14, "%") { onSettingsChange(settings.copy(fixedSizePercent = it)) }
+        BookIntSlider("明るさ", settings.brightness, -50f..50f, 19, "") { onSettingsChange(settings.copy(brightness = it)) }
+        BookIntSlider("コントラスト", settings.contrast, -50f..50f, 19, "") { onSettingsChange(settings.copy(contrast = it)) }
+        BookIntSlider("ガンマ", settings.gamma, 50f..200f, 14, "%") { onSettingsChange(settings.copy(gamma = it)) }
+        BookIntSlider("タップ領域", settings.tapZoneCount, 1f..5f, 3, "分割") { onSettingsChange(settings.copy(tapZoneCount = it)) }
+        BookIntSlider("スライドショー", settings.slideshowSeconds, 0f..30f, 29, "秒") { onSettingsChange(settings.copy(slideshowSeconds = it)) }
 
-        BookSwitchSetting(
-            title = "左右タップでページ送り",
-            checked = settings.tapNavigation,
-            onCheckedChange = { onSettingsChange(settings.copy(tapNavigation = it)) }
-        )
-        BookSwitchSetting(
-            title = "閲覧中は画面を消灯しない",
-            checked = settings.keepScreenOn,
-            onCheckedChange = { onSettingsChange(settings.copy(keepScreenOn = it)) }
-        )
+        BookSwitchSetting("白い余白を自動カット", settings.autoTrimWhiteBorder) { onSettingsChange(settings.copy(autoTrimWhiteBorder = it)) }
+        BookSwitchSetting("前後ページをキャッシュ", settings.cacheAroundPages) { onSettingsChange(settings.copy(cacheAroundPages = it)) }
+        BookSwitchSetting("バルーン拡大鏡", settings.balloonMagnifier) { onSettingsChange(settings.copy(balloonMagnifier = it)) }
+        BookSwitchSetting("左右タップでページ送り", settings.tapNavigation) { onSettingsChange(settings.copy(tapNavigation = it)) }
+        BookSwitchSetting("閲覧中は画面を消さない", settings.keepScreenOn) { onSettingsChange(settings.copy(keepScreenOn = it)) }
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -723,18 +766,38 @@ private fun <T> BookChoiceSetting(
     onSelected: (T) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, color = Color.LightGray, fontSize = 13.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (label, value) ->
-                FilterChip(
-                    selected = selected == value,
-                    onClick = { onSelected(value) },
-                    label = { Text(label) }
-                )
+        Text(title, color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.ScrollbarLabelFontSize)
+        options.chunked(3).forEach { rowOptions ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowOptions.forEach { (label, value) ->
+                    FilterChip(
+                        selected = selected == value,
+                        onClick = { onSelected(value) },
+                        label = { Text(label) }
+                    )
+                }
             }
         }
 
     }
+}
+
+@Composable
+private fun BookIntSlider(
+    title: String,
+    value: Int,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    suffix: String,
+    onValueChange: (Int) -> Unit
+) {
+    Text("$title $value$suffix", color = Color.LightGray)
+    Slider(
+        value = value.toFloat(),
+        onValueChange = { onValueChange(it.toInt()) },
+        valueRange = range,
+        steps = steps
+    )
 }
 
 @Composable
@@ -774,8 +837,20 @@ private fun loadBookViewerSettings(preferences: android.content.SharedPreference
         fitMode = enumValue("fitMode", BookFitMode.SCREEN, BookFitMode.entries.toTypedArray()),
         background = enumValue("background", BookBackground.BLACK, BookBackground.entries.toTypedArray()),
         renderQuality = enumValue("renderQuality", BookRenderQuality.STANDARD, BookRenderQuality.entries.toTypedArray()),
+        scrollMode = enumValue("scrollMode", BookScrollMode.PAGE, BookScrollMode.entries.toTypedArray()),
+        smoothFilter = enumValue("smoothFilter", BookSmoothFilter.BILINEAR, BookSmoothFilter.entries.toTypedArray()),
+        colorMode = enumValue("colorMode", BookColorMode.NORMAL, BookColorMode.entries.toTypedArray()),
         pageGapDp = preferences.getInt("pageGapDp", 0).coerceIn(0, 24),
-        preloadPages = preferences.getInt("preloadPages", 1).coerceIn(0, 2),
+        preloadPages = preferences.getInt("preloadPages", 1).coerceIn(0, 5),
+        fixedSizePercent = preferences.getInt("fixedSizePercent", 100).coerceIn(50, 200),
+        brightness = preferences.getInt("brightness", 0).coerceIn(-50, 50),
+        contrast = preferences.getInt("contrast", 0).coerceIn(-50, 50),
+        gamma = preferences.getInt("gamma", 100).coerceIn(50, 200),
+        tapZoneCount = preferences.getInt("tapZoneCount", 3).coerceIn(1, 5),
+        slideshowSeconds = preferences.getInt("slideshowSeconds", 0).coerceIn(0, 30),
+        autoTrimWhiteBorder = preferences.getBoolean("autoTrimWhiteBorder", false),
+        cacheAroundPages = preferences.getBoolean("cacheAroundPages", true),
+        balloonMagnifier = preferences.getBoolean("balloonMagnifier", false),
         tapNavigation = preferences.getBoolean("tapNavigation", true),
         keepScreenOn = preferences.getBoolean("keepScreenOn", true)
     )
@@ -791,8 +866,20 @@ private fun saveBookViewerSettings(
         .putString("fitMode", settings.fitMode.name)
         .putString("background", settings.background.name)
         .putString("renderQuality", settings.renderQuality.name)
+        .putString("scrollMode", settings.scrollMode.name)
+        .putString("smoothFilter", settings.smoothFilter.name)
+        .putString("colorMode", settings.colorMode.name)
         .putInt("pageGapDp", settings.pageGapDp)
         .putInt("preloadPages", settings.preloadPages)
+        .putInt("fixedSizePercent", settings.fixedSizePercent)
+        .putInt("brightness", settings.brightness)
+        .putInt("contrast", settings.contrast)
+        .putInt("gamma", settings.gamma)
+        .putInt("tapZoneCount", settings.tapZoneCount)
+        .putInt("slideshowSeconds", settings.slideshowSeconds)
+        .putBoolean("autoTrimWhiteBorder", settings.autoTrimWhiteBorder)
+        .putBoolean("cacheAroundPages", settings.cacheAroundPages)
+        .putBoolean("balloonMagnifier", settings.balloonMagnifier)
         .putBoolean("tapNavigation", settings.tapNavigation)
         .putBoolean("keepScreenOn", settings.keepScreenOn)
         .apply()
@@ -800,7 +887,7 @@ private fun saveBookViewerSettings(
 
 private fun formatBookLoadTime(durationMs: Long): String {
     val seconds = durationMs.coerceAtLeast(0L) / 1000f
-    return if (seconds < 10f) "%.1f秒".format(Locale.JAPAN, seconds) else "${seconds.toInt()}秒"
+    return if (seconds < 10f) "%.1f?".format(Locale.JAPAN, seconds) else "${seconds.toInt()}?"
 }
 
 private fun captureViewToBitmap(context: Context, isTwoPageMode: Boolean, pageCount: Int, spreadIdx: Int, cache: Map<Int, Bitmap?>, viewSize: IntSize): Bitmap? {

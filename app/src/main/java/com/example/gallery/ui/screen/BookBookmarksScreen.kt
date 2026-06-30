@@ -23,14 +23,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.asImageBitmap
 import coil.compose.AsyncImage
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.component.GalleryTopAppBar
 import org.json.JSONObject
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookBookmarksScreen(
     onMenuClick: () -> Unit,
@@ -40,7 +39,7 @@ fun BookBookmarksScreen(
     val context = LocalContext.current
     val repository = remember { BookRepository(context) }
     val bookmarksPrefs = remember { context.getSharedPreferences("book_bookmarks", Context.MODE_PRIVATE) }
-    
+
     // キャッシュされた本の一覧を取得して、しおりに挟まれている本の詳細情報を紐付ける
     var bookmarkItems by remember { mutableStateOf<List<BookmarkFullItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -61,14 +60,12 @@ fun BookBookmarksScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("本のしおり", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "メニュー", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Black)
+            GalleryTopAppBar(
+                title = "本のしおり",
+                navigationIcon = Icons.Default.Menu,
+                navigationContentDescription = "メニュー",
+                onNavigationClick = onMenuClick,
+                centered = true
             )
         },
         containerColor = AppConstants.BackgroundColor
@@ -122,7 +119,7 @@ private fun BookmarkGridItem(
     onDelete: () -> Unit
 ) {
     var pageBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    
+
     LaunchedEffect(item) {
         val bitmap = if (item.type == com.example.gallery.data.repository.BookType.ZIP) {
             repository.getZipPage(item.path, item.page, 640)
@@ -172,7 +169,7 @@ private fun BookmarkGridItem(
                 Text(
                     text = "P.${item.page + 1}",
                     color = Color.White,
-                    fontSize = 10.sp,
+                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                 )
             }
@@ -188,7 +185,7 @@ private fun BookmarkGridItem(
         Text(
             item.title,
             color = Color.White,
-            fontSize = 11.sp,
+            fontSize = com.example.gallery.ui.AppConstants.ExtraSmallFontSize,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 4.dp)

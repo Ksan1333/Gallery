@@ -36,7 +36,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +48,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,7 +60,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.material.icons.filled.Download
@@ -82,18 +79,21 @@ import java.util.Scanner
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import com.example.gallery.ui.component.GalleryTopAppBar
+import com.example.gallery.ui.theme.GalleryColorTokens
+import com.example.gallery.ui.theme.GalleryThemeTokens
 
 private const val CREATOR_PREFS = "favorite_artists"
 private const val CREATOR_LIST_KEY = "artists"
 private const val CUSTOM_SITE_KEY = "custom_sites"
 
 private val defaultPlatforms = listOf("X", "pixiv", "Support")
-private val creatorBackground = Color(0xFF11100F)
-private val creatorCard = Color(0xFF1D1A18)
-private val creatorInk = Color(0xFFF4EFE8)
-private val creatorMuted = Color(0xFFB8ADA2)
-private val creatorAccent = Color(0xFFD28A5E)
-private val creatorField = Color(0xFF28231F)
+private val creatorBackground = GalleryColorTokens.Dark.background
+private val creatorCard = GalleryColorTokens.Dark.card
+private val creatorInk = GalleryColorTokens.Dark.primaryText
+private val creatorMuted = GalleryColorTokens.Dark.secondaryText
+private val creatorAccent = GalleryColorTokens.Dark.accent
+private val creatorField = GalleryColorTokens.Dark.field
 
 private data class FavoriteCreator(
     val name: String,
@@ -136,9 +136,7 @@ fun FavoriteArtistsScreen(
     }
 
     fun getBackupFile(): File {
-        // 共有ストレージのルートではなく、アプリ専用の外部ストレージを使用するか、
-        // ユーザーに分かりやすい場所（Documentsなど）にフォルダを作成する。
-        // ここでは、権限の問題を回避しつつユーザーが見つけやすい「Documents/Gallery/Backups」を試みます。
+        // ユーザーが見つけやすい Documents/Gallery/Backups に保存する。
         val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
         val folder = File(baseDir, "Gallery/Backups")
         if (!folder.exists()) folder.mkdirs()
@@ -168,7 +166,7 @@ fun FavoriteArtistsScreen(
                     customSites.forEach { s -> sitesArray.put(s) }
                     root.put("custom_sites", sitesArray)
 
-                    OutputStreamWriter(stream).use { writer ->
+                    stream.bufferedWriter(Charsets.UTF_8).use { writer ->
                         writer.write(root.toString(2))
                     }
                 }
@@ -194,9 +192,9 @@ fun FavoriteArtistsScreen(
                     return@runCatching
                 }
                 file.inputStream().use { stream ->
-                    val content = Scanner(stream).useDelimiter("\\A").next()
+                    val content = stream.bufferedReader(Charsets.UTF_8).readText()
                     val root = JSONObject(content)
-                    
+
                     val artistsArray = root.optJSONArray("artists")
                     val newArtists = mutableListOf<FavoriteCreator>()
                     if (artistsArray != null) {
@@ -204,7 +202,7 @@ fun FavoriteArtistsScreen(
                             val obj = artistsArray.getJSONObject(i)
                             val name = obj.optString("name")
                             if (name.isBlank()) continue
-                            
+
                             val linksArr = obj.optJSONArray("links")
                             val links = mutableListOf<CreatorLink>()
                             if (linksArr != null) {
@@ -253,13 +251,14 @@ fun FavoriteArtistsScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Creators", color = creatorInk) },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = creatorInk)
-                    }
-                },
+            GalleryTopAppBar(
+                title = "Creators",
+                navigationIcon = Icons.Default.Menu,
+                navigationContentDescription = "Menu",
+                onNavigationClick = onMenuClick,
+                centered = true,
+                containerColor = creatorBackground,
+                contentColor = creatorInk,
                 actions = {
                     IconButton(onClick = { exportData() }) {
                         Icon(Icons.Default.Download, contentDescription = "Export", tint = creatorInk)
@@ -270,8 +269,7 @@ fun FavoriteArtistsScreen(
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(Icons.Default.Edit, contentDescription = "Toggle edit", tint = if (isEditMode) creatorAccent else creatorInk)
                     }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = creatorBackground)
+                }
             )
         },
         containerColor = creatorBackground
@@ -447,7 +445,7 @@ private fun CreatorDisplayScreen(
                         text = creator.name.ifBlank { "Untitled creator" },
                         color = creatorInk,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -458,7 +456,7 @@ private fun CreatorDisplayScreen(
                                 .clickable { openUrl(context, link.url) },
                             color = creatorField,
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFF4B4038))
+                            border = BorderStroke(1.dp, GalleryThemeTokens.colors.divider)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -566,7 +564,7 @@ private fun CreatorEditCard(
     pendingDeleteLinkIndex?.let { index ->
         ConfirmDeleteDialog(
             title = "リンクを削除",
-            text = "このリンク欄を削除します。",
+            text = "このリンクを削除します。",
             onConfirm = {
                 val next = creator.links.toMutableList().also { it.removeAt(index) }
                 onCreatorChange(creator.copy(links = next.ifEmpty { listOf(emptyLink(platforms)) }))
@@ -638,7 +636,7 @@ private fun PlatformDropdown(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
-                    fontSize = 13.sp
+                    fontSize = com.example.gallery.ui.AppConstants.ScrollbarLabelFontSize
                 )
                 Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = creatorAccent)
             }
@@ -665,7 +663,7 @@ private fun creatorTextFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedLabelColor = creatorMuted,
     cursorColor = creatorAccent,
     focusedBorderColor = creatorAccent,
-    unfocusedBorderColor = Color(0xFF6B5A4D),
+    unfocusedBorderColor = GalleryThemeTokens.colors.divider,
     focusedContainerColor = creatorField,
     unfocusedContainerColor = creatorField
 )
@@ -685,7 +683,7 @@ private fun ConfirmDeleteDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB5483A))
+                colors = ButtonDefaults.buttonColors(containerColor = GalleryThemeTokens.colors.danger)
             ) { Text("Delete") }
         },
         dismissButton = {
@@ -735,7 +733,7 @@ private fun CreatorSearchDialog(
                             settings.domStorageEnabled = true
                             webViewClient = object : WebViewClient() {
                                 var initialPageLoaded = false
-                                
+
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     if (url == request.initialUrl) {
@@ -748,7 +746,7 @@ private fun CreatorSearchDialog(
                                     webRequest: WebResourceRequest?
                                 ): Boolean {
                                     val targetUrl = webRequest?.url?.toString().orEmpty()
-                                    // 最初のGoogle検索結果ページが表示された後、最初に別のURLへ遷移しようとした時にそのURLを取得する
+                                    // Google検索結果から別URLへ遷移したら、そのURLを採用する。
                                     if (
                                         initialPageLoaded &&
                                         webRequest?.isForMainFrame == true &&

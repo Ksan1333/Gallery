@@ -20,13 +20,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.gallery.data.local.entity.ReferenceProjectEntity
 import com.example.gallery.data.repository.ReferenceRepository
 import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.component.GalleryTopAppBar
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReferenceProjectScreen(
     onMenuClick: () -> Unit,
@@ -41,23 +41,21 @@ fun ReferenceProjectScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("お絵描き資料", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "メニュー", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Black)
+            GalleryTopAppBar(
+                title = "お絵描き資料",
+                navigationIcon = Icons.Default.Menu,
+                navigationContentDescription = "メニュー",
+                onNavigationClick = onMenuClick,
+                centered = true
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showCreateDialog = true },
-                containerColor = Color.Cyan,
-                contentColor = Color.Black
+                containerColor = GalleryThemeTokens.colors.accent,
+                contentColor = GalleryThemeTokens.colors.background
             ) {
-                Icon(Icons.Default.Add, contentDescription = "新規プロジェクト")
+                Icon(Icons.Default.Add, contentDescription = "プロジェクトを追加")
             }
         },
         containerColor = AppConstants.BackgroundColor
@@ -86,12 +84,12 @@ fun ReferenceProjectScreen(
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("新規プロジェクト") },
+            title = { Text("プロジェクトを作成") },
             text = {
                 OutlinedTextField(
                     value = newProjectTitle,
                     onValueChange = { newProjectTitle = it },
-                    label = { Text("プロジェクト名 (例: エルフの描き方)") },
+                    label = { Text("プロジェクト名（例: エルフの描き方）") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -109,12 +107,12 @@ fun ReferenceProjectScreen(
                     },
                     enabled = newProjectTitle.isNotBlank()
                 ) {
-                    Text("作成")
+                Text("作成")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("キャンセル")
+                Text("キャンセル")
                 }
             }
         )
@@ -131,7 +129,7 @@ private fun ReferenceProjectCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1D1A18)),
+        colors = CardDefaults.cardColors(containerColor = GalleryThemeTokens.colors.card),
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(
@@ -149,17 +147,17 @@ private fun ReferenceProjectCard(
                 Text(
                     text = project.title,
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = if (project.status == "FINISHED") "完了" else "進行中",
                     color = if (project.status == "FINISHED") Color.Gray else Color.Green,
-                    fontSize = 12.sp
+                    fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
                 )
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color.Gray)
+                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color.Gray)
             }
         }
     }

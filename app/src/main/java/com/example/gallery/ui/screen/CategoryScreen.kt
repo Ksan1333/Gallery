@@ -46,7 +46,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.IntOffset
@@ -107,11 +106,14 @@ fun CategoryScreen(
     onCategoryLongClick: (CategoryData) -> Unit = {},
     onReorder: (List<String>) -> Unit = {},
     showThumbnails: Boolean = true,
-    initialColumnIndex: Int? = null
+    initialColumnIndex: Int? = null,
+    showCategoryTopBar: Boolean = true,
+    showSelectedCategoryTopBar: Boolean = true,
+    onImageClickOverride: ((Int, List<MediaData>) -> Unit)? = null
 ) {
     val columnOptions = listOf(10, 7, 4, 3, 1)
-    var currentColumnIndex by rememberSaveable { 
-        mutableIntStateOf(initialColumnIndex ?: 2) 
+    var currentColumnIndex by rememberSaveable {
+        mutableIntStateOf(initialColumnIndex ?: 2)
     }
     var selectedImageIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val currentMediaListState = remember {
@@ -225,7 +227,8 @@ fun CategoryScreen(
             .onGloballyPositioned { screenLayoutCoordinates = it }) {
         if (selectedCategoryTitle == null) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
+                if (showCategoryTopBar) {
+                    Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.Black)
@@ -290,19 +293,15 @@ fun CategoryScreen(
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) { topBarActions() }
                     }
+                    }
                 }
 
                 if (showControlBar) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(AppConstants.HeaderHeight)
-                            .background(AppConstants.BackgroundColor.copy(alpha = 0.95f))
-                            .onGloballyPositioned { layoutCoordinates ->
-                                categoryBounds["ROOT"] = layoutCoordinates.boundsInWindow()
-                            }
+                            .height(0.dp)
                     ) {
-                        GalleryTopControlBar(galleryState = galleryState, isFilterEnabled = false)
                     }
                 }
 
@@ -329,7 +328,7 @@ fun CategoryScreen(
                                 start = 12.dp,
                                 top = 8.dp,
                                 end = 12.dp,
-                                bottom = 100.dp
+                                bottom = 180.dp
                             ),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -443,22 +442,28 @@ fun CategoryScreen(
             GalleryGridView(
                 imageList = selectedCategoryMedia,
                 onImageClick = { index, list ->
-                    currentMediaList = list
-                    selectedImageIndex = index
-                    onShowViewer()
+                    if (onImageClickOverride != null) {
+                        onImageClickOverride(index, list)
+                    } else {
+                        currentMediaList = list
+                        selectedImageIndex = index
+                        onShowViewer()
+                    }
                 },
                 galleryState = galleryState,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
-                title = selectedCategoryTitle,
-                onBackClick = onBackFromCategory,
+                title = if (showSelectedCategoryTopBar) selectedCategoryTitle else null,
+                onBackClick = if (showSelectedCategoryTopBar) onBackFromCategory else null,
                 modifier = Modifier.fillMaxSize(),
+                isFilterEnabled = false,
                 scrollToUri = if (selectedImageIndex == null) lastViewedUri else null,
                 onPageChangedInViewer = onPageChangedInViewer,
                 onBulkEdit = onBulkEdit,
                 onBulkMove = onBulkMove,
                 onScrollConsumed = onScrollConsumed,
-                topBarActions = topBarActions
+                topBarActions = topBarActions,
+                showTopSection = showSelectedCategoryTopBar
             )
         }
 
@@ -666,10 +671,10 @@ fun CategoryCard(
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = data.title, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
-        Text(text = "${data.count} 枚", color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        Text(text = data.title, color = Color.White, fontSize = com.example.gallery.ui.AppConstants.ScrollbarLabelFontSize, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
+        Text(text = "${data.count} 枚", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.ExtraSmallFontSize, modifier = Modifier.padding(horizontal = 4.dp))
         if (data.subTitle != null) {
-            Text(text = data.subTitle, color = Color.Yellow.copy(alpha = 0.8f), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp))
+            Text(text = data.subTitle, color = Color.Yellow.copy(alpha = 0.8f), fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(horizontal = 4.dp))
         }
     }
 }

@@ -56,8 +56,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -75,7 +73,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
@@ -85,7 +82,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.entity.VideoDownloadEntity
 import com.example.gallery.service.GlobalOperationService
+import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.util.VideoDownloadUrlUtils
 import com.squareup.gifencoder.GifEncoder
 import com.squareup.gifencoder.ImageOptions
@@ -199,14 +198,11 @@ fun VideoDownloadScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Video Downloader", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, "メニュー", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black)
+            GalleryTopAppBar(
+                title = "Video Downloader",
+                navigationIcon = Icons.Default.Menu,
+                navigationContentDescription = "メニュー",
+                onNavigationClick = onMenuClick
             )
         },
         containerColor = Color.Black
@@ -243,7 +239,7 @@ fun VideoDownloadScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DA1F2))
+                colors = ButtonDefaults.buttonColors(containerColor = GalleryThemeTokens.colors.accent)
             ) {
                 Icon(Icons.Default.Download, null)
                 Spacer(Modifier.width(8.dp))
@@ -260,7 +256,7 @@ fun VideoDownloadScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.History, null, tint = Color.Gray)
                     Spacer(Modifier.width(8.dp))
-                    Text("Download history", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Download history", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
                 }
 
                 if (downloads.isNotEmpty()) {
@@ -274,7 +270,7 @@ fun VideoDownloadScreen(
                     ) {
                         Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Clear history", fontSize = 12.sp)
+                        Text("Clear history", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
                     }
                 }
             }
@@ -339,7 +335,7 @@ fun DownloadHistoryItem(
     val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()) }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+        colors = CardDefaults.cardColors(containerColor = GalleryThemeTokens.colors.card)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -358,16 +354,16 @@ fun DownloadHistoryItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(download.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
                 Spacer(Modifier.height(4.dp))
-                Text(download.url, color = Color.Gray, fontSize = 12.sp, maxLines = 1)
+                Text(download.url, color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, maxLines = 1)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(dateFormat.format(Date(download.downloadDate)), color = Color.Gray, fontSize = 11.sp)
+                    Text(dateFormat.format(Date(download.downloadDate)), color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.ExtraSmallFontSize)
                     Text(
                         download.status,
                         color = if (download.status == "COMPLETED") Color.Green else Color.Red,
-                        fontSize = 11.sp
+                        fontSize = com.example.gallery.ui.AppConstants.ExtraSmallFontSize
                     )
                 }
             }
@@ -384,7 +380,7 @@ private fun DownloadMediaPreview(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Color(0xFF0A0A0A))
+            .background(GalleryThemeTokens.colors.background)
             .clickable(enabled = !uri.isNullOrBlank(), onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -406,7 +402,7 @@ private fun DownloadMediaPreview(
                 modifier = Modifier.size(28.dp)
             )
         } else {
-            Text("...", color = Color.Gray, fontSize = 12.sp)
+            Text("...", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
         }
     }
 }
@@ -450,7 +446,7 @@ fun DownloadOptionsModal(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1A1A1A),
+        containerColor = GalleryThemeTokens.colors.surface,
         title = { Text("Download settings", color = Color.White) },
         text = {
             when {
@@ -474,7 +470,7 @@ fun DownloadOptionsModal(
                         )
                         Spacer(Modifier.height(12.dp))
                         if (isDuplicate) {
-                            Text("Note: this post is already downloaded.", color = Color.Yellow, fontSize = 14.sp)
+                            Text("Note: this post is already downloaded.", color = Color.Yellow, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
                             Spacer(Modifier.height(8.dp))
                         }
                         if (isGifDownload) {
@@ -802,7 +798,7 @@ fun startDownloadTask(
                                 )
                             }
                         }
-                        GlobalOperationService.updateProgress(0.92f, "GIFへ変換中...", operationId)
+            GlobalOperationService.updateProgress(0.92f, "GIFへ変換中...", operationId)
                         transcodeMp4ToGif(context, tempFile)
                     } finally {
                         tempFile.delete()
@@ -836,7 +832,7 @@ fun startDownloadTask(
 
                 resolver.openOutputStream(uri)?.use { outputStream ->
                     if (outputBytes != null) {
-                        GlobalOperationService.updateProgress(0.98f, "GIFを保存中...", operationId)
+            GlobalOperationService.updateProgress(0.98f, "GIFを保存中...", operationId)
                         outputStream.write(outputBytes)
                     } else {
                         responseBody.byteStream().use { input ->
@@ -885,7 +881,7 @@ fun startDownloadTask(
                 }
 
                 galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "COMPLETED", savePath = actualPath))
-                GlobalOperationService.updateProgress(1f, "保存が完了しました", operationId)
+            GlobalOperationService.updateProgress(1f, "保存が完了しました", operationId)
 
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Download complete: $extension", Toast.LENGTH_SHORT).show()
@@ -944,9 +940,9 @@ private suspend fun copyDownloadWithProgress(
                 }
                 append("  ")
                 append(formatDownloadSize(bytesPerSecond))
-                append("/秒")
+                append(" /s")
                 if (remainingMs != null && elapsedMs >= 500L) {
-                    append("  残り約")
+                    append("  残り ")
                     append(formatDownloadEta(remainingMs))
                 } else {
                     append("  残り時間を計測中")

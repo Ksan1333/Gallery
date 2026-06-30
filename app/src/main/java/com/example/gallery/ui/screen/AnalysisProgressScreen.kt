@@ -8,7 +8,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.AnalysisService
@@ -60,7 +59,7 @@ fun AnalysisProgressScreen(
             Spacer(Modifier.height(16.dp))
             Text("バックグラウンドで解析を実行中です...", color = Color.White)
             Spacer(Modifier.height(8.dp))
-            Text("このまま他の画面へ移動しても解析は継続されます。", color = Color.Gray, fontSize = 12.sp)
+            Text("このまま他の画面へ移動しても解析は継続されます。", color = Color.Gray, fontSize = AppConstants.SmallFontSize)
             Spacer(Modifier.height(24.dp))
             Button(onClick = onComplete) {
                 Text("ギャラリーに戻る")

@@ -14,15 +14,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.example.gallery.ui.AppRoutes
+import com.example.gallery.ui.AppText
+import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.GalleryViewMode
+import com.example.gallery.ui.theme.GalleryThemeTokens
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -33,28 +35,28 @@ fun GalleryBottomNavigationBar(
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val colors = GalleryThemeTokens.colors
 
     val items = listOf(
-        BottomNavItem("home", "すべて", Icons.Default.Home),
-        BottomNavItem("folders", "フォルダ", Icons.AutoMirrored.Filled.List),
-        BottomNavItem("mylist", "マイリスト", Icons.Default.Favorite),
-        BottomNavItem("books", "本", Icons.AutoMirrored.Filled.MenuBook),
-        BottomNavItem("trash", "ゴミ箱", Icons.Default.Delete)
+        BottomNavItem(AppRoutes.HOME, AppText.ALL_MEDIA, Icons.Default.Home),
+        BottomNavItem(AppRoutes.FOLDERS, AppText.FOLDERS, Icons.AutoMirrored.Filled.List),
+        BottomNavItem(AppRoutes.VIDEOS, AppText.VIDEOS, Icons.Default.PlayCircle),
+        BottomNavItem(AppRoutes.BOOKS, AppText.BOOKS, Icons.AutoMirrored.Filled.MenuBook),
+        BottomNavItem(AppRoutes.TRASH, AppText.TRASH, Icons.Default.Delete)
     )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
         Surface(
-            color = Color.Black.copy(alpha = 0.85f),
+            color = colors.surface.copy(alpha = 0.96f),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
                 .clip(RoundedCornerShape(32.dp)),
-            tonalElevation = 4.dp,
+            tonalElevation = 3.dp,
             shadowElevation = 8.dp
         ) {
             Row(
@@ -64,6 +66,7 @@ fun GalleryBottomNavigationBar(
             ) {
                 items.forEach { item ->
                     val isSelected = currentRoute == item.route
+                    val canClick = !isSelected || item.route == AppRoutes.VIDEOS
                     
                     Box(
                         modifier = Modifier
@@ -77,25 +80,32 @@ fun GalleryBottomNavigationBar(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clickable(
+                                    enabled = canClick,
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = ripple()
                                 ) {
                                     // 画面モードの更新
                                     when (item.route) {
-                                        "folders" -> galleryState.galleryViewMode = GalleryViewMode.FOLDER
-                                        "mylist" -> galleryState.galleryViewMode = GalleryViewMode.MYLIST
-                                        "trash" -> galleryState.galleryViewMode = GalleryViewMode.TRASH
+                                        AppRoutes.HOME -> {
+                                            galleryState.clearHomeSearch()
+                                        }
+                                        AppRoutes.FOLDERS -> galleryState.galleryViewMode = GalleryViewMode.FOLDER
+                                        AppRoutes.VIDEOS -> galleryState.galleryViewMode = GalleryViewMode.VIDEO
+                                        AppRoutes.TRASH -> galleryState.galleryViewMode = GalleryViewMode.TRASH
                                     }
 
                                     onIconClick(item.route)
+                                    // HOMEボタンは常に反応するように (ただし重複ナビゲーションは避ける)
                                     if (currentRoute != item.route) {
                                         navController.navigate(item.route) {
                                             popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
+                                                saveState = false
                                             }
                                             launchSingleTop = true
-                                            restoreState = true
+                                            restoreState = false
                                         }
+                                    } else if (item.route == AppRoutes.HOME) {
+                                        // すでにHOMEにいる場合は、スタックの先頭まで戻るなどの処理が必要であればここ
                                     }
                                 }
                                 .padding(horizontal = 2.dp)
@@ -103,14 +113,14 @@ fun GalleryBottomNavigationBar(
                             Icon(
                                 imageVector = item.icon,
                                 contentDescription = item.title,
-                                tint = if (isSelected) Color.White else Color.Gray,
+                                tint = if (isSelected) colors.accent else colors.mutedText,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = item.title,
-                                color = if (isSelected) Color.White else Color.Gray,
-                                fontSize = 9.sp,
+                                color = if (isSelected) colors.accent else colors.mutedText,
+                                fontSize = AppConstants.BottomNavFontSize,
                                 maxLines = 1,
                                 fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null
                             )

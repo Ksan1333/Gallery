@@ -37,7 +37,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,7 +47,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +59,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import android.os.Environment
@@ -76,17 +73,19 @@ import java.io.OutputStreamWriter
 import java.util.Scanner
 import org.json.JSONArray
 import org.json.JSONObject
-import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.component.GalleryTopAppBar
+import com.example.gallery.ui.theme.GalleryColorTokens
+import com.example.gallery.ui.theme.GalleryThemeTokens
 
 private const val FAVORITE_SITES_PREFS = "favorite_sites_prefs"
 private const val FAVORITE_SITES_KEY = "favorite_sites"
 
-private val siteBackground = Color(0xFF11100F)
-private val siteCard = Color(0xFF1D1A18)
-private val siteField = Color(0xFF28231F)
-private val siteInk = Color(0xFFF4EFE8)
-private val siteMuted = Color(0xFFB8ADA2)
-private val siteAccent = Color(0xFFD28A5E)
+private val siteBackground = GalleryColorTokens.Dark.background
+private val siteCard = GalleryColorTokens.Dark.card
+private val siteField = GalleryColorTokens.Dark.field
+private val siteInk = GalleryColorTokens.Dark.primaryText
+private val siteMuted = GalleryColorTokens.Dark.secondaryText
+private val siteAccent = GalleryColorTokens.Dark.accent
 
 private data class FavoriteSite(
     val name: String = "",
@@ -147,7 +146,7 @@ fun FavoriteSitesScreen(
                             )
                         }
                     }
-                    OutputStreamWriter(stream).use { writer ->
+                    stream.bufferedWriter(Charsets.UTF_8).use { writer ->
                         writer.write(array.toString(2))
                     }
                 }
@@ -173,14 +172,14 @@ fun FavoriteSitesScreen(
                     return@runCatching
                 }
                 file.inputStream().use { stream ->
-                    val content = Scanner(stream).useDelimiter("\\A").next()
+                    val content = stream.bufferedReader(Charsets.UTF_8).readText()
                     val array = JSONArray(content)
                     val newSites = mutableListOf<FavoriteSite>()
                     for (i in 0 until array.length()) {
                         val obj = array.getJSONObject(i)
                         val url = obj.optString("url")
                         if (url.isBlank()) continue
-                        
+
                         newSites.add(
                             FavoriteSite(
                                 name = obj.optString("name"),
@@ -214,13 +213,14 @@ fun FavoriteSitesScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("お気に入りサイト", color = siteInk) },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "メニュー", tint = siteInk)
-                    }
-                },
+            GalleryTopAppBar(
+                title = "お気に入りサイト",
+                navigationIcon = Icons.Default.Menu,
+                navigationContentDescription = "メニュー",
+                onNavigationClick = onMenuClick,
+                centered = true,
+                containerColor = siteBackground,
+                contentColor = siteInk,
                 actions = {
                     IconButton(onClick = { exportData() }) {
                         Icon(Icons.Default.Download, contentDescription = "書き出し", tint = siteInk)
@@ -231,12 +231,11 @@ fun FavoriteSitesScreen(
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(
                             Icons.Default.Edit,
-                            contentDescription = "表示と編集を切り替え",
+                            contentDescription = "編集切り替え",
                             tint = if (isEditMode) siteAccent else siteInk
                         )
                     }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = siteBackground)
+                }
             )
         },
         containerColor = siteBackground
@@ -293,7 +292,7 @@ fun FavoriteSitesScreen(
             onDismissRequest = { pendingDeleteIndex = null },
             containerColor = siteCard,
             title = { Text("サイトカードを削除", color = siteInk) },
-            text = { Text("このサイト名、URL、説明を削除します。", color = siteMuted) },
+            text = { Text("このサイトカードを削除します。", color = siteMuted) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -322,7 +321,7 @@ fun FavoriteSitesScreen(
                 title = { Text("Googleでサイトを検索", color = siteInk) },
                 text = {
                     Text(
-                        "URLが空なのでサイト名でGoogle検索を開きます。最初に開いたページをURL欄へ自動入力します。",
+                        "URLが空なのでサイト名でGoogle検索を開きます。最初に開いたページのURLを自動入力します。",
                         color = siteMuted
                     )
                 },
@@ -375,7 +374,7 @@ private fun FavoriteSitesDisplay(
 
     if (visibleSites.isEmpty()) {
         Box(modifier = modifier.background(siteBackground), contentAlignment = Alignment.Center) {
-            Text("ペンアイコンからお気に入りサイトを追加できます", color = siteMuted)
+            Text("お気に入りサイトがありません", color = siteMuted)
         }
         return
     }
@@ -392,7 +391,7 @@ private fun FavoriteSitesDisplay(
                     .clickable(enabled = site.url.isNotBlank()) { openFavoriteSite(context, site.url) },
                 colors = CardDefaults.cardColors(containerColor = siteCard),
                 shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, Color(0xFF4B4038))
+                border = BorderStroke(1.dp, GalleryThemeTokens.colors.divider)
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
@@ -402,7 +401,7 @@ private fun FavoriteSitesDisplay(
                         Text(
                             text = site.name.ifBlank { "名称未設定" },
                             color = siteInk,
-                            fontSize = 18.sp,
+                            fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -413,14 +412,14 @@ private fun FavoriteSitesDisplay(
                         }
                     }
                     if (site.description.isNotBlank()) {
-                        Text(site.description, color = siteMuted, fontSize = 14.sp)
+                        Text(site.description, color = siteMuted, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
                     }
                     if (site.url.isNotBlank()) {
                         Surface(color = siteField, shape = RoundedCornerShape(6.dp)) {
                             Text(
                                 text = site.url,
                                 color = siteAccent,
-                                fontSize = 12.sp,
+                                fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
@@ -445,14 +444,14 @@ private fun FavoriteSiteEditCard(
     Card(
         colors = CardDefaults.cardColors(containerColor = siteCard),
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color(0xFF4B4038))
+        border = BorderStroke(1.dp, GalleryThemeTokens.colors.divider)
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("サイト", color = siteInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("サイトカード", color = siteInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 IconButton(onClick = onAccess) {
                     Icon(
                         Icons.Default.OpenInBrowser,
@@ -516,7 +515,7 @@ private fun FavoriteSiteSearchDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${siteName.ifBlank { "サイト" }}を検索",
+                        text = "${siteName.ifBlank { "サイト" }} を検索",
                         color = siteInk,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
@@ -580,7 +579,7 @@ private fun favoriteSiteTextFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedContainerColor = siteField,
     cursorColor = siteAccent,
     focusedBorderColor = siteAccent,
-    unfocusedBorderColor = Color(0xFF594C43),
+    unfocusedBorderColor = GalleryThemeTokens.colors.divider,
     focusedLabelColor = siteAccent,
     unfocusedLabelColor = siteMuted
 )

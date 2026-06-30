@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -22,9 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.state.*
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -82,10 +83,10 @@ fun FolderGalleryScreen(
             val newMap = mutableMapOf<String, MutableList<MediaData>>()
             val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
 
-            // ディレクトリ走査は重いので、allMediaのfolderNameだけを使う形に最適化
+            // ディレクトリ走査は重いので、allMedia の folderName だけで構成する。
             allMedia.forEach { newMap.getOrPut(it.folderName) { mutableListOf() }.add(it) }
 
-            // 明示的に管理されている空フォルダだけ追加
+            // 明示的に管理されている空フォルダも追加する。
             managedFolderNames.forEach { if (!newMap.containsKey(it)) newMap[it] = mutableListOf() }
             newMap.values.forEach { it.sortByDescending { m -> m.dateAdded } }
             withContext(Dispatchers.Main) {
@@ -142,14 +143,46 @@ fun FolderGalleryScreen(
             title = if (isSelectionMode) "移動先フォルダを選択" else "フォルダ",
             categories = categories, isLoading = isLoading, galleryState = galleryState,
             onNavigateToTag = { tag ->
-                onBackToFolders() // まずフォルダリストへ戻る
-                onFolderSelected("TAG_NAVIGATION:$tag") // 特別なプレフィックスで通知 (MainActivityで処理)
+                onBackToFolders() // まずフォルダリストへ戻る。
+                onFolderSelected("TAG_NAVIGATION:$tag") // 特別なプレフィックスで MainActivity へ通知する。
             },
             onMenuClick = if (!isSelectionMode) onMenuClick else null,
             topBarActions = {
+                var showSortMenu by remember { mutableStateOf(false) }
+                IconButton(onClick = { showSortMenu = true }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Sort,
+                        contentDescription = "並び替え",
+                        tint = Color.White
+                    )
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                        modifier = Modifier.background(GalleryThemeTokens.colors.surfaceVariant)
+                    ) {
+                        SortMode.entries.forEach { mode ->
+                            listOf(true, false).forEach { ascending ->
+                                val isSelected = galleryState.sortMode == mode && galleryState.isAscending == ascending
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "${when (mode) { SortMode.DATE_ADDED -> "追加日"; SortMode.SIZE -> "サイズ"; SortMode.NAME -> "名前" }}・${if (ascending) "昇順" else "降順"}",
+                                            color = if (isSelected) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
+                                        )
+                                    },
+                                    onClick = {
+                                        galleryState.sortMode = mode
+                                        galleryState.isAscending = ascending
+                                        showSortMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
                 if (selectedFolderName == null && !isSelectionMode) {
                     IconButton(onClick = { showCreateFolderDialog = true }) {
-                        Icon(androidx.compose.material.icons.Icons.Default.Add, "フォルダ作成", tint = Color.White)
+                Icon(androidx.compose.material.icons.Icons.Default.Add, "フォルダ作成", tint = Color.White)
                     }
                 }
             },
@@ -169,8 +202,8 @@ fun FolderGalleryScreen(
             } ?: emptyList(),
             onBackFromCategory = { if (selectedFolderName != null) { selectedFolderName = null; isSubCategorySelected = false } else onBackToFolders() },
             onTabIconClick = { selectedFolderName = null; isSubCategorySelected = false; onBackToFolders() },
-            lastViewedUri = galleryState.lastViewedUri, 
-            onPageChangedInViewer = { galleryState.lastViewedUri = it }, 
+            lastViewedUri = galleryState.lastViewedUri,
+            onPageChangedInViewer = { galleryState.lastViewedUri = it },
             onBulkEdit = onBulkEdit,
             onBulkMove = onBulkMove,
             onScrollConsumed = { galleryState.lastViewedUri = null }
@@ -178,8 +211,40 @@ fun FolderGalleryScreen(
     }
 
     if (showCreateFolderDialog) {
-        AlertDialog(onDismissRequest = { showCreateFolderDialog = false }, title = { Text("フォルダ作成") }, text = { Column { Text("DCIM直下に作成されます", fontSize = 12.sp, color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = newFolderName, onValueChange = { newFolderName = it }, label = { Text("フォルダ名") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } },
-            confirmButton = { Button(onClick = { if (newFolderName.isNotBlank()) { scope.launch { if (galleryState.repository.createFolderUnderDCIM(newFolderName.trim())) { galleryState.repository.addManagedFolder(newFolderName.trim()); loadAllMedia() }; showCreateFolderDialog = false; newFolderName = "" } } }) { Text("作成") } }, dismissButton = { TextButton(onClick = { showCreateFolderDialog = false }) { Text("キャンセル") } })
+        AlertDialog(
+            onDismissRequest = { showCreateFolderDialog = false },
+            title = { Text("フォルダ作成") },
+            text = {
+                Column {
+                    Text("DCIM直下に作成されます", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newFolderName,
+                        onValueChange = { newFolderName = it },
+                        label = { Text("フォルダ名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (newFolderName.isNotBlank()) {
+                        scope.launch {
+                            if (galleryState.repository.createFolderUnderDCIM(newFolderName.trim())) {
+                                galleryState.repository.addManagedFolder(newFolderName.trim())
+                                loadAllMedia()
+                            }
+                            showCreateFolderDialog = false
+                            newFolderName = ""
+                        }
+                    }
+                }) { Text("作成") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateFolderDialog = false }) { Text("キャンセル") }
+            }
+        )
     }
 
     if (showFolderMenu != null) {

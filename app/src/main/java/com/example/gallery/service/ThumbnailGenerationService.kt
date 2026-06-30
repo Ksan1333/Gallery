@@ -110,7 +110,7 @@ object ThumbnailGenerationService {
                         updateStartupProgress(
                             completedTasks = completedTasks,
                             totalTasks = totalTasks,
-                            text = "解析中: ${index + 1} / ${vectorTargets.size}",
+                            text = "隗｣譫蝉ｸｭ: ${index + 1} / ${vectorTargets.size}",
                         )
                         if (index % 5 == 0) delay(15)
                     }

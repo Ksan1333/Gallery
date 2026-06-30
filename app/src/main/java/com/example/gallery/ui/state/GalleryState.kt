@@ -8,16 +8,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.example.gallery.data.local.GalleryDatabase
+import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.data.service.AiTaggingService
 import com.example.gallery.data.service.VectorSearchService
 
-enum class GalleryViewMode { FOLDER, MYLIST, TRASH }
+enum class GalleryViewMode { FOLDER, TRASH, VIDEO }
 enum class GroupingMode { NONE, DAY, MONTH, YEAR, STORAGE }
 enum class MediaTypeFilter { ALL, IMAGE, VIDEO, GIF }
 enum class AgeRatingFilter { ALL, SFW, R15, R18 }
 enum class DeviceFilter { ALL, SMARTPHONE, PC }
 enum class SortMode { DATE_ADDED, SIZE, NAME }
+enum class GallerySearchMatchMode { AND, OR }
+enum class GallerySearchMediaType { IMAGE, GIF, VIDEO }
+enum class GallerySearchStorageType { INTERNAL, SD_CARD }
 
 class GalleryState(context: Context) {
     private val database = GalleryDatabase.getDatabase(context)
@@ -42,6 +46,10 @@ class GalleryState(context: Context) {
     var sortMode by mutableStateOf(SortMode.DATE_ADDED)
     var isAscending by mutableStateOf(false)
     var videoSeekInterval by mutableIntStateOf(10)
+    var videoHomeRequestToken by mutableIntStateOf(0)
+        private set
+    var cachedVideoItems by mutableStateOf<List<MediaData>?>(null)
+    var cachedVideoRefreshTrigger by mutableIntStateOf(-1)
 
     var urisToMove by mutableStateOf<List<String>>(emptyList())
     var selectedFolderForMove by mutableStateOf("")
@@ -58,9 +66,45 @@ class GalleryState(context: Context) {
     var homeGalleryScrollIndex by mutableIntStateOf(0)
     var homeGalleryScrollOffset by mutableIntStateOf(0)
     var homeGalleryScrollUri by mutableStateOf<String?>(null)
+    var pendingHomeSearchTag by mutableStateOf<String?>(null)
+    var homeSearchQuery by mutableStateOf("")
+    var homeSearchMatchMode by mutableStateOf(GallerySearchMatchMode.AND)
+    var homeSearchAgeRatings by mutableStateOf<Set<AgeRatingFilter>>(emptySet())
+    var homeSearchFolders by mutableStateOf<Set<String>>(emptySet())
+    var homeSearchMediaTypes by mutableStateOf<Set<GallerySearchMediaType>>(emptySet())
+    var homeSearchStorageTypes by mutableStateOf<Set<GallerySearchStorageType>>(emptySet())
+    var homeSearchFavoritesOnly by mutableStateOf(false)
+    var homeSearchTags by mutableStateOf<Set<String>>(emptySet())
+    var homeFavoritesOnly by mutableStateOf(false)
+
+    val isHomeSearchActive: Boolean
+        get() = homeSearchQuery.isNotBlank() ||
+            homeSearchTags.isNotEmpty() ||
+            homeSearchFolders.isNotEmpty() ||
+            homeSearchAgeRatings.isNotEmpty() ||
+            homeSearchMediaTypes.isNotEmpty() ||
+            homeSearchStorageTypes.isNotEmpty() ||
+            homeSearchFavoritesOnly
+
+    fun clearHomeSearch() {
+        homeSearchQuery = ""
+        homeSearchMatchMode = GallerySearchMatchMode.AND
+        homeSearchAgeRatings = emptySet()
+        homeSearchFolders = emptySet()
+        homeSearchMediaTypes = emptySet()
+        homeSearchStorageTypes = emptySet()
+        homeSearchFavoritesOnly = false
+        homeSearchTags = emptySet()
+    }
 
     fun refresh() {
         refreshTrigger++
+        cachedVideoItems = null
+        cachedVideoRefreshTrigger = -1
+    }
+
+    fun requestVideoHome() {
+        videoHomeRequestToken++
     }
 
     val currentColumnIndex: Int = 4

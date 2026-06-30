@@ -275,7 +275,7 @@ class BookRepository(private val context: Context) {
     private fun loadCachedIndex(): List<CachedBook> {
         if (!indexFile.exists()) return emptyList()
         return runCatching {
-            val array = JSONArray(indexFile.readText())
+            val array = JSONArray(indexFile.readText(Charsets.UTF_8))
             List(array.length()) { index ->
                 val item = array.getJSONObject(index)
                 val type = BookType.valueOf(item.getString("type"))
@@ -311,7 +311,7 @@ class BookRepository(private val context: Context) {
                         .put("fileSize", cached.fileSize)
                 )
             }
-            indexFile.writeText(array.toString())
+            indexFile.writeText(array.toString(), Charsets.UTF_8)
         }.onFailure { Log.w(TAG, "Failed to save cached book index", it) }
     }
 

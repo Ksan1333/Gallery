@@ -59,7 +59,7 @@ class MediaRepository(
             config = PagingConfig(
                 pageSize = 100, 
                 prefetchDistance = 200, 
-                enablePlaceholders = true // スクロールバーのサイズを正しくするために有効化
+                enablePlaceholders = true // スクロールバーのサイズを正しく出すため有効化する。
             ),
             pagingSourceFactory = { 
                 mediaDao.getFilteredMediaPagingSource(
@@ -95,18 +95,15 @@ class MediaRepository(
                 )
             }
 
-            // セパレータ（日付ヘッダー）を入れるとプレースホルダーと競合するため、
-            // ユーザーが「全部ロードされない」と感じる場合は一時的に無効化するか、
-            // プレースホルダー表示側を工夫する必要があります。
-            // ここではプレースホルダーを有効にするため、GroupingMode.NONE以外でも
-            // セパレータを一旦外して全件ロードを確認しやすくします。
+            // 日付などのセパレータはプレースホルダーと競合しやすいため、
+            // グルーピング時だけ全件ロードでセパレータを生成する。
             
             if (groupingMode == GroupingMode.NONE) {
                 mediaPaging.map { it as GridItem }
             } else {
                 val sdf = when (groupingMode) {
                     GroupingMode.DAY -> SimpleDateFormat("yyyy年M月d日", Locale.JAPAN)
-                    GroupingMode.MONTH -> SimpleDateFormat("yyyy年M月", Locale.JAPAN)
+                        GroupingMode.MONTH -> SimpleDateFormat("yyyy年M月", Locale.JAPAN)
                     GroupingMode.YEAR -> SimpleDateFormat("yyyy年", Locale.JAPAN)
                     else -> null
                 }
@@ -114,8 +111,8 @@ class MediaRepository(
                 if (sdf == null) {
                     mediaPaging.map { it as GridItem }
                 } else {
-                    // Paging 3 の insertSeparators はプレースホルダーと併用すると
-                    // スクロールバーの挙動が不安定になる既知の制約があります。
+                    // insertSeparators はプレースホルダーと併用すると
+                    // スクロールバーの挙動が不安定になりやすい。
                     mediaPaging.insertSeparators { before: GridItem.Media?, after: GridItem.Media? ->
                         if (after == null) return@insertSeparators null
                         
@@ -156,7 +153,7 @@ class MediaRepository(
     }
 
     fun getMediaPagingFlow(isAscending: Boolean): Flow<PagingData<MediaData>> {
-        val deviceAspectRatio = 1.0f // デフォルト値。必要なら引数で受け取るように変更
+        val deviceAspectRatio = 1.0f // デフォルト値。必要なら引数で受け取る。
 
         return Pager(
             config = PagingConfig(pageSize = 100, enablePlaceholders = true, prefetchDistance = 200),
@@ -197,9 +194,14 @@ class MediaRepository(
 
         if (!allGranted) return@withContext
 
-        // タムネイル生成タスクと重複しないよう、明示的に異なるIDを使用
-        val opId = GlobalOperationService.startOperation("ライブラリを同期中...", tag = "SYNC_MEDIA_STORE")
-        GlobalOperationService.updateProgress(0f, "準備中...", id = opId)
+        var opId: String? = null
+        fun ensureSyncOperation(): String {
+            opId?.let { return it }
+            val newOpId = GlobalOperationService.startOperation("ライブラリを同期中...", tag = "SYNC_MEDIA_STORE")
+            opId = newOpId
+            GlobalOperationService.updateProgress(0f, "差分を反映中...", id = newOpId)
+            return newOpId
+        }
         
         try {
             val existingFullMetadata = mediaDao.getAllMetadata().associateBy { it.uri }
@@ -250,7 +252,7 @@ class MediaRepository(
                 setOf("external")
             }
 
-            // 事前に全体の件数を取得して進捗率を正確にする
+            // 先に全体件数を取得して進捗率を正確にする。
             var totalToProcess = 0
             volumeNames.forEach { vn ->
                 listOf(MediaStore.Images.Media.getContentUri(vn), MediaStore.Video.Media.getContentUri(vn)).forEach { col ->
@@ -291,8 +293,13 @@ class MediaRepository(
                             while (cursor.moveToNext()) {
                                 processedCount++
                                 if (processedCount % 100 == 0) {
-                                    // 読み込み進捗を 0〜85% で表現
-                                    GlobalOperationService.updateProgress((processedCount.toFloat() / totalF) * 0.85f, id = opId)
+                                    // 読み込み進捗を 0-85% で表現する。
+                                    opId?.let { activeOpId ->
+                                        GlobalOperationService.updateProgress(
+                                            (processedCount.toFloat() / totalF) * 0.85f,
+                                            id = activeOpId
+                                        )
+                                    }
                                 }
 
                                 val id = cursor.getLong(idColumn)
@@ -329,6 +336,7 @@ class MediaRepository(
                                     existing.fileSize != size ||
                                     existing.isDeleted != nextIsDeleted
                                 ) {
+                                    ensureSyncOperation()
                                     newEntities.add(MediaMetadataEntity(
                                         uri = contentUri,
                                         dateAdded = date,
@@ -359,28 +367,32 @@ class MediaRepository(
             }
 
             if (newEntities.isNotEmpty()) {
-                GlobalOperationService.updateProgress(0.9f, "データベースを更新中...", id = opId)
+                val activeOpId = ensureSyncOperation()
+                GlobalOperationService.updateProgress(0.9f, "データベースを更新中...", id = activeOpId)
                 newEntities.chunked(100).forEach { chunk ->
                     mediaDao.bulkInsertMetadata(chunk)
                 }
             }
 
-            // 削除されたファイルをクリーンアップ
+            // 削除されたファイルをクリーンアップする。
             val dbUrisToDelete = existingMetadata.keys.filter {
                 it.startsWith("content://media/") && !foundUris.contains(it)
             }
             if (dbUrisToDelete.isNotEmpty()) {
-                GlobalOperationService.updateProgress(0.95f, "不要なデータを削除中...", id = opId)
+                val activeOpId = ensureSyncOperation()
+                GlobalOperationService.updateProgress(0.95f, "不要なデータを削除中...", id = activeOpId)
                 dbUrisToDelete.chunked(100).forEach { chunk ->
                     mediaDao.bulkDeleteMetadata(chunk)
                     mediaDao.bulkDeleteTags(chunk)
                 }
             }
             
-            GlobalOperationService.updateProgress(1.0f, "同期完了", id = opId)
+            opId?.let { activeOpId ->
+                GlobalOperationService.updateProgress(1.0f, "同期完了", id = activeOpId)
+            }
             cachedMediaList = null
         } finally {
-            GlobalOperationService.finishOperation(opId)
+            opId?.let { GlobalOperationService.finishOperation(it) }
         }
     }
 
@@ -412,7 +424,7 @@ class MediaRepository(
 
     suspend fun cleanupDeletedFiles() {
         // 重い個別ファイルチェックを伴う cleanupDeletedFiles は廃止し、
-        // getAllMediaFiltered 内での一括チェックに統合されました。
+        // getAllMediaFiltered 内の一括チェックへ統合した。
     }
 
     private suspend fun getAllMediaFiltered(forceRefresh: Boolean = false, includeDeleted: Boolean = false): List<MediaData> {
@@ -713,7 +725,7 @@ class MediaRepository(
     fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>> = mediaDao.getAllMetadataSummaryFlow()
     fun getAllTagsWithUris(): Flow<List<TagEntity>> = mediaDao.getAllTagsWithUris()
 
-    // 計測データ用
+    // 計測データ用。
     suspend fun getMeasureStats(uri: String): com.example.gallery.data.local.entity.MeasureStatsEntity? = mediaDao.getMeasureStats(uri)
     suspend fun updateMeasureStats(uri: String, durationSeconds: Long) {
         val current = mediaDao.getMeasureStats(uri)
@@ -739,10 +751,10 @@ class MediaRepository(
         val allMedia = getAllMedia()
         val allMediaMap = allMedia.associateBy { it.uri }
 
-        // 高評価（長く見た、よく見た）もの自体を入れる
+        // 高評価のタグ自体を入れる。
         topStats.forEach { recommendedUris.add(it.uri) }
 
-        // 類似のものを探す
+        // 類似のものを探す。
         topStats.forEach { s ->
             findMediaByTagSimilarity(s.uri).forEach { recommendedUris.add(it.media.uri) }
             findSimilarVisualMedia(s.uri).forEach { recommendedUris.add(it.media.uri) }

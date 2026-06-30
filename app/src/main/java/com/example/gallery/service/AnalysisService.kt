@@ -21,6 +21,7 @@ class AnalysisService : Service() {
     companion object {
         const val CHANNEL_ID = "AnalysisChannel"
         const val NOTIFICATION_ID = 1001
+        private const val ACTION_CANCEL = "com.example.gallery.action.CANCEL_ANALYSIS"
         private const val NORMAL_COOLDOWN_MS = 250L
         private const val LIGHT_COOLDOWN_MS = 750L
         private const val MODERATE_COOLDOWN_MS = 1_750L
@@ -38,6 +39,15 @@ class AnalysisService : Service() {
                 context.startService(intent)
             }
         }
+
+        fun cancel(context: Context, type: String = "AI_TAGGING") {
+            GlobalOperationService.requestCancel(type)
+            val intent = Intent(context, AnalysisService::class.java).apply {
+                action = ACTION_CANCEL
+                putExtra("type", type)
+            }
+            context.startService(intent)
+        }
     }
 
     override fun onCreate() {
@@ -47,6 +57,20 @@ class AnalysisService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val type = intent?.getStringExtra("type") ?: "AI_TAGGING"
+        if (intent?.action == ACTION_CANCEL) {
+            GlobalOperationService.requestCancel(type)
+            analysisJob?.cancel()
+            GlobalOperationService.finishOperation(type)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val periodDays = intent?.getIntExtra("periodDays", -1) ?: -1
         
         val notification = createNotification("解析準備中...", 0f)
@@ -66,12 +90,12 @@ class AnalysisService : Service() {
                 val operationTitle = when(type) {
                     "AI_TAGGING" -> "AIタグ解析中..."
                     "COLOR_VECTOR" -> "カラーベクトル解析中..."
-                    "AUTO_RATING" -> "年齢制限自動振分中..."
+                    "AUTO_RATING" -> "年齢制限を自動判定中..."
                     else -> "処理中..."
                 }
                 val opId = GlobalOperationService.startOperation(operationTitle, tag = type, periodDays = periodDays)
 
-                // 必要なモデルが欠けているかチェック
+                // 必要なモデルが欠けているかチェックする。
                 val needsTagger = type == "AI_TAGGING"
                 val needsVector = type == "COLOR_VECTOR" || type == "AUTO_RATING"
                 
@@ -94,7 +118,7 @@ class AnalysisService : Service() {
                     }
                 }
 
-                // 実行前にサービスの初期化
+                // 実行前にサービスを初期化する。
                 if (needsTagger) galleryState.aiTaggingService.ensureInitialized()
                 if (needsVector) galleryState.vectorSearchService.ensureInitialized()
 
@@ -159,6 +183,8 @@ class AnalysisService : Service() {
                     }
                 }
                 galleryState.refresh()
+            } catch (e: CancellationException) {
+                Log.i("AnalysisService", "Analysis canceled: $type")
             } catch (e: Exception) {
                 Log.e("AnalysisService", "Analysis failed", e)
             } finally {

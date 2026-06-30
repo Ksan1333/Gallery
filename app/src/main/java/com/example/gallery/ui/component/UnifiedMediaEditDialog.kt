@@ -26,7 +26,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
@@ -49,13 +48,13 @@ fun UnifiedMediaEditDialog(
 ) {
     var selectedAgeRating by rememberSaveable { mutableStateOf<String?>(null) }
     val tagCounts by repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
-    
+
     // タグ検索用の状態
     var tagSearchQuery by remember { mutableStateOf("") }
     val filteredTags = remember(tagCounts, tagSearchQuery) {
         tagCounts
             .filter { !it.tag.endsWith("系") }
-            .filter { it.tag.contains(tagSearchQuery, ignoreCase = true) || 
+            .filter { it.tag.contains(tagSearchQuery, ignoreCase = true) ||
                       TagTranslationService.translate(it.tag).contains(tagSearchQuery, ignoreCase = true) }
             .map { it.tag }
     }
@@ -66,7 +65,7 @@ fun UnifiedMediaEditDialog(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // 進捗管理用の状態 (GlobalOperationService を使うため削除)
+    // 進捗管理用の状態
     var isProcessing by remember { mutableStateOf(false) }
 
     // 初期値のロード
@@ -82,13 +81,16 @@ fun UnifiedMediaEditDialog(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("一括タグ・評価編集 (${uris.size} 件)", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss, enabled = !isProcessing) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = if (!isProcessing) Color.White else Color.Gray)
-                    }
-                },
+            GalleryTopAppBar(
+                title = "一括タグ・評価編集 (${uris.size} 件)",
+                navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
+                navigationContentDescription = "戻る",
+                onNavigationClick = onDismiss,
+                navigationEnabled = !isProcessing,
+                centered = true,
+                containerColor = Color.Black,
+                contentColor = Color.White,
+                disabledContentColor = Color.Gray,
                 actions = {
                     TextButton(
                         onClick = {
@@ -115,8 +117,7 @@ fun UnifiedMediaEditDialog(
                     ) {
                         Text("保存", color = if (!isProcessing) Color.White else Color.Gray)
                     }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Black)
+                }
             )
         },
         containerColor = AppConstants.BackgroundColor,
@@ -130,12 +131,12 @@ fun UnifiedMediaEditDialog(
                 .padding(horizontal = 16.dp)
         ) {
 
-            // 選択中の画像プレビュー (縦2列の横並び: LazyVerticalGridを使用して高さ固定)
+            // 選択中の画像プレビュー
             if (!isProcessing && uris.isNotEmpty()) {
                 Text(
                     text = "選択中のアイテム",
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                     modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
                 )
@@ -230,7 +231,7 @@ fun UnifiedMediaEditDialog(
                     }
 
                     if (selectedTags.isNotEmpty()) {
-                        Text("追加するタグ:", fontSize = 12.sp, color = Color.Gray)
+                        Text("追加するタグ:", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray)
                         FlowRow(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -250,15 +251,15 @@ fun UnifiedMediaEditDialog(
                     if (filteredTags.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("既存のタグから選択:", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.weight(1f))
+                            Text("既存のタグから選択:", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray, modifier = Modifier.weight(1f))
                             // タグ検索フィールド
                             OutlinedTextField(
                                 value = tagSearchQuery,
                                 onValueChange = { tagSearchQuery = it },
-                                placeholder = { Text("タグを検索...", fontSize = 10.sp) },
+                                placeholder = { Text("タグを検索...", fontSize = com.example.gallery.ui.AppConstants.TinyFontSize) },
                                 modifier = Modifier.width(150.dp).height(40.dp),
                                 singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
+                                textStyle = LocalTextStyle.current.copy(fontSize = com.example.gallery.ui.AppConstants.SmallFontSize),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedTextColor = Color.White,
                                     unfocusedTextColor = Color.White,
@@ -267,7 +268,7 @@ fun UnifiedMediaEditDialog(
                                 )
                             )
                         }
-                        
+
                         // 高さを制限してスクロール可能にする
                         Box(
                             modifier = Modifier
@@ -290,7 +291,7 @@ fun UnifiedMediaEditDialog(
                                                 else selectedTags.add(tag)
                                             }
                                         },
-                                        label = { Text(TagTranslationService.translate(tag), fontSize = 12.sp) },
+                                        label = { Text(TagTranslationService.translate(tag), fontSize = com.example.gallery.ui.AppConstants.SmallFontSize) },
                                         enabled = !isProcessing,
                                         colors = FilterChipDefaults.filterChipColors(
                                             labelColor = if (!isProcessing) Color.White else Color.Gray,

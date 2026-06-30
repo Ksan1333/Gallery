@@ -14,19 +14,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import com.example.gallery.ui.component.GalleryTopAppBar
+import com.example.gallery.BuildConfig
 
 class ChangelogViewModel : ViewModel() {
     var changelogText by mutableStateOf<String?>(null)
@@ -36,26 +33,16 @@ class ChangelogViewModel : ViewModel() {
     var error by mutableStateOf<String?>(null)
         private set
 
-    private val viewModelJob = SupervisorJob()
-    private val viewModelScope = CoroutineScope(Dispatchers.Main + viewModelJob)
-
-    override fun onCleared() {
-        super.onCleared()
-        viewModelJob.cancel()
-    }
-
     fun fetchChangelog(context: Context) {
         if (isLoading) return
         isLoading = true
         error = null
-        
+
         viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
                     context.assets.open("CHANGELOG.md").use { inputStream ->
-                        BufferedReader(InputStreamReader(inputStream)).use { reader ->
-                            reader.readText()
-                        }
+                        inputStream.bufferedReader(Charsets.UTF_8).readText()
                     }
                 }
                 changelogText = result
@@ -68,7 +55,6 @@ class ChangelogViewModel : ViewModel() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
@@ -81,14 +67,11 @@ fun AboutScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("アプリ情報", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black)
+            GalleryTopAppBar(
+                title = "アプリ情報",
+                navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
+                navigationContentDescription = "戻る",
+                onNavigationClick = onBack
             )
         },
         containerColor = Color.Black
@@ -110,14 +93,14 @@ fun AboutScreen(
                         modifier = Modifier.size(64.dp)
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("Gallery App", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text("Version 1.0.0", color = Color.Gray, fontSize = 14.sp)
+                    Text("Gallery App", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.TitleFontSize, fontWeight = FontWeight.Bold)
+                    Text("Version ${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
                 }
             }
 
             Spacer(Modifier.height(32.dp))
 
-            Text("更新履歴", color = Color.Cyan, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("更新履歴", color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
 
             when {
@@ -131,7 +114,7 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(viewModel.error!!, color = Color.Red, fontSize = 14.sp)
+                        Text(viewModel.error!!, color = Color.Red, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
                         Button(
                             onClick = { viewModel.fetchChangelog(context) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
@@ -147,11 +130,11 @@ fun AboutScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            Text("開発情報", color = Color.Cyan, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("開発情報", color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
-            
-            Text("Android Studio AI Assistant によって開発を支援しています。", color = Color.LightGray, fontSize = 14.sp)
-            
+
+            Text("Android Studio AI Assistant によって開発を支援しています。", color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
+
             Spacer(Modifier.height(48.dp))
         }
     }
@@ -166,7 +149,7 @@ fun MarkdownText(text: String) {
                     Text(
                         text = line.removePrefix("# "),
                         color = Color.White,
-                        fontSize = 20.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
@@ -175,7 +158,7 @@ fun MarkdownText(text: String) {
                     Text(
                         text = line.removePrefix("## "),
                         color = Color.Cyan,
-                        fontSize = 18.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
                     )
@@ -184,7 +167,7 @@ fun MarkdownText(text: String) {
                     Text(
                         text = line.removePrefix("### "),
                         color = Color.White,
-                        fontSize = 16.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.BodyFontSize,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                     )
@@ -195,7 +178,7 @@ fun MarkdownText(text: String) {
                         Text(
                             text = line.substring(2),
                             color = Color.LightGray,
-                            fontSize = 14.sp
+                            fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize
                         )
                     }
                 }
@@ -206,7 +189,7 @@ fun MarkdownText(text: String) {
                     Text(
                         text = line,
                         color = Color.LightGray,
-                        fontSize = 14.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize,
                         modifier = Modifier.padding(vertical = 2.dp)
                     )
                 }
@@ -214,4 +197,3 @@ fun MarkdownText(text: String) {
         }
     }
 }
-

@@ -11,19 +11,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.component.GalleryGridView
+import com.example.gallery.ui.component.GalleryTopAppBar
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrashScreen(
     onShowViewer: () -> Unit,
     onHideViewer: () -> Unit,
     galleryState: GalleryState,
-    onMenuClick: (() -> Unit)? = null // 追加
+    onMenuClick: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val trashMedia by galleryState.repository.getTrashMedia().collectAsState(initial = emptyList())
@@ -31,21 +30,15 @@ fun TrashScreen(
     var selectedImageIndex by remember { mutableStateOf<Int?>(null) }
     var clearSelectionSignal by remember { mutableIntStateOf(0) }
     var isSelectionModeActive by remember { mutableStateOf(false) }
-    var selectedUris = remember { mutableStateListOf<String>() }
+    val selectedUris = remember { mutableStateListOf<String>() }
 
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ヘッダー
-            TopAppBar(
-                title = { Text("ゴミ箱", color = Color.White) },
-                navigationIcon = {
-                    if (onMenuClick != null) {
-                        IconButton(onClick = onMenuClick) {
-                            Icon(Icons.Default.Menu, contentDescription = "メニュー", tint = Color.White)
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black),
+            GalleryTopAppBar(
+                title = "ゴミ箱",
+                navigationIcon = if (onMenuClick != null) Icons.Default.Menu else null,
+                navigationContentDescription = "メニュー",
+                onNavigationClick = onMenuClick,
                 actions = {
                     if (isSelectionModeActive && selectedUris.isNotEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -58,7 +51,7 @@ fun TrashScreen(
                                     }
                                 }
                             ) {
-                                Text("完全に削除", color = Color.Red, fontSize = 12.sp)
+                                Text("完全に削除", color = Color.Red, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
                             }
                             Spacer(Modifier.width(8.dp))
                             Button(
@@ -99,9 +92,9 @@ fun TrashScreen(
                         selectedUris.addAll(uris)
                     },
                     modifier = Modifier.fillMaxSize(),
-                    isFilterEnabled = false, // ゴミ箱ではフィルタ無効
+                    isFilterEnabled = false, // ゴミ箱ではフィルタを無効にする。
                     isTrashMode = true,
-                    onScrollConsumed = { /* URI同期はゴミ箱では不要かもしれないが、一応渡せる */ }
+                    onScrollConsumed = { /* ゴミ箱では URI 同期は不要。 */ }
                 )
             }
         }
@@ -113,7 +106,7 @@ fun TrashScreen(
                 imageList = trashMedia,
                 galleryState = galleryState,
                 onPageSelected = { selectedImageIndex = it },
-                showDeleteButton = false, // ゴミ箱内なので削除ボタンの代わりに復元ボタンを表示
+                showDeleteButton = false, // ゴミ箱内なので削除ボタンの代わりに復元ボタンを表示する。
                 isTrashMode = true
             )
         }

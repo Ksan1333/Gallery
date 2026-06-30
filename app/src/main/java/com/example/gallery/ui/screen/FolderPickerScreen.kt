@@ -13,16 +13,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.GalleryState
-import com.example.gallery.ui.screen.CategoryCard
-import com.example.gallery.ui.screen.CategoryData
+import com.example.gallery.ui.component.GalleryTopAppBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderPickerScreen(
     galleryState: GalleryState,
@@ -60,19 +57,17 @@ fun FolderPickerScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("移動先を選択", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "戻る", tint = Color.White)
-                    }
-                },
+            GalleryTopAppBar(
+                title = "フォルダを選択",
+                navigationIcon = Icons.Default.ArrowBack,
+                navigationContentDescription = "戻る",
+                onNavigationClick = onBack,
+                centered = true,
                 actions = {
                     IconButton(onClick = { showCreateFolderDialog = true }) {
                         Icon(Icons.Default.CreateNewFolder, contentDescription = "新規フォルダ", tint = Color.White)
                     }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Black)
+                }
             )
         },
         containerColor = AppConstants.BackgroundColor
@@ -101,7 +96,7 @@ fun FolderPickerScreen(
             title = { Text("新規フォルダ作成") },
             text = {
                 Column {
-                    Text("DCIM直下に作成されます", fontSize = 12.sp, color = Color.Gray)
+                    Text("DCIM直下に作成されます", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newFolderName,
@@ -124,7 +119,7 @@ fun FolderPickerScreen(
                             }
                         }
                     }
-                ) { Text("作成して選択") }
+                ) { Text("作成") }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateFolderDialog = false }) { Text("キャンセル") }

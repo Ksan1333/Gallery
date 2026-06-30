@@ -68,7 +68,7 @@ fun ReferenceSearchScreen(
         if (url != null) {
             val success = repository.addReferenceFromUrl(projectId, url, "Web Image")
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, if (success) "資料に追加しました" else "追加に失敗しました", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, if (success) "資料に追加しました" else "追加に失敗しました", Toast.LENGTH_SHORT).show()
             }
             directAddUrl = null
         }
@@ -78,7 +78,7 @@ fun ReferenceSearchScreen(
         containerColor = AppConstants.BackgroundColor
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // クリーンな検索ヘッダー（トップバーなし）
+            // シンプルな検索ヘッダー。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -89,13 +89,13 @@ fun ReferenceSearchScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
                 }
                 Spacer(Modifier.width(4.dp))
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("キーワード検索...", color = Color.Gray) },
+            placeholder = { Text("キーワード検索...", color = Color.Gray) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     leadingIcon = {
@@ -139,16 +139,16 @@ fun ReferenceSearchScreen(
                                         bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                                     }
                                     scope.launch {
-                                        val success = repository.addLocalItemForProject(projectId, file.absolutePath, wv.url ?: "", "検索画面スクショ")
+                                val success = repository.addLocalItemForProject(projectId, file.absolutePath, wv.url ?: "", "検索画面スクショ")
                                         withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, if (success) "スクショを資料に追加しました" else "追加に失敗しました", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, if (success) "スクショを資料に追加しました" else "追加に失敗しました", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     scope.launch {
                                         withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "スクショに失敗しました", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "スクショに失敗しました", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 }
@@ -156,7 +156,7 @@ fun ReferenceSearchScreen(
                         }
                     }
                 }) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = "スクショ保存", tint = Color.Cyan)
+                    Icon(Icons.Default.PhotoCamera, contentDescription = "スクリーンショットを追加")
                 }
             }
 
@@ -191,7 +191,7 @@ fun ReferenceSearchScreen(
                         webView = this
                     }
                 },
-                update = { /* URL更新は検索バーで行う */ }
+                update = { /* URL更新は検索バーで行う。 */ }
             )
         }
     }
@@ -199,12 +199,12 @@ fun ReferenceSearchScreen(
     if (showTutorial) {
         AlertDialog(
             onDismissRequest = { markTutorialShown() },
-            title = { Text("お絵描き資料 検索 ヒント") },
+            title = { Text("画像検索の使い方") },
             text = {
                 Text(
-                    "• キーワードを入力して画像検索\n" +
-                    "• 画像を長押し → 資料に追加\n" +
-                    "• 右上のカメラボタン → 現在の画面のスクショを資料に保存\n" +
+                    "・キーワードを入力して画像検索\n" +
+                    "・画像を長押しして資料に追加\n" +
+                    "・右上のカメラボタンで現在の画面のスクショを資料に保存\n" +
                     "検索ページを操作して参考画像を探してください。"
                 )
             },

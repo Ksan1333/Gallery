@@ -16,11 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
+import com.example.gallery.service.AnalysisService
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.OperationState
 import com.example.gallery.ui.state.GalleryState
@@ -29,11 +30,13 @@ import com.example.gallery.ui.state.DeviceFilter
 import com.example.gallery.ui.state.GroupingMode
 import com.example.gallery.ui.state.MediaTypeFilter
 import com.example.gallery.ui.state.SortMode
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.delay
 
 @Composable
 fun GlobalProgressOverlay() {
     val operations by GlobalOperationService.operations.collectAsState(initial = emptyList())
+    val context = LocalContext.current
     var isMinimized by rememberSaveable { mutableStateOf(false) }
 
     if (operations.isNotEmpty()) {
@@ -45,20 +48,26 @@ fun GlobalProgressOverlay() {
                 .zIndex(2000f)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // 最大2つまで表示する
+                // 最大2つまで表示する。
                 operations.take(2).forEach { op ->
                     OperationCard(
                         op = op,
                         isMinimized = isMinimized,
-                        onMinimizeToggle = { isMinimized = !isMinimized }
+                        onMinimizeToggle = { isMinimized = !isMinimized },
+                        onCancel = {
+                            GlobalOperationService.requestCancel(op.id)
+                            if (op.isAnalysisOperation) {
+                                AnalysisService.cancel(context, op.id)
+                            }
+                        }
                     )
                 }
-                
+
                 if (operations.size > 2 && !isMinimized) {
                     Text(
-                        text = "他 ${operations.size - 2} 件のタスクが進行中...",
+                    text = "他 ${operations.size - 2} 件のタスクが進行中...",
                         color = Color.Gray,
-                        fontSize = 10.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 }
@@ -73,8 +82,10 @@ fun GlobalProgressOverlay() {
 private fun OperationCard(
     op: OperationState,
     isMinimized: Boolean,
-    onMinimizeToggle: () -> Unit
+    onMinimizeToggle: () -> Unit,
+    onCancel: () -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
     if (isMinimized) {
         Surface(
             modifier = Modifier
@@ -82,15 +93,15 @@ private fun OperationCard(
                 .height(8.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .clickable { onMinimizeToggle() },
-            color = Color.Black.copy(alpha = 0.7f),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            color = colors.surface.copy(alpha = 0.7f),
+            border = BorderStroke(1.dp, colors.divider)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(op.progress.coerceIn(0f, 1f))
-                        .background(if (op.tag == "STARTUP_TASKS") Color.LightGray else Color.Cyan)
+                        .background(if (op.tag == "STARTUP_TASKS") colors.secondaryText else colors.accent)
                 )
             }
         }
@@ -106,10 +117,10 @@ private fun OperationCard(
                         }
                     )
                 },
-            color = Color.Black.copy(alpha = 0.85f),
+            color = colors.surface.copy(alpha = 0.85f),
             shape = RoundedCornerShape(12.dp),
             shadowElevation = 8.dp,
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            border = BorderStroke(1.dp, colors.divider)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Row(
@@ -120,8 +131,8 @@ private fun OperationCard(
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                         Text(
                             text = op.title,
-                            color = Color.White,
-                            fontSize = 12.sp,
+                            color = colors.primaryText,
+                            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -133,21 +144,21 @@ private fun OperationCard(
                             Icon(Icons.Default.ArrowDropUp, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
                         }
                     }
-                    
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "${kotlin.math.round(op.progress * 100).toInt()}%",
-                            color = Color.Cyan,
-                            fontSize = 12.sp,
+                            color = colors.accent,
+                            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                         if (op.canCancel) {
                             Spacer(Modifier.width(8.dp))
                             IconButton(
-                                onClick = { GlobalOperationService.requestCancel(op.id) },
+                                onClick = onCancel,
                                 modifier = Modifier.size(24.dp)
                             ) {
-                                Icon(Icons.Default.Close, "中断", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.Close, "中断", tint = colors.mutedText, modifier = Modifier.size(14.dp))
                             }
                         }
                     }
@@ -159,14 +170,14 @@ private fun OperationCard(
                         .fillMaxWidth()
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp)),
-                    color = Color.Cyan,
-                    trackColor = Color.White.copy(alpha = 0.15f)
+                    color = colors.accent,
+                    trackColor = colors.divider
                 )
                 if (op.text.isNotEmpty()) {
                     Text(
                         text = op.text,
-                        color = Color.Gray,
-                        fontSize = 10.sp,
+                        color = colors.mutedText,
+                        fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
                         modifier = Modifier.padding(top = 4.dp),
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -177,6 +188,11 @@ private fun OperationCard(
     }
 }
 
+private val OperationState.isAnalysisOperation: Boolean
+    get() = tag in analysisOperationTags || id in analysisOperationTags
+
+private val analysisOperationTags = setOf("AI_TAGGING", "COLOR_VECTOR", "AUTO_RATING")
+
 @Composable
 fun TooltipWrapper(
     description: String,
@@ -184,7 +200,7 @@ fun TooltipWrapper(
     showExternally: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // 外部からのトリガーか、内部での状態保持
+    // 外部からのトリガーと内部の表示状態をまとめて扱う。
     var showTooltipLocal by remember { mutableStateOf(false) }
     val isVisible = showExternally || showTooltipLocal
 
@@ -197,12 +213,12 @@ fun TooltipWrapper(
         if (isVisible) {
             Popup(
                 alignment = Alignment.BottomCenter,
-                offset = androidx.compose.ui.unit.IntOffset(0, -100), // 下部に表示（ナビゲーションバーより少し上）
+                offset = androidx.compose.ui.unit.IntOffset(0, -100), // ナビゲーションバーより少し上に表示する。
                 properties = PopupProperties(
                     focusable = false,
                     dismissOnClickOutside = true,
                     clippingEnabled = false,
-                    usePlatformDefaultWidth = false // タップイベントの吸い込み防止のため
+                    usePlatformDefaultWidth = false // タップイベントの吸い込みを防ぐ。
                 )
             ) {
                 Surface(
@@ -210,12 +226,12 @@ fun TooltipWrapper(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
-                        .padding(bottom = 16.dp) // 画面下端からの余白
+                        .padding(bottom = 16.dp) // 画面下端からの余白。
                 ) {
                     Text(
                         text = description,
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize,
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
                     )
                 }
@@ -233,8 +249,9 @@ fun TooltipWrapper(
 @Composable
 fun GalleryTopControlBar(
     galleryState: GalleryState,
-    isFilterEnabled: Boolean = true // 新規：フィルタ・並び替えの活性/非活性
+    isFilterEnabled: Boolean = true
 ) {
+    val colors = GalleryThemeTokens.colors
     var showFilterMenu by remember { mutableStateOf(false) }
     var showAgeFilterMenu by remember { mutableStateOf(false) }
 
@@ -243,94 +260,58 @@ fun GalleryTopControlBar(
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        var showFilterTooltip by remember { mutableStateOf(false) }
-        TooltipWrapper(description = "フィルタ", showExternally = showFilterTooltip) {
-            IconButton(
-                onClick = { showFilterMenu = true },
-                onLongClick = { showFilterTooltip = true },
-                modifier = Modifier.size(36.dp),
-                enabled = isFilterEnabled
-            ) {
-                Icon(Icons.Default.FilterAlt, null, tint = if (isFilterEnabled) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
-                if (isFilterEnabled) {
-                    DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                        Text("メディア種別", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
-                        MediaTypeFilter.entries.forEach { filter ->
-                            DropdownMenuItem(text = { Text(text = when (filter) { MediaTypeFilter.ALL -> "すべて"; MediaTypeFilter.IMAGE -> "画像"; MediaTypeFilter.VIDEO -> "動画"; MediaTypeFilter.GIF -> "GIF" }, color = if(galleryState.mediaTypeFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.mediaTypeFilter = filter; showFilterMenu = false })
-                        }
-                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
-                        Text("デバイス背景", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
-                        DeviceFilter.entries.forEach { filter ->
-                            DropdownMenuItem(text = { Text(text = when (filter) { DeviceFilter.ALL -> "すべて"; DeviceFilter.SMARTPHONE -> "スマホ背景"; DeviceFilter.PC -> "PC背景" }, color = if(galleryState.deviceFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.deviceFilter = filter; showFilterMenu = false })
-                        }
-                    }
-                }
-            }
-        }
-        if (showFilterTooltip) { LaunchedEffect(Unit) { delay(2000); showFilterTooltip = false } }
-
-        Spacer(modifier = Modifier.width(4.dp))
-
-        var showAgeTooltip by remember { mutableStateOf(false) }
-        TooltipWrapper(description = "年齢制限", showExternally = showAgeTooltip) {
-            IconButton(
-                onClick = { showAgeFilterMenu = true },
-                onLongClick = { showAgeTooltip = true },
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(imageVector = Icons.Default.PrivacyTip, contentDescription = null, modifier = Modifier.size(20.dp), tint = when(galleryState.ageRatingFilter) {
-                    AgeRatingFilter.SFW -> Color.Green; AgeRatingFilter.R15 -> Color.Yellow; AgeRatingFilter.R18 -> Color.Red; else -> Color.White
-                })
-                DropdownMenu(expanded = showAgeFilterMenu, onDismissRequest = { showAgeFilterMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                    AgeRatingFilter.entries.forEach { filter ->
-                        DropdownMenuItem(text = { Text(text = when (filter) { AgeRatingFilter.ALL -> "すべて"; AgeRatingFilter.SFW -> "健全"; AgeRatingFilter.R15 -> "R-15"; AgeRatingFilter.R18 -> "R-18" }, color = if(galleryState.ageRatingFilter == filter) Color.Cyan else Color.White) }, onClick = { galleryState.ageRatingFilter = filter; showAgeFilterMenu = false })
-                    }
-                }
-            }
-        }
-        if (showAgeTooltip) { LaunchedEffect(Unit) { delay(2000); showAgeTooltip = false } }
-
-        Spacer(modifier = Modifier.width(4.dp))
-
-        var showSortMenu by remember { mutableStateOf(false) }
-        var showSortTooltip by remember { mutableStateOf(false) }
-        TooltipWrapper(description = "並び替え", showExternally = showSortTooltip) {
-            IconButton(
-                onClick = { showSortMenu = true },
-                onLongClick = { showSortTooltip = true },
-                modifier = Modifier.size(36.dp),
-                enabled = isFilterEnabled
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Sort, null, tint = if (isFilterEnabled) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
-                if (isFilterEnabled) {
-                    DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }, modifier = Modifier.background(Color.DarkGray)) {
-                        SortMode.entries.forEach { mode ->
-                            listOf(true, false).forEach { ascending ->
-                                val isSelected = galleryState.sortMode == mode && galleryState.isAscending == ascending
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "${when (mode) { SortMode.DATE_ADDED -> "追加日"; SortMode.SIZE -> "サイズ"; SortMode.NAME -> "名前" }}（${if (ascending) "昇順" else "降順"}）",
-                                            color = if (isSelected) Color.Cyan else Color.White
-                                        )
-                                    },
-                                    onClick = {
-                                        galleryState.sortMode = mode
-                                        galleryState.isAscending = ascending
-                                        showSortMenu = false
-                                    }
-                                )
+        if (isFilterEnabled) {
+            var showFilterTooltip by remember { mutableStateOf(false) }
+            TooltipWrapper(description = "フィルタ", showExternally = showFilterTooltip) {
+                IconButton(
+                    onClick = { showFilterMenu = true },
+                    onLongClick = { showFilterTooltip = true },
+                    modifier = Modifier.size(36.dp),
+                    enabled = isFilterEnabled
+                ) {
+                    Icon(Icons.Default.FilterAlt, null, tint = if (isFilterEnabled) colors.primaryText else colors.disabled, modifier = Modifier.size(20.dp))
+                    if (isFilterEnabled) {
+                        DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(colors.surfaceVariant)) {
+                            Text("メディア種別", color = colors.mutedText, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(8.dp))
+                            MediaTypeFilter.entries.forEach { filter ->
+                                DropdownMenuItem(text = { Text(text = when (filter) { MediaTypeFilter.ALL -> "すべて"; MediaTypeFilter.IMAGE -> "画像"; MediaTypeFilter.VIDEO -> "動画"; MediaTypeFilter.GIF -> "GIF" }, color = if(galleryState.mediaTypeFilter == filter) colors.accent else colors.primaryText) }, onClick = { galleryState.mediaTypeFilter = filter; showFilterMenu = false })
+                            }
+                            HorizontalDivider(color = colors.divider)
+                            Text("デバイス背景", color = colors.mutedText, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(8.dp))
+                            DeviceFilter.entries.forEach { filter ->
+                                DropdownMenuItem(text = { Text(text = when (filter) { DeviceFilter.ALL -> "すべて"; DeviceFilter.SMARTPHONE -> "スマホ背景"; DeviceFilter.PC -> "PC背景" }, color = if(galleryState.deviceFilter == filter) colors.accent else colors.primaryText) }, onClick = { galleryState.deviceFilter = filter; showFilterMenu = false })
                             }
                         }
                     }
                 }
             }
+            if (showFilterTooltip) { LaunchedEffect(Unit) { delay(2000); showFilterTooltip = false } }
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            var showAgeTooltip by remember { mutableStateOf(false) }
+            TooltipWrapper(description = "年齢制限", showExternally = showAgeTooltip) {
+                IconButton(
+                    onClick = { showAgeFilterMenu = true },
+                    onLongClick = { showAgeTooltip = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.PrivacyTip, contentDescription = null, modifier = Modifier.size(20.dp), tint = when(galleryState.ageRatingFilter) {
+                        AgeRatingFilter.SFW -> colors.success; AgeRatingFilter.R15 -> Color.Yellow; AgeRatingFilter.R18 -> colors.danger; else -> colors.primaryText
+                    })
+                    DropdownMenu(expanded = showAgeFilterMenu, onDismissRequest = { showAgeFilterMenu = false }, modifier = Modifier.background(colors.surfaceVariant)) {
+                        AgeRatingFilter.entries.forEach { filter ->
+                            DropdownMenuItem(text = { Text(text = when (filter) { AgeRatingFilter.ALL -> "すべて"; AgeRatingFilter.SFW -> "健全"; AgeRatingFilter.R15 -> "R-15"; AgeRatingFilter.R18 -> "R-18" }, color = if(galleryState.ageRatingFilter == filter) colors.accent else colors.primaryText) }, onClick = { galleryState.ageRatingFilter = filter; showAgeFilterMenu = false })
+                        }
+                    }
+                }
+            }
+            if (showAgeTooltip) { LaunchedEffect(Unit) { delay(2000); showAgeTooltip = false } }
         }
-        if (showSortTooltip) { LaunchedEffect(Unit) { delay(2000); showSortTooltip = false } }
     }
 }
 
-// 補助コンポーネント: IconButtonにlongClickを追加
+// IconButton に longClick を追加した補助コンポーネント。
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun IconButton(

@@ -35,7 +35,7 @@ object TagTranslationService {
             assetFiles.forEach { assetFileName ->
                 if (assets.contains(assetFileName)) {
                     try {
-                        context.assets.open(assetFileName).bufferedReader().use {
+                        context.assets.open(assetFileName).bufferedReader(Charsets.UTF_8).use {
                             val json = JSONObject(it.readText())
                             json.keys().forEach { key ->
                                 manualOverrides[key] = json.getString(key)
@@ -60,7 +60,7 @@ object TagTranslationService {
             externalFiles.forEach { file ->
                 if (file.exists()) {
                     try {
-                        val json = JSONObject(file.readText())
+                        val json = JSONObject(file.readText(Charsets.UTF_8))
                         json.keys().forEach { key ->
                             manualOverrides[key] = json.getString(key)
                         }

@@ -10,9 +10,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.component.GalleryGridView
+import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.state.GalleryState
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecommendationScreen(
     galleryState: GalleryState,
@@ -30,14 +30,11 @@ fun RecommendationScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("おすすめ", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, null, tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black)
+            GalleryTopAppBar(
+                title = "おすすめ",
+                navigationIcon = Icons.Default.Menu,
+                navigationContentDescription = "メニュー",
+                onNavigationClick = onMenuClick
             )
         },
         containerColor = Color.Black
@@ -46,7 +43,7 @@ fun RecommendationScreen(
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
             } else if (recommendedMedia.isEmpty()) {
-                Text("おすすめのデータがまだありません。計測モードで画像を鑑賞してください。", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                Text("おすすめはまだありません", color = Color.Gray, modifier = Modifier.align(Alignment.Center))
             } else {
                 GalleryGridView(
                     imageList = recommendedMedia,

@@ -21,22 +21,39 @@ class ReferenceRepository(private val context: Context) {
 
     fun getAllProjectsFlow(): Flow<List<ReferenceProjectEntity>> = dao.getAllProjectsFlow()
 
-    fun getItemsForProjectFlow(projectId: Long): Flow<List<ReferenceItemEntity>> = dao.getItemsForProjectFlow(projectId)
+    fun getItemsForProjectFlow(projectId: Long): Flow<List<ReferenceItemEntity>> =
+        dao.getItemsForProjectFlow(projectId)
 
-    suspend fun createProject(title: String): Long = dao.insertProject(ReferenceProjectEntity(title = title))
+    suspend fun createProject(title: String): Long =
+        dao.insertProject(ReferenceProjectEntity(title = title))
 
-    suspend fun addReferenceFromUrl(projectId: Long, url: String, title: String = ""): Boolean = withContext(Dispatchers.IO) {
+    private fun referenceDirFor(projectId: Long): File {
+        return File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+            "Gallery/References/$projectId"
+        ).absoluteFile
+    }
+
+    private fun isManagedReferenceLocalPath(projectId: Long, localPath: String?): Boolean {
+        if (localPath.isNullOrBlank()) return false
+        return runCatching {
+            val referenceRoot = referenceDirFor(projectId).canonicalFile
+            val localFile = File(localPath).canonicalFile
+            localFile.path == referenceRoot.path ||
+                localFile.path.startsWith(referenceRoot.path + File.separator)
+        }.getOrDefault(false)
+    }
+
+    suspend fun addReferenceFromUrl(
+        projectId: Long,
+        url: String,
+        title: String = ""
+    ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val project = dao.getAllProjectsFlow().let { /* 実際にはIDで取得すべきだが簡略化 */ } 
-            // 実際にはフォルダ名が必要なのでIDからタイトルを取得する等の処理が必要
-            
-            val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            val referenceDir = File(baseDir, "Gallery/References/$projectId")
+            val referenceDir = referenceDirFor(projectId)
             if (!referenceDir.exists()) referenceDir.mkdirs()
 
-            val fileName = "ref_${System.currentTimeMillis()}.jpg"
-            val file = File(referenceDir, fileName)
-
+            val file = File(referenceDir, "ref_${System.currentTimeMillis()}.jpg")
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("Failed to download image: $response")
@@ -45,12 +62,14 @@ class ReferenceRepository(private val context: Context) {
                 }
             }
 
-            dao.insertItem(ReferenceItemEntity(
-                projectId = projectId,
-                localUri = file.absolutePath,
-                remoteUrl = url,
-                title = title
-            ))
+            dao.insertItem(
+                ReferenceItemEntity(
+                    projectId = projectId,
+                    localUri = file.absolutePath,
+                    remoteUrl = url,
+                    title = title
+                )
+            )
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -59,14 +78,16 @@ class ReferenceRepository(private val context: Context) {
     }
 
     suspend fun finishProject(project: ReferenceProjectEntity) = withContext(Dispatchers.IO) {
-        // スクショは残す。DLしたもの（ref_ ファイルなど）は削除し、localUriをnullにしてURLで代替表示
         val items = dao.getItemsForProject(project.id)
         for (item in items) {
             val localPath = item.localUri
             val isScreenshot = localPath?.contains("screenshot_", ignoreCase = true) == true ||
-                               item.title.contains("スクショ", ignoreCase = true) ||
-                               item.title.contains("Screenshot", ignoreCase = true)
-            if (!isScreenshot && localPath != null) {
+                item.title.contains("スクショ", ignoreCase = true) ||
+                item.title.contains("Screenshot", ignoreCase = true)
+            val shouldDeleteManagedFile =
+                !isScreenshot && isManagedReferenceLocalPath(project.id, localPath)
+
+            if (shouldDeleteManagedFile && localPath != null) {
                 try {
                     val file = File(localPath)
                     if (file.exists()) file.delete()
@@ -80,7 +101,7 @@ class ReferenceRepository(private val context: Context) {
     }
 
     suspend fun deleteProject(project: ReferenceProjectEntity) = withContext(Dispatchers.IO) {
-        val referenceDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Gallery/References/${project.id}")
+        val referenceDir = referenceDirFor(project.id)
         if (referenceDir.exists()) {
             referenceDir.deleteRecursively()
         }
@@ -88,9 +109,11 @@ class ReferenceRepository(private val context: Context) {
     }
 
     suspend fun deleteItem(item: ReferenceItemEntity) = withContext(Dispatchers.IO) {
-        item.localUri?.let {
-            val file = File(it)
-            if (file.exists()) file.delete()
+        item.localUri?.let { localPath ->
+            if (isManagedReferenceLocalPath(item.projectId, localPath)) {
+                val file = File(localPath)
+                if (file.exists()) file.delete()
+            }
         }
         dao.deleteItem(item)
     }
@@ -98,14 +121,11 @@ class ReferenceRepository(private val context: Context) {
     suspend fun downloadItemToLocal(item: ReferenceItemEntity): Boolean = withContext(Dispatchers.IO) {
         if (item.localUri != null) return@withContext true
         try {
-            val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            val referenceDir = File(baseDir, "Gallery/References/${item.projectId}")
+            val referenceDir = referenceDirFor(item.projectId)
             if (!referenceDir.exists()) referenceDir.mkdirs()
 
             val ext = if (item.remoteUrl.contains(".png", ignoreCase = true)) ".png" else ".jpg"
-            val fileName = "ref_${System.currentTimeMillis()}$ext"
-            val file = File(referenceDir, fileName)
-
+            val file = File(referenceDir, "ref_${System.currentTimeMillis()}$ext")
             val request = Request.Builder().url(item.remoteUrl).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("Failed to download: $response")
@@ -114,8 +134,7 @@ class ReferenceRepository(private val context: Context) {
                 }
             }
 
-            val updated = item.copy(localUri = file.absolutePath)
-            dao.updateItem(updated)
+            dao.updateItem(item.copy(localUri = file.absolutePath))
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -127,14 +146,21 @@ class ReferenceRepository(private val context: Context) {
         dao.updateProject(project)
     }
 
-    suspend fun addLocalItemForProject(projectId: Long, localPath: String, remoteUrl: String = "", title: String = ""): Boolean = withContext(Dispatchers.IO) {
+    suspend fun addLocalItemForProject(
+        projectId: Long,
+        localPath: String,
+        remoteUrl: String = "",
+        title: String = ""
+    ): Boolean = withContext(Dispatchers.IO) {
         try {
-            dao.insertItem(ReferenceItemEntity(
-                projectId = projectId,
-                localUri = localPath,
-                remoteUrl = remoteUrl,
-                title = title
-            ))
+            dao.insertItem(
+                ReferenceItemEntity(
+                    projectId = projectId,
+                    localUri = localPath,
+                    remoteUrl = remoteUrl,
+                    title = title
+                )
+            )
             true
         } catch (e: Exception) {
             e.printStackTrace()

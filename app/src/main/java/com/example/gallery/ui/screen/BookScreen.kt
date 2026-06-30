@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -25,7 +26,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.Saver
 import android.widget.Toast
@@ -44,6 +44,7 @@ private const val BOOKMARKS_PREFS = "book_bookmarks"
 @Composable
 fun BookScreen(
     onViewerStateChanged: (Boolean) -> Unit = {},
+    onMenuClick: () -> Unit = {},
     onBookmarksChanged: () -> Unit = {},
     onNavigateToBookmarks: () -> Unit = {},
     initialJumpBookId: String? = null,
@@ -68,10 +69,10 @@ fun BookScreen(
             }
         }
     }
-    
+
     // 現在選択されているフォルダパス
     var selectedFolderPath by rememberSaveable { mutableStateOf<String?>(null) }
-    
+
     // 手動の Saver を定義して Parcelize 依存を解消
     val bookSaver = Saver<BookData?, Map<String, Any?>>(
         save = { book ->
@@ -109,6 +110,7 @@ fun BookScreen(
         if (initialJumpBookId != null && books.isNotEmpty()) {
             val book = books.find { it.id == initialJumpBookId }
             if (book != null) {
+                selectedFolderPath = book.folderPath
                 startPageForSelectedBook = initialJumpPage.coerceAtLeast(0)
                 selectedBook = book
                 onJumpHandled()
@@ -131,7 +133,7 @@ fun BookScreen(
             selectedFolderPath = null
         }
     }
-    
+
     // 全ファイルアクセス権限のチェック
     var hasFullStorageAccess by remember {
         mutableStateOf(
@@ -145,7 +147,7 @@ fun BookScreen(
 
     fun refresh() {
         if (!hasFullStorageAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return
-        
+
         scope.launch {
             isLoading = books.isEmpty()
             books = repository.scanBooks()
@@ -192,14 +194,14 @@ fun BookScreen(
                 repository = repository,
                 onClose = { selectedBook = null },
                 onPreviousBook = siblingBooks.getOrNull(currentBookIndex - 1)?.let { previous ->
-                    { 
-                        selectedBook = previous 
+                    {
+                        selectedBook = previous
                         startPageForSelectedBook = 0
                     }
                 },
                 onNextBook = siblingBooks.getOrNull(currentBookIndex + 1)?.let { next ->
-                    { 
-                        selectedBook = next 
+                    {
+                        selectedBook = next
                         startPageForSelectedBook = 0
                     }
                 },
@@ -223,6 +225,9 @@ fun BookScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                IconButton(onClick = onMenuClick) {
+                    Icon(Icons.Default.Menu, "Menu", tint = Color.White)
+                }
                 Text(
                     "本 / Zip / Pdf",
                     color = Color.White,
@@ -252,13 +257,13 @@ fun BookScreen(
                     Text(
                         text = "本 > ",
                         color = Color.Gray,
-                        fontSize = 12.sp,
+                        fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
                         modifier = Modifier.clickable { selectedFolderPath = null }
                     )
                     Text(
                         text = folderName,
                         color = Color.White,
-                        fontSize = 12.sp
+                        fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
                     )
                 }
             }
@@ -297,7 +302,7 @@ fun BookScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("本が見つかりませんでした", color = Color.Gray)
-                        Text("Logcat (BookRepository) を確認してください", color = Color.DarkGray, fontSize = 10.sp)
+                        Text("Logcat (BookRepository) を確認してください", color = Color.DarkGray, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize)
                     }
                 }
             } else {
@@ -400,7 +405,7 @@ fun FolderItem(folder: FolderData, onClick: () -> Unit) {
                 Text(
                     text = "${folder.count}",
                     color = Color.White,
-                    fontSize = 10.sp,
+                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                 )
             }
@@ -409,7 +414,7 @@ fun FolderItem(folder: FolderData, onClick: () -> Unit) {
         Text(
             folder.name,
             color = Color.White,
-            fontSize = 12.sp,
+            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
             maxLines = 2,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
@@ -419,7 +424,7 @@ fun FolderItem(folder: FolderData, onClick: () -> Unit) {
 @Composable
 fun BookItem(book: BookData, onClick: () -> Unit) {
     var contentScale by remember { mutableStateOf(ContentScale.Crop) }
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -451,14 +456,14 @@ fun BookItem(book: BookData, onClick: () -> Unit) {
         Text(
             book.title,
             color = Color.White,
-            fontSize = 12.sp,
+            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
             maxLines = 2,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
         Text(
             "${book.pageCount} ページ",
             color = Color.Gray,
-            fontSize = 10.sp,
+            fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
     }
