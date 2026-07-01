@@ -27,6 +27,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.example.gallery.R
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.service.GlobalOperationService
+import com.example.gallery.ui.AppText
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.search.filterGallerySearchResults
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -346,11 +347,8 @@ fun HomeGalleryScreen(
                 onImageClick = { index, list ->
                     centerViewedMediaOnReturn = true
                     val clickedUri = list.getOrNull(index)?.uri
-                    val viewerList = if (imageList.isNotEmpty()) imageList else list
-                    val viewerIndex = clickedUri
-                        ?.let { uri -> viewerList.indexOfFirst { it.uri == uri } }
-                        ?.takeIf { it >= 0 }
-                        ?: index.coerceIn(0, (viewerList.size - 1).coerceAtLeast(0))
+                    val viewerList = list
+                    val viewerIndex = index.coerceIn(0, (viewerList.size - 1).coerceAtLeast(0))
                     galleryState.lastViewedUri = clickedUri
                     flatListForViewer = viewerList
                     selectedIndex = viewerIndex
@@ -360,7 +358,7 @@ fun HomeGalleryScreen(
                 isLoading = isLoading,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
-                title = "すべて",
+                title = AppText.ALL_MEDIA,
                 scrollToUri = if (selectedIndex == null && centerViewedMediaOnReturn) galleryState.lastViewedUri else null,
                 centerScrollToUri = centerViewedMediaOnReturn,
                 isFilterEnabled = false,
@@ -427,7 +425,7 @@ fun HomeGalleryScreen(
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(
                             Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = "並び替え",
+                            contentDescription = AppText.SORT,
                             tint = GalleryThemeTokens.colors.primaryText
                         )
                         DropdownMenu(
@@ -441,7 +439,7 @@ fun HomeGalleryScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Text(
-                                                text = "${when (mode) { SortMode.DATE_ADDED -> "追加日"; SortMode.SIZE -> "サイズ"; SortMode.NAME -> "名前" }}・${if (ascending) "昇順" else "降順"}",
+                                                text = "${when (mode) { SortMode.DATE_ADDED -> AppText.DATE_ADDED; SortMode.SIZE -> AppText.SIZE; SortMode.NAME -> AppText.NAME }}・${if (ascending) AppText.ASCENDING else AppText.DESCENDING}",
                                                 color = if (isSelected) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
                                             )
                                         },
@@ -458,7 +456,7 @@ fun HomeGalleryScreen(
                     IconButton(onClick = onOpenSearch) {
                         Icon(
                             Icons.Default.Search,
-                            contentDescription = "検索",
+                            contentDescription = AppText.SEARCH,
                             tint = if (isSearchActive) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
                         )
                     }
@@ -476,7 +474,7 @@ fun HomeGalleryScreen(
                         } else {
                         Icon(
                             Icons.Default.AutoAwesome,
-                            contentDescription = "解析",
+                            contentDescription = AppText.ANALYSIS,
                             tint = GalleryThemeTokens.colors.primaryText
                         )
                         }
@@ -486,7 +484,7 @@ fun HomeGalleryScreen(
                     }) {
                         Icon(
                             if (galleryState.homeFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "お気に入りのみ",
+                            contentDescription = AppText.FAVORITES_ONLY,
                             tint = if (galleryState.homeFavoritesOnly) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
                         )
                     }

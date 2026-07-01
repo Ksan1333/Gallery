@@ -974,7 +974,7 @@ fun AppNavigation(
                         galleryState = galleryState,
                         onFolderSelected = { folder ->
                             scope.launch {
-                                GlobalOperationService.startOperation("繧｢繧､繝・Β繧堤ｧｻ蜍穂ｸｭ...")
+                                GlobalOperationService.startOperation(AppText.MOVING_ITEMS)
                                 galleryState.repository.moveMediaToFolder(galleryState.urisToMove, folder)
                                 GlobalOperationService.finishOperation()
                                 navController.popBackStack()
@@ -1272,7 +1272,7 @@ fun AppNavigation(
                                 startupPasswordError = true
                             }
                         }) {
-                            Text("隗｣髯､")
+                            Text(AppText.UNLOCK)
                         }
                     }
                 )
@@ -1333,7 +1333,7 @@ fun AppNavigation(
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
 
-            // 蝓ｺ譛ｬ讖溯・縺ｧ縺ｯ荳矩Κ繝翫ン繧ｲ繝ｼ繧ｷ繝ｧ繝ｳ繧定｡ｨ遉ｺ縺吶ｋ縲・
+            // 基本機能では下部ナビゲーションを表示する。
             val isBasicFunction = currentRoute == AppRoutes.HOME ||
                 currentRoute == AppRoutes.FOLDERS ||
                 currentRoute == AppRoutes.BOOKS ||
@@ -1464,7 +1464,7 @@ private fun AnalysisPeriodDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("繧ｭ繝｣繝ｳ繧ｻ繝ｫ")
+                Text(AppText.CANCEL)
             }
         }
     )
@@ -1489,12 +1489,12 @@ private fun AnalysisDatePickerDialog(
                 },
                 enabled = datePickerState.selectedDateMillis != null
             ) {
-                Text("OK")
+                Text(AppText.OK)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("繧ｭ繝｣繝ｳ繧ｻ繝ｫ")
+                Text(AppText.CANCEL)
             }
         }
     ) {

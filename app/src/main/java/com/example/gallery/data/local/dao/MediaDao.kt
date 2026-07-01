@@ -114,10 +114,10 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata")
     fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata ORDER BY dateAdded DESC")
     suspend fun getAllMetadataSummary(): List<MediaMetadataSummary>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata ORDER BY dateAdded DESC")
     fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
 
     @Query("SELECT * FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")

@@ -25,6 +25,7 @@ import com.example.gallery.service.AnalysisService
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.OperationState
 import com.example.gallery.service.selectRepresentativeProgressOperation
+import com.example.gallery.ui.AppText
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.AgeRatingFilter
 import com.example.gallery.ui.state.DeviceFilter
@@ -81,7 +82,7 @@ fun GlobalProgressOverlay() {
 
                 if (operations.size > 2 && !isMinimized) {
                     Text(
-                    text = "莉・${operations.size - 2} 莉ｶ縺ｮ繧ｿ繧ｹ繧ｯ縺碁ｲ陦御ｸｭ...",
+                        text = "${AppText.OTHER_TASKS_IN_PROGRESS_PREFIX}${operations.size - 2}${AppText.OTHER_TASKS_IN_PROGRESS_SUFFIX}",
                         color = Color.Gray,
                         fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
                         modifier = Modifier.padding(start = 8.dp)
@@ -169,7 +170,7 @@ private fun OperationCard(
                                 onClick = onCancel,
                                 modifier = Modifier.size(24.dp)
                             ) {
-                        Icon(Icons.Default.Close, "荳ｭ譁ｭ", tint = colors.mutedText, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.Close, AppText.INTERRUPT, tint = colors.mutedText, modifier = Modifier.size(14.dp))
                             }
                         }
                     }

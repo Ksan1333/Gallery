@@ -395,7 +395,7 @@ fun MediaViewerScreen(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
             userScrollEnabled = !isCurrentPageZoomed && !isVerticalSwiping,
-            beyondViewportPageCount = 1
+            beyondViewportPageCount = 1,
         ) { page ->
             val mediaItem = imageList[page]
             val scale = remember { Animatable(1f) }
@@ -905,7 +905,12 @@ fun MediaViewerScreen(
                             }
                         }
                     } else {
-                        LazyRow(state = thumbnailListState, modifier = Modifier.fillMaxWidth().height(50.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        LazyRow(
+                            state = thumbnailListState,
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp),
+                            reverseLayout = true
+                        ) {
                             itemsIndexed(imageList) { index, mediaItem ->
                                 val isSelected = pagerState.currentPage == index
                                 Box(modifier = Modifier.padding(horizontal = 2.dp).size(42.dp).clip(RoundedCornerShape(6.dp)).border(width = if (isSelected) 2.dp else 0.dp, color = if (isSelected) Color.White else Color.Transparent, shape = RoundedCornerShape(6.dp)).clickable { scope.launch { pagerState.scrollToPage(index) } }) {

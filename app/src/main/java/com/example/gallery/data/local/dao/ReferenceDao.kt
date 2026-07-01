@@ -19,7 +19,7 @@ interface ReferenceDao {
     @Delete
     suspend fun deleteProject(project: ReferenceProjectEntity)
 
-    @Query("SELECT * FROM reference_items WHERE projectId = :projectId ORDER BY addedAt ASC")
+    @Query("SELECT * FROM reference_items WHERE projectId = :projectId ORDER BY addedAt DESC")
     fun getItemsForProjectFlow(projectId: Long): Flow<List<ReferenceItemEntity>>
 
     @Query("SELECT * FROM reference_items WHERE projectId = :projectId")

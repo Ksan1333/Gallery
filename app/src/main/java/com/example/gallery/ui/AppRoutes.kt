@@ -52,6 +52,20 @@ object AppText {
     const val SEARCH = "検索"
     const val ANALYSIS = "分析"
     const val FAVORITES = "お気に入り"
+    const val SORT = "並び替え"
+    const val DATE_ADDED = "追加日"
+    const val SIZE = "サイズ"
+    const val NAME = "名前"
+    const val ASCENDING = "昇順"
+    const val DESCENDING = "降順"
+    const val FAVORITES_ONLY = "お気に入りのみ"
+    const val CANCEL = "キャンセル"
+    const val OK = "OK"
+    const val UNLOCK = "解除"
+    const val MOVING_ITEMS = "アイテムを移動中..."
+    const val INTERRUPT = "中断"
+    const val OTHER_TASKS_IN_PROGRESS_PREFIX = "ほか"
+    const val OTHER_TASKS_IN_PROGRESS_SUFFIX = "件のタスクが進行中..."
 }
 
 object AppDefaults {

@@ -14,7 +14,7 @@ object AppConstants {
     val DrawerItemHeight @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_item_height)
     val DrawerEdgeHitWidth @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_edge_hit_width)
 
-    // 繝輔か繝ｳ繝医し繧､繧ｺ (GalleryThemeTokens 邨檎罰縺ｧ繝ｪ繧ｽ繝ｼ繧ｹ縺九ｉ蜿門ｾ・
+    // フォントサイズ (GalleryThemeTokens 経由でリソースから取得)
     val TitleFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
