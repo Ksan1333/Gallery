@@ -29,8 +29,7 @@ data class BookData(
 
 enum class BookType { ZIP, PDF }
 
-class BookRepository(private val context: Context) {
-    private val TAG = "BookRepository"
+class BookRepository(context: Context) {
     private val thumbDir = File(context.cacheDir, "book_thumbs").apply { if (!exists()) mkdirs() }
     private val indexFile = File(context.cacheDir, "book_index.json")
     private val zipEntryCache = ConcurrentHashMap<String, List<String>>()
@@ -142,6 +141,82 @@ class BookRepository(private val context: Context) {
         books.sortedBy { it.title }
     }
 
+    suspend fun moveBookToTrash(book: BookData): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val source = File(book.path)
+            if (!source.exists()) return@withContext false
+            val parent = source.parentFile ?: return@withContext false
+            val trashDir = File(parent, ".gallery_book_trash").apply { if (!exists()) mkdirs() }
+            val target = uniqueTrashFile(trashDir, source.name)
+            val moved = source.renameTo(target)
+            if (moved) {
+                saveCachedIndex(loadCachedIndex().filterNot { it.book.path == book.path })
+                thumbnailFile(source).takeIf { it.exists() }?.delete()
+            }
+            moved
+        }.onFailure { e ->
+            Log.e(TAG, "Failed to move book to trash: ${book.path}", e)
+        }.getOrDefault(false)
+    }
+
+    suspend fun loadTrashedBooks(): List<BookData> = withContext(Dispatchers.IO) {
+        val root = Environment.getExternalStorageDirectory()
+        val trashedBooks = mutableListOf<BookData>()
+        runCatching {
+            root.walkTopDown()
+                .onEnter { dir ->
+                    dir.name != "Android" && (!dir.name.startsWith(".") || dir.name == ".gallery_book_trash")
+                }
+                .filter { file ->
+                    val nameLower = file.name.lowercase()
+                    file.isFile &&
+                        file.parentFile?.name == ".gallery_book_trash" &&
+                        (nameLower.endsWith(".zip") || nameLower.endsWith(".pdf"))
+                }
+                .forEach { file ->
+                    val nameLower = file.name.lowercase()
+                    val type = if (nameLower.endsWith(".zip")) BookType.ZIP else BookType.PDF
+                    val pageCount = if (type == BookType.ZIP) getZipPageCount(file) else getPdfPageCount(file)
+                    if (pageCount > 0) {
+                        val thumbnail = if (type == BookType.ZIP) extractZipThumbnail(file) else extractPdfThumbnail(file)
+                        val originalFolder = file.parentFile?.parentFile
+                        trashedBooks.add(
+                            BookData(
+                                id = "trash:${file.absolutePath.hashCode()}",
+                                title = file.name,
+                                path = file.absolutePath,
+                                type = type,
+                                pageCount = pageCount,
+                                thumbnailPath = thumbnail,
+                                folderName = originalFolder?.name ?: "本のゴミ箱",
+                                folderPath = originalFolder?.absolutePath ?: file.parentFile?.absolutePath.orEmpty()
+                            )
+                        )
+                    }
+                }
+        }.onFailure { e -> Log.w(TAG, "Failed to load trashed books", e) }
+        trashedBooks.sortedBy { it.title }
+    }
+
+    private fun getZipPageCount(file: File): Int {
+        return try {
+            ZipFile(file).use { zip ->
+                zip.entries().asSequence().count { isImageFile(it.name) }
+            }
+        } catch (_: Exception) { 0 }
+    }
+
+    private fun getPdfPageCount(file: File): Int {
+        return try {
+            val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(fd)
+            val count = renderer.pageCount
+            renderer.close()
+            fd.close()
+            count
+        } catch (_: Exception) { 0 }
+    }
+
     private fun isImageFile(name: String): Boolean {
         val lower = name.lowercase()
         return !name.contains("__MACOSX") && (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp"))
@@ -164,7 +239,7 @@ class BookRepository(private val context: Context) {
                 bitmap.recycle()
                 return thumbFile.absolutePath
             }
-        } catch (e: Exception) { return null }
+        } catch (_: Exception) { return null }
     }
 
     private fun extractPdfThumbnail(file: File): String? {
@@ -190,7 +265,7 @@ class BookRepository(private val context: Context) {
             fd.close()
             bitmap.recycle()
             return thumbFile.absolutePath
-        } catch (e: Exception) { return null }
+        } catch (_: Exception) { return null }
     }
 
     suspend fun getZipPage(filePath: String, pageIndex: Int, maxLongSide: Int = 2400): Bitmap? = withContext(Dispatchers.IO) {
@@ -211,12 +286,24 @@ class BookRepository(private val context: Context) {
                 val bytes = zip.getInputStream(entry).use { it.readBytes() }
                 decodePage(bytes, maxLongSide)
             }
-        } catch (e: Exception) { null }
+        } catch (_: Exception) { null }
     }
 
     private fun thumbnailFile(file: File): File {
         val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}".hashCode().toUInt().toString(16)
         return File(thumbDir, "thumb_$key.jpg")
+    }
+
+    private fun uniqueTrashFile(dir: File, name: String): File {
+        val base = name.substringBeforeLast('.', name)
+        val ext = name.substringAfterLast('.', "").takeIf { it != name }?.let { ".$it" }.orEmpty()
+        var candidate = File(dir, name)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = File(dir, "${base}_${System.currentTimeMillis()}_$index$ext")
+            index++
+        }
+        return candidate
     }
 
     private fun decodeThumbnail(bytes: ByteArray): Bitmap? {
@@ -291,7 +378,7 @@ class BookRepository(private val context: Context) {
                 )
                 CachedBook(book, item.getLong("lastModified"), item.getLong("fileSize"))
             }
-        }.onFailure { Log.w(TAG, "Failed to read cached book index", it) }.getOrDefault(emptyList())
+        }.onFailure { e -> Log.w(TAG, "Failed to read cached book index", e) }.getOrDefault(emptyList())
     }
 
     private fun saveCachedIndex(books: List<CachedBook>) {
@@ -312,10 +399,11 @@ class BookRepository(private val context: Context) {
                 )
             }
             indexFile.writeText(array.toString(), Charsets.UTF_8)
-        }.onFailure { Log.w(TAG, "Failed to save cached book index", it) }
+        }.onFailure { e -> Log.w(TAG, "Failed to save cached book index", e) }
     }
 
     private companion object {
+        private const val TAG = "BookRepository"
         const val THUMBNAIL_LONG_SIDE = 480
     }
 
@@ -334,6 +422,6 @@ class BookRepository(private val context: Context) {
             renderer.close()
             fd.close()
             bitmap
-        } catch (e: Exception) { null }
+        } catch (_: Exception) { null }
     }
 }

@@ -555,7 +555,7 @@ fun GalleryGridView(
                 var yearCount = 0
                 var skippedByLimit = 0
                 val dateObj = Date()
-                val displaySdf = SimpleDateFormat("yyyy蟷ｴ", Locale.JAPAN)
+                val displaySdf = SimpleDateFormat("yyyy年", Locale.JAPAN)
 
                 for (media in sortedSnapshot) {
                     dateObj.time = media.dateAdded
@@ -954,7 +954,9 @@ fun GalleryGridView(
                 },
                 onBulkFavorite = {
                     scope.launch {
-                        galleryState.repository.bulkUpdateFavorite(selectedUris.keys.toList(), true)
+                        val uris = selectedUris.keys.toList()
+                        val shouldFavorite = uris.any { uri -> metadataMap[uri]?.isFavorite != true }
+                        galleryState.repository.bulkUpdateFavorite(uris, shouldFavorite)
                         isSelectionMode = false
                         selectedUris.clear()
                     }

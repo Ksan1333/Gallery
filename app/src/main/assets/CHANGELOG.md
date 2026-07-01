@@ -1,6 +1,6 @@
 # 更新履歴 (CHANGELOG)
 
-## [0.5.0] - 2026-07-02
+## [0.5.0] - 2026-06-30
 
 ### 新規実装
 - Google Photos 画面を追加し、サイドバーから Google Photos を開けるようにしました。
@@ -14,6 +14,7 @@
 
 ### 改修
 - 計測機能を削除し、サイドバーの計測項目とメディアビュワーの閲覧時間記録処理を廃止しました。
+- おすすめ画面を削除し、サイドバーのおすすめ項目と `recommendations` ルートを廃止しました。
 - Google Photos 連携のため、Google Play services Auth と kotlinx-coroutines-play-services 依存関係を追加しました。
 - アプリバージョンを 0.4.0 から 0.5.0 に更新しました。
 

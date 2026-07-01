@@ -16,6 +16,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -88,6 +90,7 @@ import kotlinx.coroutines.withContext
 
 private const val BOOKMARKS_PREFS = "book_bookmarks"
 private const val APP_PREFS = "app_prefs"
+private const val GLOBAL_SETTINGS_PREFS = "global_settings"
 private const val THEME_MODE_PREF = "theme_mode"
 private const val TEXT_SCALE_PREF = "text_scale"
 private const val CUSTOM_PALETTE_ENABLED_PREF = "custom_palette_enabled"
@@ -120,6 +123,25 @@ private fun loadTextScale(context: Context): Float =
     context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
         .getFloat(TEXT_SCALE_PREF, 1f)
         .coerceIn(0.75f, 1.45f)
+
+private fun loadStartupRoute(context: Context): String {
+    val route = context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString("startupScreen", AppRoutes.HOME)
+    return when (route) {
+        AppRoutes.HOME,
+        AppRoutes.FOLDERS,
+        AppRoutes.VIDEOS,
+        AppRoutes.BOOKS,
+        AppRoutes.REFERENCES,
+        AppRoutes.SETTINGS,
+        "favorite_artists",
+        "favorite_sites",
+        "book_bookmarks",
+        "video_downloader",
+        "about" -> route
+        else -> AppRoutes.HOME
+    }
+}
 
 private fun saveTextScale(context: Context, scale: Float) {
     context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
@@ -251,12 +273,21 @@ fun AppNavigation(
     val context = LocalContext.current
     val galleryState = (context.applicationContext as GalleryApplication).galleryState
     val scope = rememberCoroutineScope()
-    val startDestination = AppRoutes.HOME
+    val startDestination = remember { loadStartupRoute(context) }
+    val globalSettingsPrefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+    val startupPasswordEnabled = remember {
+        globalSettingsPrefs.getBoolean("startupPasswordEnabled", false)
+    }
+    val startupPassword = remember { globalSettingsPrefs.getString("startupPassword", "").orEmpty() }
+    var isStartupUnlocked by rememberSaveable(startupPasswordEnabled) { mutableStateOf(!startupPasswordEnabled) }
+    var startupPasswordInput by rememberSaveable { mutableStateOf("") }
+    var startupPasswordError by rememberSaveable { mutableStateOf(false) }
 
     val navController = rememberNavController()
     galleryState.navController = navController
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var isBottomBarVisible by rememberSaveable { mutableStateOf(true) }
+    var isVideoFolderOpen by rememberSaveable { mutableStateOf(false) }
 
     val tutorialPrefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
     var showTutorialSetup by rememberSaveable { mutableStateOf(false) }
@@ -345,7 +376,8 @@ fun AppNavigation(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(isStartupUnlocked) {
+        if (!isStartupUnlocked) return@LaunchedEffect
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -374,7 +406,7 @@ fun AppNavigation(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && isStartupUnlocked) {
                 logScrollRestoreTrace(
                     "main_on_resume_refresh before=${galleryState.refreshTrigger} " +
                         "route=${navController.currentBackStackEntry?.destination?.route}"
@@ -392,7 +424,8 @@ fun AppNavigation(
     }
 
     val refreshTrigger = galleryState.refreshTrigger
-    LaunchedEffect(refreshTrigger) {
+    LaunchedEffect(refreshTrigger, isStartupUnlocked) {
+        if (!isStartupUnlocked) return@LaunchedEffect
         ThumbnailGenerationService.startGenerating(
             context,
             galleryState.repository,
@@ -400,8 +433,8 @@ fun AppNavigation(
         )
     }
 
-    LaunchedEffect(Unit) {
-        galleryState.repository.mediaDao.cleanupAgeRatingTags()
+    LaunchedEffect(isStartupUnlocked) {
+        if (isStartupUnlocked) galleryState.repository.mediaDao.cleanupAgeRatingTags()
     }
 
     val window = (context as? android.app.Activity)?.window
@@ -415,7 +448,7 @@ fun AppNavigation(
             val isFullScreenRoute = currentRoute == "folders_select" ||
                                    currentRoute?.startsWith("analysis") == true
 
-            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == AppRoutes.SETTINGS || currentRoute == AppRoutes.SEARCH || currentRoute == AppRoutes.GOOGLE_PHOTOS || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
+            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == AppRoutes.SETTINGS || currentRoute == AppRoutes.SEARCH || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
                 currentRoute == "references" || currentRoute?.startsWith("reference_detail") == true || currentRoute?.startsWith("reference_search") == true
 
             if (isAlwaysShowNavBarRoute) {
@@ -448,6 +481,29 @@ fun AppNavigation(
 
     val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
     val currentRouteForDrawer = navBackStackEntryForDrawer?.destination?.route
+    LaunchedEffect(currentRouteForDrawer) {
+        if (currentRouteForDrawer != AppRoutes.VIDEOS) {
+            isVideoFolderOpen = false
+        }
+    }
+    BackHandler(
+        enabled = drawerState.isClosed && currentRouteForDrawer in setOf(
+            AppRoutes.HOME,
+            AppRoutes.FOLDERS,
+            AppRoutes.VIDEOS,
+            AppRoutes.BOOKS,
+            AppRoutes.TRASH
+        )
+    ) {
+        if (currentRouteForDrawer != AppRoutes.HOME) {
+            navController.navigate(AppRoutes.HOME) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+                restoreState = false
+            }
+        }
+    }
+
     LaunchedEffect(currentRouteForDrawer, showTutorialSetup) {
         if (showTutorialSetup || !tutorialPrefs.getBoolean(TUTORIAL_SETUP_DONE_PREF, false)) {
             return@LaunchedEffect
@@ -608,15 +664,14 @@ fun AppNavigation(
                         fontSize = AppConstants.ExtraSmallFontSize,
                         color = colors.mutedText
                     )
-
                     NavigationDrawerItem(
-                        label = { Text("動画DL") },
-                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
+                        label = { Text("お絵描き資料") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "references",
                         onClick = {
                             scope.launch { drawerState.close() }
-                            navController.navigate("video_downloader")
+                            navController.navigate("references")
                         },
-                        icon = { Icon(Icons.Default.Download, null) },
+                        icon = { Icon(Icons.Default.Brush, null) },
                         modifier = Modifier.height(44.dp),
                         colors = drawerItemColors
                     )
@@ -646,31 +701,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("お絵描き資料") },
-                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "references",
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                            navController.navigate("references")
-                        },
-                        icon = { Icon(Icons.Default.Brush, null) },
-                        modifier = Modifier.height(44.dp),
-                        colors = drawerItemColors
-                    )
-
-                    NavigationDrawerItem(
-                        label = { Text("Google Photos") },
-                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == AppRoutes.GOOGLE_PHOTOS,
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                            navController.navigate(AppRoutes.GOOGLE_PHOTOS)
-                        },
-                        icon = { Icon(Icons.Default.PhotoLibrary, null) },
-                        modifier = Modifier.height(44.dp),
-                        colors = drawerItemColors
-                    )
-
-                    NavigationDrawerItem(
-                        label = { Text("本のしおり($bookmarksCount)") },
+                        label = { Text("本のしおり ($bookmarksCount)") },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "book_bookmarks",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -681,19 +712,14 @@ fun AppNavigation(
                         colors = drawerItemColors
                     )
 
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        color = colors.divider
-                    )
-
                     NavigationDrawerItem(
-                        label = { Text("おすすめ（開発中）") },
-                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "recommendations",
+                        label = { Text("動画DL") },
+                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
                         onClick = {
                             scope.launch { drawerState.close() }
-                            navController.navigate("recommendations")
+                            navController.navigate("video_downloader")
                         },
-                        icon = { Icon(Icons.Default.Star, null) },
+                        icon = { Icon(Icons.Default.Download, null) },
                         modifier = Modifier.height(44.dp),
                         colors = drawerItemColors
                     )
@@ -702,24 +728,13 @@ fun AppNavigation(
                         modifier = Modifier.padding(vertical = 4.dp),
                         color = colors.divider
                     )
+
 
                     Text(
                         "情報",
                         modifier = Modifier.padding(16.dp, 8.dp),
                         fontSize = AppConstants.ExtraSmallFontSize,
                         color = colors.mutedText
-                    )
-
-                    NavigationDrawerItem(
-                        label = { Text("使い方ガイド") },
-                        selected = false,
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                            showTutorialChooser = true
-                        },
-                        icon = { Icon(Icons.Default.Info, null) },
-                        modifier = Modifier.height(44.dp),
-                        colors = drawerItemColors
                     )
 
                     NavigationDrawerItem(
@@ -730,6 +745,18 @@ fun AppNavigation(
                             navController.navigate(AppRoutes.SETTINGS)
                         },
                         icon = { Icon(Icons.Default.Settings, null) },
+                        modifier = Modifier.height(44.dp),
+                        colors = drawerItemColors
+                    )
+
+                    NavigationDrawerItem(
+                        label = { Text("チュートリアル") },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            showTutorialChooser = true
+                        },
+                        icon = { Icon(Icons.Default.Info, null) },
                         modifier = Modifier.height(44.dp),
                         colors = drawerItemColors
                     )
@@ -757,7 +784,7 @@ fun AppNavigation(
                 }
             }
         },
-        gesturesEnabled = (isBottomBarVisible || isRefOrBookmarkRoute) && currentRouteForDrawer != AppRoutes.VIDEOS && !isReferenceInteriorRoute && !galleryState.isSelectionMode && !galleryState.isZooming
+        gesturesEnabled = (isBottomBarVisible || isRefOrBookmarkRoute) && !isReferenceInteriorRoute && !(currentRouteForDrawer == AppRoutes.VIDEOS && isVideoFolderOpen) && !galleryState.isSelectionMode && !galleryState.isZooming
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
@@ -767,9 +794,10 @@ fun AppNavigation(
                     currentRouteForDrawer == AppRoutes.FOLDERS ||
                     currentRouteForDrawer == AppRoutes.REFERENCES ||
                     currentRouteForDrawer == AppRoutes.BOOK_BOOKMARKS ||
-                    currentRouteForDrawer == AppRoutes.BOOKS
+                    currentRouteForDrawer == AppRoutes.BOOKS ||
+                    (currentRouteForDrawer == AppRoutes.VIDEOS && !isVideoFolderOpen)
 
-            if (!drawerState.isOpen && currentRouteForDrawer != AppRoutes.VIDEOS && (isBottomBarVisible || isRefOrBookmarkRoute) && !isReferenceInteriorRoute && isGalleryGridVisible && !galleryState.isSelectionMode && !galleryState.isZooming) {
+            if (!drawerState.isOpen && (isBottomBarVisible || isRefOrBookmarkRoute) && !isReferenceInteriorRoute && isGalleryGridVisible && !galleryState.isSelectionMode && !galleryState.isZooming) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
@@ -810,7 +838,8 @@ fun AppNavigation(
                 )
             }
 
-            NavHost(
+            if (isStartupUnlocked) {
+                NavHost(
                 navController = navController,
                 startDestination = startDestination,
                 modifier = Modifier.fillMaxSize()
@@ -987,6 +1016,7 @@ fun AppNavigation(
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onBookmarksChanged = { bookmarksCount = bookmarksPrefs.all.size },
                         onNavigateToBookmarks = { navController.navigate("book_bookmarks") },
+                        onOpenBookSettings = { navController.navigate(AppRoutes.BOOK_VIEWER_SETTINGS) },
                         initialJumpBookId = pendingBookmarkBookId,
                         initialJumpPage = pendingBookmarkPage,
                         onJumpHandled = { 
@@ -1043,6 +1073,7 @@ fun AppNavigation(
                         VideoGalleryScreen(
                             galleryState = galleryState,
                             onMenuClick = { scope.launch { drawerState.open() } },
+                            onFolderStateChanged = { isVideoFolderOpen = it },
                             onFullscreenVideo = { list, index ->
                                 window?.let { targetWindow ->
                                     targetWindow.navigationBarColor = android.graphics.Color.BLACK
@@ -1071,13 +1102,6 @@ fun AppNavigation(
                     ReferenceProjectScreen(
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onProjectClick = { id -> navController.navigate("reference_detail/$id") }
-                    )
-                }
-                composable(AppRoutes.GOOGLE_PHOTOS) {
-                    isBottomBarVisible = false
-                    GooglePhotosScreen(
-                        galleryState = galleryState,
-                        onBack = { navController.popBackStack() }
                     )
                 }
                 composable("reference_detail/{projectId}") { backStackEntry ->
@@ -1151,15 +1175,6 @@ fun AppNavigation(
                         onMenuClick = { scope.launch { drawerState.open() } }
                     )
                 }
-                composable("recommendations") {
-                    isBottomBarVisible = true
-                    RecommendationScreen(
-                        galleryState = galleryState,
-                        onShowViewer = { isBottomBarVisible = false },
-                        onHideViewer = { isBottomBarVisible = true },
-                        onMenuClick = { scope.launch { drawerState.open() } }
-                    )
-                }
                 composable("about") {
                     isBottomBarVisible = false
                     AboutScreen(
@@ -1178,9 +1193,25 @@ fun AppNavigation(
                         onBack = { navController.popBackStack() }
                     )
                 }
+                composable(AppRoutes.BOOK_VIEWER_SETTINGS) {
+                    isBottomBarVisible = true
+                    AppSettingsScreen(
+                        themeMode = themeMode,
+                        customPalette = customPalette,
+                        textScale = textScale,
+                        onThemeModeChange = onThemeModeChange,
+                        onCustomPaletteChange = onCustomPaletteChange,
+                        onTextScaleChange = onTextScaleChange,
+                        onBack = { navController.popBackStack() },
+                        initialPage = SettingsPage.BOOK_VIEWER,
+                        directBackFromInitialPage = true
+                    )
+                }
             }
 
-            if (showAnalysisPeriodDialog) {
+            }
+
+            if (isStartupUnlocked && showAnalysisPeriodDialog) {
                 AnalysisPeriodDialog(
                     selectedPeriodDays = analysisPeriodDays,
                     customStartTime = customAnalysisStartTime,
@@ -1198,7 +1229,7 @@ fun AppNavigation(
                 )
             }
 
-            if (showAnalysisDatePicker) {
+            if (isStartupUnlocked && showAnalysisDatePicker) {
                 AnalysisDatePickerDialog(
                     initialSelectedDateMillis = customAnalysisStartTime ?: System.currentTimeMillis(),
                     onDismiss = { showAnalysisDatePicker = false },
@@ -1210,7 +1241,45 @@ fun AppNavigation(
                 )
             }
 
-            GlobalProgressOverlay()
+            if (isStartupUnlocked) {
+                GlobalProgressOverlay()
+            }
+
+            if (!isStartupUnlocked) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text("起動パスワード") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = startupPasswordInput,
+                                onValueChange = {
+                                    startupPasswordInput = it.filter(Char::isDigit)
+                                    startupPasswordError = false
+                                },
+                                label = { Text("パスワード") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                isError = startupPasswordError
+                            )
+                            if (startupPasswordError) {
+                                Text("パスワードが違います", color = GalleryThemeTokens.colors.danger)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            if (startupPasswordInput == startupPassword) {
+                                isStartupUnlocked = true
+                            } else {
+                                startupPasswordError = true
+                            }
+                        }) {
+                            Text("解除")
+                        }
+                    }
+                )
+            }
 
             if (showTutorialSetup) {
                 TutorialSetupDialog(
@@ -1314,18 +1383,18 @@ private fun AnalysisPeriodDialog(
     val colors = GalleryThemeTokens.colors
     val customLabel = customStartTime?.let { startTime ->
         val formatter = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.getDefault())
-        "カスタム: ${formatter.format(java.util.Date(startTime))} 以降"
+        "${formatter.format(java.util.Date(startTime))} 以降"
     } ?: "カレンダーから選ぶ"
     val periods = listOf(
-        7 to "直近7日間",
-        30 to "直近30日間",
+        7 to "直近7日",
+        30 to "直近30日",
         AppDefaults.ANALYSIS_PERIOD_ALL to "すべての期間",
         CUSTOM_ANALYSIS_PERIOD to customLabel
     )
     val estimatedSeconds = targetCount?.times(4)
     val estimatedText = when (estimatedSeconds) {
         null -> "計算中..."
-        0 -> "約0分"
+        0 -> "約1分"
         else -> "約${(estimatedSeconds + 59) / 60}分（${targetCount}件）"
     }
 
@@ -1334,7 +1403,7 @@ private fun AnalysisPeriodDialog(
         containerColor = colors.surface,
         title = {
             Text(
-                text = "AI解析の実行",
+                text = "AI分析を実行",
                 color = colors.primaryText,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )
@@ -1380,7 +1449,7 @@ private fun AnalysisPeriodDialog(
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                         Text(
-                            text = "予想時間: $estimatedText",
+                            text = "推定時間: $estimatedText",
                             color = colors.secondaryText
                         )
                     }
@@ -1393,7 +1462,7 @@ private fun AnalysisPeriodDialog(
                 enabled = (selectedPeriodDays != CUSTOM_ANALYSIS_PERIOD || customStartTime != null) &&
                     targetCount != null
             ) {
-                Text("解析開始")
+                Text("分析開始")
             }
         },
         dismissButton = {
@@ -1423,7 +1492,7 @@ private fun AnalysisDatePickerDialog(
                 },
                 enabled = datePickerState.selectedDateMillis != null
             ) {
-                Text("決定")
+                Text("OK")
             }
         },
         dismissButton = {

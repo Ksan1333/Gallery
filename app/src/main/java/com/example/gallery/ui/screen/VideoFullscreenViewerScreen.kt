@@ -95,6 +95,8 @@ import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.gallery.data.model.MediaData
+import com.example.gallery.ui.AppDefaults
+import com.example.gallery.ui.component.TapZoneGuideOverlay
 import com.example.gallery.ui.state.GalleryState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -137,6 +139,15 @@ fun VideoFullscreenViewerScreen(
         audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.coerceAtLeast(1) ?: 1
     }
     val scope = rememberCoroutineScope()
+    val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
+    val controlPanelAutoHideMs = remember { globalSettingsPrefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS).coerceIn(1000, 10000) }
+    val touchIndicatorEnabled = remember { globalSettingsPrefs.getBoolean("touchIndicator", false) }
+    val tapZonePrefs = remember { context.getSharedPreferences("book_viewer_settings", Context.MODE_PRIVATE) }
+    val tapZoneCount = when (tapZonePrefs.getString("tapZoneLayout", "THREE")) {
+        "ELEVEN" -> 11
+        "FOUR" -> 4
+        else -> 3
+    }
 
     var currentIndex by remember {
         mutableIntStateOf(initialIndex.coerceIn(0, (videoList.size - 1).coerceAtLeast(0)))
@@ -160,6 +171,8 @@ fun VideoFullscreenViewerScreen(
     var adjustmentLabel by remember { mutableStateOf<String?>(null) }
     var adjustmentValue by remember { mutableStateOf(0f) }
     var adjustmentToken by remember { mutableIntStateOf(0) }
+    var touchIndicatorPoint by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+    var touchIndicatorToken by remember { mutableIntStateOf(0) }
     var isVideoStripVisible by remember { mutableStateOf(false) }
     var wasPlayingBeforeSeek by remember { mutableStateOf(false) }
     val frameStepMs = 1000L / 30L
@@ -167,6 +180,12 @@ fun VideoFullscreenViewerScreen(
     fun showControlsTemporarily() {
         isControlsVisible = true
         interactionToken++
+    }
+
+    fun showTouchIndicator(position: androidx.compose.ui.geometry.Offset) {
+        if (!touchIndicatorEnabled) return
+        touchIndicatorPoint = position
+        touchIndicatorToken++
     }
 
     fun restoreBrightness() {
@@ -322,7 +341,7 @@ fun VideoFullscreenViewerScreen(
             insetsController?.show(WindowInsetsCompat.Type.navigationBars())
         }
         if (isControlsVisible && !isVideoStripVisible && !isControlInteractionActive) {
-            delay(3200)
+            delay(controlPanelAutoHideMs.toLong())
             if (!isControlInteractionActive) {
                 isControlsVisible = false
             }
@@ -333,6 +352,13 @@ fun VideoFullscreenViewerScreen(
         if (adjustmentLabel != null) {
             delay(900)
             adjustmentLabel = null
+        }
+    }
+
+    LaunchedEffect(touchIndicatorToken) {
+        if (touchIndicatorPoint != null) {
+            delay(450)
+            touchIndicatorPoint = null
         }
     }
 
@@ -513,6 +539,7 @@ fun VideoFullscreenViewerScreen(
                                 player.play()
                             }
                             if (!didFrameStep && abs(totalX) < 8f && abs(totalY) < 8f) {
+                                showTouchIndicator(down.position)
                                 isControlsVisible = !isControlsVisible
                                 interactionToken++
                             }
@@ -697,6 +724,24 @@ fun VideoFullscreenViewerScreen(
             }
         }
 
+        touchIndicatorPoint?.let { point ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = point.x.dp, top = point.y.dp)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.18f))
+            )
+        }
+
+        if (touchIndicatorEnabled) {
+            TapZoneGuideOverlay(
+                labels = videoTapZoneLabels(tapZoneCount),
+                modifier = Modifier.matchParentSize()
+            )
+        }
+
         adjustmentLabel?.let { label ->
             val isBrightness = label == "\u660e\u308b\u3055"
             VerticalAdjustmentBar(
@@ -842,6 +887,14 @@ private fun formatFullscreenVideoTime(ms: Long): String {
     val seconds = totalSeconds % 60
     val millis = safeMs % 1000
     return "%d:%02d.%03d".format(minutes, seconds, millis)
+}
+
+private fun videoTapZoneLabels(zoneCount: Int): List<String> {
+    return when (zoneCount) {
+        11 -> listOf("前の動画", "戻す", "戻す", "明るさ", "スクショ", "再生/停止", "設定", "一覧", "音量", "進める", "次の動画")
+        4 -> listOf("前の動画", "明るさ", "音量", "次の動画")
+        else -> listOf("前の動画", "再生/停止", "次の動画")
+    }
 }
 
 @Composable

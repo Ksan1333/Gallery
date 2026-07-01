@@ -8,6 +8,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +16,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.component.VideoMiniPlayer
@@ -25,7 +29,8 @@ import com.example.gallery.ui.theme.GalleryThemeTokens
 fun VideoGalleryScreen(
     galleryState: GalleryState,
     onMenuClick: () -> Unit,
-    onFullscreenVideo: (List<MediaData>, Int) -> Unit
+    onFullscreenVideo: (List<MediaData>, Int) -> Unit,
+    onFolderStateChanged: (Boolean) -> Unit = {}
 ) {
     var allVideos by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var foldersWithVideos by remember { mutableStateOf<List<CategoryData>>(emptyList()) }
@@ -68,6 +73,17 @@ fun VideoGalleryScreen(
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, galleryState) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                galleryState.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(galleryState.refreshTrigger) {
         val cachedVideos = galleryState.cachedVideoItems
         if (cachedVideos != null && galleryState.cachedVideoRefreshTrigger == galleryState.refreshTrigger) {
@@ -85,19 +101,24 @@ fun VideoGalleryScreen(
         if (selectedFolderName == null) emptyList()
         else allVideos.filter { it.folderName == selectedFolderName }
     }
+    LaunchedEffect(selectedFolderName) {
+        onFolderStateChanged(selectedFolderName != null)
+    }
     val playbackVideos = if (activeVideoList.isNotEmpty()) activeVideoList else folderVideos
     val activePlaybackIndex = activeVideoIndex?.takeIf { it in playbackVideos.indices }
     val colors = GalleryThemeTokens.colors
 
     Scaffold(
         topBar = {
-            GalleryTopAppBar(
-                title = if (selectedFolderName == null) "動画" else selectedFolderName!!,
-                navigationIcon = if (selectedFolderName == null) Icons.Default.Menu else Icons.AutoMirrored.Filled.ArrowBack,
-                navigationContentDescription = "メニュー",
-                onNavigationClick = if (selectedFolderName == null) onMenuClick else ::closeFolder,
-                containerColor = colors.topBar
-            )
+            if (selectedFolderName == null) {
+                GalleryTopAppBar(
+                    title = "動画",
+                    navigationIcon = Icons.Default.Menu,
+                    navigationContentDescription = "メニュー",
+                    onNavigationClick = onMenuClick,
+                    containerColor = colors.topBar
+                )
+            }
         },
         containerColor = colors.background,
         modifier = Modifier
@@ -145,7 +166,7 @@ fun VideoGalleryScreen(
                     onPageChangedInViewer = { },
                     onBulkEdit = { },
                     showCategoryTopBar = false,
-                    showSelectedCategoryTopBar = false,
+                    showSelectedCategoryTopBar = selectedFolderName != null,
                     onImageClickOverride = { index, list ->
                         val clickedUri = list.getOrNull(index)?.uri
                         activeVideoList = list.filter { it.isVideo }.ifEmpty { folderVideos }

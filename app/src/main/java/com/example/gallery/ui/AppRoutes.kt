@@ -10,9 +10,8 @@ object AppRoutes {
     const val VIDEO_DOWNLOADER = "video_downloader"
     const val FAVORITE_ARTISTS = "favorite_artists"
     const val FAVORITE_SITES = "favorite_sites"
-    const val RECOMMENDATIONS = "recommendations"
-    const val GOOGLE_PHOTOS = "google_photos"
     const val SETTINGS = "settings"
+    const val BOOK_VIEWER_SETTINGS = "settings/book_viewer"
     const val SEARCH = "search"
     const val ABOUT = "about"
     const val MASS_EDIT = "mass_edit"
@@ -56,6 +55,7 @@ object AppText {
 object AppDefaults {
     const val ANALYSIS_TYPE_AI_TAGGING = "AI_TAGGING"
     const val ANALYSIS_PERIOD_ALL = -1
+    const val CONTROL_PANEL_AUTO_HIDE_MS = 3200
     const val DRAWER_WIDTH_DP = 260
     const val DRAWER_ITEM_HEIGHT_DP = 44
     const val DRAWER_EDGE_HIT_WIDTH_DP = 25

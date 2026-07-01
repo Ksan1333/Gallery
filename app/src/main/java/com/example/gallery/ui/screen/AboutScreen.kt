@@ -1,11 +1,14 @@
 package com.example.gallery.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -124,7 +127,7 @@ fun AboutScreen(
                     }
                 }
                 viewModel.changelogText != null -> {
-                    MarkdownText(viewModel.changelogText!!)
+                    ExpandableChangelog(viewModel.changelogText!!)
                 }
             }
 
@@ -136,6 +139,66 @@ fun AboutScreen(
             Text("Android Studio AI Assistant によって開発を支援しています。", color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
 
             Spacer(Modifier.height(48.dp))
+        }
+    }
+}
+
+private data class ChangelogSection(
+    val title: String,
+    val body: String
+)
+
+private fun parseChangelogSections(text: String): List<ChangelogSection> {
+    val sections = mutableListOf<ChangelogSection>()
+    var currentTitle = "更新履歴"
+    val body = StringBuilder()
+    text.lines().forEach { line ->
+        if (line.startsWith("## ")) {
+            if (body.isNotBlank() || sections.isEmpty()) {
+                sections += ChangelogSection(currentTitle, body.toString().trim())
+            }
+            currentTitle = line.removePrefix("## ").trim()
+            body.clear()
+        } else if (!line.startsWith("# ")) {
+            body.appendLine(line)
+        }
+    }
+    if (body.isNotBlank() || sections.isEmpty()) {
+        sections += ChangelogSection(currentTitle, body.toString().trim())
+    }
+    return sections.filter { it.body.isNotBlank() || it.title != "更新履歴" }
+}
+
+@Composable
+fun ExpandableChangelog(text: String) {
+    val sections = remember(text) { parseChangelogSections(text) }
+    var expandedTitle by remember(sections) { mutableStateOf(sections.firstOrNull()?.title) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        sections.forEach { section ->
+            val expanded = expandedTitle == section.title
+            Surface(
+                color = Color.DarkGray.copy(alpha = 0.45f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { expandedTitle = if (expanded) null else section.title }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(section.title, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = Color.Cyan)
+                    }
+                    if (expanded) {
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            MarkdownText(section.body)
+                        }
+                    }
+                }
+            }
         }
     }
 }

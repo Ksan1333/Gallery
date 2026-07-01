@@ -65,7 +65,8 @@ private data class TutorialPage(
     val title: String,
     val description: String,
     val icon: ImageVector,
-    val color: Color
+    val color: Color,
+    val tips: List<String> = emptyList()
 )
 
 fun allTutorialTargets(): List<TutorialTarget> = TutorialTarget.entries
@@ -121,6 +122,19 @@ fun TutorialDialog(
                 Icon(current.icon, contentDescription = null, tint = current.color, modifier = Modifier.size(48.dp))
                 Text(current.title, color = colors.primaryText, fontWeight = FontWeight.Bold, fontSize = GalleryThemeTokens.textSizes.header)
                 Text(current.description, color = colors.secondaryText, textAlign = TextAlign.Center)
+                current.tips.forEach { tip ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(colors.card, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("→", color = current.color, fontWeight = FontWeight.Bold)
+                        Text(tip, color = colors.primaryText, modifier = Modifier.weight(1f))
+                    }
+                }
                 Text("${page + 1} / ${pages.size}", color = colors.mutedText)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onDismiss) {
@@ -243,17 +257,40 @@ private fun tutorialPages(target: TutorialTarget, colors: com.example.gallery.ui
     val soft = colors.accentSoft
     return when (target) {
         TutorialTarget.OVERVIEW -> listOf(
-            TutorialPage("Galleryへようこそ", "画像、GIF、動画、本、参照資料をまとめて管理できます。", Icons.Default.Home, accent),
-            TutorialPage("検索と設定", "検索条件や設定を使って、作業しやすい環境に調整できます。", Icons.Default.Search, success)
+            TutorialPage("Galleryへようこそ", "画像、GIF、動画、本、参照資料をまとめて管理できます。", Icons.Default.Home, accent, listOf("→ 左端スワイプでサイドバー", "→ 下部ナビで主要画面へ移動")),
+            TutorialPage("作業の入口", "検索、設定、チュートリアルはサイドバーからいつでも開けます。", Icons.Default.Search, success, listOf("→ 検索は条件を重ねて絞り込み", "→ 設定は全体設定、テーマ、ブックビューアに分割"))
         )
-        TutorialTarget.HOME -> listOf(TutorialPage("ホーム", "ピンチやスクロールでギャラリーを移動し、長押しで選択できます。", Icons.Default.Home, accent))
-        TutorialTarget.SEARCH -> listOf(TutorialPage("検索", "タグ、フォルダ、年齢制限、メディア形式を組み合わせて検索できます。", Icons.Default.Search, accent))
-        TutorialTarget.FOLDERS -> listOf(TutorialPage("フォルダ", "フォルダ単位でメディアを整理できます。", Icons.Default.Folder, soft))
-        TutorialTarget.BOOKS -> listOf(TutorialPage("ブックビューア", "本形式のファイルを読み、表示設定を細かく調整できます。", Icons.AutoMirrored.Filled.MenuBook, danger))
-        TutorialTarget.REFERENCES -> listOf(TutorialPage("参照プロジェクト", "イラスト用の参照資料を一時的に集められます。", Icons.Default.ImageSearch, accent))
-        TutorialTarget.VIDEO_DOWNLOADER -> listOf(TutorialPage("動画DL", "共有URLや入力URLから動画保存を行えます。", Icons.Default.VideoLibrary, success))
-        TutorialTarget.TRASH -> listOf(TutorialPage("ゴミ箱", "削除済みメディアの復元や完全削除ができます。", Icons.Default.Delete, danger))
-        TutorialTarget.SETTINGS -> listOf(TutorialPage("設定", "テーマ、カラーパレット、ブックビューア、文字サイズを調整できます。", Icons.Default.Settings, soft))
+        TutorialTarget.HOME -> listOf(
+            TutorialPage("ホーム", "全メディアを一覧できます。", Icons.Default.Home, accent, listOf("→ 画像をタップでビューア", "→ 長押しで選択モード", "→ 左端から右へスワイプでサイドバー")),
+            TutorialPage("メディアビューア", "タップで操作パネル、ダブルタップでズーム、上方向ドラッグで詳細を開けます。", Icons.Default.ImageSearch, accent, listOf("→ 三点ボタンからタグ編集や設定", "→ 動画/GIFはコマ送りやスクリーンショットに対応"))
+        )
+        TutorialTarget.SEARCH -> listOf(
+            TutorialPage("検索", "タグ、フォルダ、年齢制限、メディア形式を組み合わせて検索できます。", Icons.Default.Search, accent, listOf("→ 条件を追加して結果を絞り込み", "→ 結果表示でホームへ反映")),
+            TutorialPage("タグ検索", "AI解析済みのタグや手動タグを使って探せます。", Icons.Default.AutoAwesome, success, listOf("→ タグをタップして関連メディアへ", "→ メディア種別でGIF/動画だけに限定"))
+        )
+        TutorialTarget.FOLDERS -> listOf(
+            TutorialPage("フォルダ", "フォルダ単位でメディアを整理できます。", Icons.Default.Folder, soft, listOf("→ フォルダをタップして中身へ", "→ 左上メニューでサイドバー", "→ 戻る先がなければホームへ戻ります")),
+            TutorialPage("フォルダ内操作", "フォルダ内でもビューア、選択、タグ移動を使えます。", Icons.Default.Folder, accent, listOf("→ 長押しで複数選択", "→ 一括移動で整理"))
+        )
+        TutorialTarget.BOOKS -> listOf(
+            TutorialPage("ブックビューア", "本形式のファイルを読み、表示設定を細かく調整できます。", Icons.AutoMirrored.Filled.MenuBook, danger, listOf("→ 本をタップして閲覧", "→ しおりから続きへ移動")),
+            TutorialPage("読書設定", "綴じ方向、ページ効果、タップ領域、時計表示などを設定できます。", Icons.Default.Settings, soft, listOf("→ 設定 > ブックビューア", "→ タップ領域はページ送りやズームに割り当て"))
+        )
+        TutorialTarget.REFERENCES -> listOf(
+            TutorialPage("参照プロジェクト", "イラスト用の参照資料を一時的に集められます。", Icons.Default.ImageSearch, accent, listOf("→ プロジェクトを作成", "→ Web検索やギャラリーから資料を追加")),
+            TutorialPage("資料の使い方", "必要な参考資料だけをまとめて見返せます。", Icons.Default.ImageSearch, success, listOf("→ 詳細画面で一覧管理", "→ 不要な資料はプロジェクト単位で整理"))
+        )
+        TutorialTarget.VIDEO_DOWNLOADER -> listOf(
+            TutorialPage("動画DL", "共有URLや入力URLから保存候補を取得します。", Icons.Default.VideoLibrary, success, listOf("→ URL入力後にダウンロード候補", "→ GIF投稿はGIF保存を優先")),
+            TutorialPage("履歴と確認", "保存済み履歴からビューアで確認できます。", Icons.Default.VideoLibrary, accent, listOf("→ 履歴サムネイルをタップ", "→ 重複時も再ダウンロード可能"))
+        )
+        TutorialTarget.TRASH -> listOf(
+            TutorialPage("ゴミ箱", "削除済みメディアの復元や完全削除ができます。", Icons.Default.Delete, danger, listOf("→ 復元で元の一覧へ", "→ 完全削除は取り消せません"))
+        )
+        TutorialTarget.SETTINGS -> listOf(
+            TutorialPage("設定", "全体設定、テーマ、ブックビューアに分けて調整します。", Icons.Default.Settings, soft, listOf("→ 全体設定は動作と起動", "→ テーマは色と文字サイズ", "→ ブックビューアは読書設定")),
+            TutorialPage("反映される設定", "操作、表示、パスワード、タッチインジケーターなどはビューアに反映されます。", Icons.Default.Settings, accent, listOf("→ コントロールパネル自動非表示時間", "→ 長押し拡大鏡", "→ 起動パスワード"))
+        )
     }
 }
 

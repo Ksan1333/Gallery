@@ -609,13 +609,13 @@ private fun extractMediaUrlCandidates(json: JSONObject): List<MediaUrlCandidate>
             media.gifDirectUrls().forEach { add(MediaUrlCandidate(it, contentType = "image/gif", isGifSource = true)) }
             media.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
             media.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
-            media.optString("url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
-            media.optString("media_url_https").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
-            media.optString("media_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
-            media.optString("display_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
-            media.optString("expanded_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
-            media.optString("thumbnail_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
-            media.optString("thumb").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource)) }
+            media.optString("url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
+            media.optString("media_url_https").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
+            media.optString("media_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
+            media.optString("display_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
+            media.optString("expanded_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
+            media.optString("thumbnail_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
+            media.optString("thumb").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
             media.optJSONArray("urls")?.let { addAll(it.toStringCandidates(isGifSource)) }
         }
     }
@@ -632,7 +632,7 @@ private fun JSONObject.collectNestedMediaCandidates(): List<MediaUrlCandidate> =
             when (val child = array.opt(index)) {
                 is JSONObject -> visitObject(child, inheritedGifSource)
                 is String -> child.takeIf { it.isDirectMediaUrl() }?.let {
-                    add(MediaUrlCandidate(it, isGifSource = inheritedGifSource))
+                    add(MediaUrlCandidate(it, isGifSource = inheritedGifSource || it.isLikelyXGifVideoUrl()))
                 }
             }
         }
@@ -645,7 +645,7 @@ private fun JSONObject.collectNestedMediaCandidates(): List<MediaUrlCandidate> =
         obj.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
         listOf("url", "media_url_https", "media_url", "display_url", "expanded_url", "thumbnail_url", "thumb").forEach { key ->
             obj.optString(key).takeIf { it.isDirectMediaUrl() }?.let {
-                add(MediaUrlCandidate(it, isGifSource = isGifSource))
+                add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl()))
             }
         }
         obj.keys().forEach { key ->
@@ -697,14 +697,14 @@ private fun JSONArray.toCandidates(isGifSource: Boolean = false): List<MediaUrlC
             .ifBlank { null }
         if (contentType == "application/x-mpegURL" || url.contains(".m3u8")) continue
         val variantIsGifSource = isGifSource || variant.isGifMediaObject()
-        add(MediaUrlCandidate(url, variant.optInt("bitrate", 0), contentType, variantIsGifSource))
+        add(MediaUrlCandidate(url, variant.optInt("bitrate", 0), contentType, variantIsGifSource || url.isLikelyXGifVideoUrl()))
     }
 }
 
 private fun JSONArray.toStringCandidates(isGifSource: Boolean = false): List<MediaUrlCandidate> = buildList {
     for (index in 0 until length()) {
         val url = optString(index).takeIf { it.isDirectMediaUrl() } ?: continue
-        add(MediaUrlCandidate(url, isGifSource = isGifSource))
+        add(MediaUrlCandidate(url, isGifSource = isGifSource || url.isLikelyXGifVideoUrl()))
     }
 }
 
@@ -720,6 +720,10 @@ private fun String.isMp4Url(): Boolean = VideoDownloadUrlUtils.isMp4Url(this)
 
 private fun String.isGifUrl(): Boolean {
     return VideoDownloadUrlUtils.isGifUrl(this)
+}
+
+private fun String.isLikelyXGifVideoUrl(): Boolean {
+    return VideoDownloadUrlUtils.isLikelyXGifVideoUrl(this)
 }
 
 private fun detectMediaType(url: String, contentTypeHeader: String?): Pair<String, String> {

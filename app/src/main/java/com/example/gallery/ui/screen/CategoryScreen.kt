@@ -2,9 +2,6 @@ package com.example.gallery.ui.screen
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -34,9 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -44,7 +38,6 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
@@ -61,7 +54,6 @@ import com.example.gallery.ui.component.GalleryTopControlBar
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.screen.MediaViewerScreen
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 @Stable
 data class CategoryData(
@@ -165,43 +157,6 @@ fun CategoryScreen(
 
     val draggedCategory = remember(draggedCategoryId, categories) {
         categories.find { it.id == draggedCategoryId }
-    }
-
-    val overscrollTranslationY = remember { Animatable(0f) }
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                if (available.y != 0f) {
-                    scope.launch {
-                        val current = overscrollTranslationY.value
-                        val delta = available.y * 0.4f
-                        val newTranslation = if (current * delta > 0) {
-                            current + delta * (1f / (1f + abs(current) / 100f))
-                        } else {
-                            current + delta
-                        }
-                        overscrollTranslationY.snapTo(newTranslation)
-                    }
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                overscrollTranslationY.animateTo(
-                    0f,
-                    spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
-                    )
-                )
-                return super.onPostFling(consumed, available)
-            }
-        }
     }
 
     BackHandler(selectedCategoryTitle != null || selectedImageIndex != null || isSelectionModeActive || isCategorySelectionMode) {
@@ -308,8 +263,7 @@ fun CategoryScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .nestedScroll(nestedScrollConnection)
-                        .graphicsLayer { translationY = overscrollTranslationY.value }) {
+                ) {
                     if (isLoading) {
                         Box(
                             modifier = Modifier.fillMaxSize(),

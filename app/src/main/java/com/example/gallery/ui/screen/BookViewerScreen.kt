@@ -4,21 +4,26 @@ import android.app.Activity
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
 import android.os.Build
+import android.os.BatteryManager
 import android.os.SystemClock
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +31,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +42,8 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -47,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -54,8 +65,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -63,13 +76,19 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.data.repository.BookType
+import com.example.gallery.ui.component.OperationProgressIndicator
+import com.example.gallery.ui.component.TapZoneGuideOverlay
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 
 private enum class BookPageLayout { AUTO, SINGLE, DOUBLE }
 private enum class BookReadingDirection { RIGHT_TO_LEFT, LEFT_TO_RIGHT }
@@ -77,8 +96,11 @@ private enum class BookFitMode { SCREEN, WIDTH, HEIGHT, FULL_SIZE, FIXED_SIZE, S
 private enum class BookBackground { BLACK, GRAY, WHITE }
 private enum class BookRenderQuality { STANDARD, HIGH, ULTRA }
 private enum class BookScrollMode { PAGE, VERTICAL, HORIZONTAL }
-private enum class BookSmoothFilter { AVERAGING, BILINEAR, BICUBIC, LANCZOS3 }
+private enum class BookSmoothFilter { NEAREST, AVERAGING, BILINEAR, BICUBIC, LANCZOS3 }
 private enum class BookColorMode { NORMAL, GRAYSCALE, COLORIZE }
+private enum class BookFullscreenMode { DISABLED, FULLSCREEN, HIDE_STATUS_BAR, HIDE_NAV_BAR }
+private enum class BookOrientationMode { AUTO, PORTRAIT, LANDSCAPE, REVERSE_PORTRAIT, REVERSE_LANDSCAPE }
+private enum class BookTransitionEffect { NONE, PAGE_CURL, SLIDE_HORIZONTAL, SLIDE_VERTICAL, COVER, FADE }
 
 private data class BookViewerSettings(
     val pageLayout: BookPageLayout = BookPageLayout.AUTO,
@@ -101,7 +123,19 @@ private data class BookViewerSettings(
     val cacheAroundPages: Boolean = true,
     val balloonMagnifier: Boolean = false,
     val tapNavigation: Boolean = true,
-    val keepScreenOn: Boolean = true
+    val keepScreenOn: Boolean = true,
+    val fullscreenMode: BookFullscreenMode = BookFullscreenMode.FULLSCREEN,
+    val orientationMode: BookOrientationMode = BookOrientationMode.AUTO,
+    val transitionEffect: BookTransitionEffect = BookTransitionEffect.SLIDE_HORIZONTAL,
+    val transitionSpeedMs: Int = 250,
+    val slideshowSpeedMs: Int = 250,
+    val menuOpacityPercent: Int = 0,
+    val longPressMagnifier: Boolean = false,
+    val doubleTapFastZoom: Boolean = true,
+    val magnifierScalePercent: Int = 200,
+    val readMark: String = "NONE",
+    val touchIndicator: Boolean = false,
+    val showClockBattery: Boolean = false
 )
 
 private const val BOOK_VIEWER_PREFS = "book_viewer_settings"
@@ -115,6 +149,7 @@ fun BookViewerScreen(
     onPreviousBook: (() -> Unit)? = null,
     onNextBook: (() -> Unit)? = null,
     onBookmarksChanged: () -> Unit = {},
+    onOpenBookSettings: () -> Unit = {},
     initialPage: Int = 0
 ) {
     val context = LocalContext.current
@@ -124,6 +159,17 @@ fun BookViewerScreen(
     val preferences = remember {
         context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE)
     }
+    val globalSettingsPrefs = remember {
+        context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
+    }
+    val progressDisplayMode = globalSettingsPrefs.getString(
+        "progressDisplayMode",
+        preferences.getString("progressDisplayMode", "MAX")
+    ) ?: "MAX"
+    val progressMiniStyle = globalSettingsPrefs.getString(
+        "progressMiniStyle",
+        preferences.getString("progressMiniStyle", "BAR")
+    ) ?: "BAR"
     val bookmarksPrefs = remember {
         context.getSharedPreferences("book_bookmarks", Context.MODE_PRIVATE)
     }
@@ -131,17 +177,38 @@ fun BookViewerScreen(
         mutableStateOf(bookmarksPrefs.contains(book.id))
     }
     var viewerSettings by remember { mutableStateOf(loadBookViewerSettings(preferences)) }
-    var showSettings by remember { mutableStateOf(false) }
+    val imageFilterQuality = when (viewerSettings.smoothFilter) {
+        BookSmoothFilter.NEAREST -> FilterQuality.None
+        BookSmoothFilter.AVERAGING -> FilterQuality.Low
+        BookSmoothFilter.BILINEAR -> FilterQuality.Medium
+        BookSmoothFilter.BICUBIC,
+        BookSmoothFilter.LANCZOS3 -> FilterQuality.High
+    }
 
     fun updateSettings(updated: BookViewerSettings) {
         viewerSettings = updated
         saveBookViewerSettings(preferences, updated)
     }
 
-    var screenOrientation by rememberSaveable { mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) }
-    val isLandscape = when (screenOrientation) {
+    var screenOrientationOverride by rememberSaveable { mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) }
+    val configuredScreenOrientation = when (viewerSettings.orientationMode) {
+        BookOrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        BookOrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        BookOrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        BookOrientationMode.REVERSE_PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+        BookOrientationMode.REVERSE_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+    }
+    val effectiveScreenOrientation =
+        if (screenOrientationOverride != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            screenOrientationOverride
+        } else {
+            configuredScreenOrientation
+        }
+    val isLandscape = when (effectiveScreenOrientation) {
         ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> true
+        ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE -> true
         ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> false
+        ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT -> false
         else -> configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     }
     val isTwoPageMode = when (viewerSettings.pageLayout) {
@@ -171,6 +238,7 @@ fun BookViewerScreen(
         initialPage = if (isTwoPageMode) currentAbsolutePage / 2 else currentAbsolutePage,
         pageCount = { spreadCount }
     )
+    val verticalListState = rememberLazyListState(initialFirstVisibleItemIndex = currentAbsolutePage)
 
     LaunchedEffect(isTwoPageMode) {
         val targetSpread = if (isTwoPageMode) currentAbsolutePage / 2 else currentAbsolutePage
@@ -184,6 +252,7 @@ fun BookViewerScreen(
     }
 
     var isUiVisible by remember { mutableStateOf(false) }
+    var isSlideshowRunning by rememberSaveable { mutableStateOf(false) }
     var seekValue by remember { mutableFloatStateOf(0f) }
     var isSeeking by remember { mutableStateOf(false) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -191,6 +260,22 @@ fun BookViewerScreen(
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    var touchIndicatorPoint by remember { mutableStateOf<Offset?>(null) }
+    var touchIndicatorToken by remember { mutableIntStateOf(0) }
+    var suppressTapAfterMagnifier by remember { mutableStateOf(false) }
+
+    fun showBookTouchIndicator(position: Offset) {
+        if (!viewerSettings.touchIndicator) return
+        touchIndicatorPoint = position
+        touchIndicatorToken++
+    }
+
+    LaunchedEffect(touchIndicatorToken) {
+        if (touchIndicatorPoint != null) {
+            delay(450)
+            touchIndicatorPoint = null
+        }
+    }
 
     LaunchedEffect(pagerState.currentPage) {
         scale = 1f
@@ -202,20 +287,27 @@ fun BookViewerScreen(
         window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
-    LaunchedEffect(isUiVisible, insetsController, screenOrientation) {
+    LaunchedEffect(insetsController, viewerSettings.fullscreenMode, isUiVisible) {
         insetsController?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (!isUiVisible) {
-            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
+        val hiddenTypes = when (viewerSettings.fullscreenMode) {
+            BookFullscreenMode.DISABLED -> 0
+            BookFullscreenMode.FULLSCREEN -> WindowInsetsCompat.Type.systemBars()
+            BookFullscreenMode.HIDE_STATUS_BAR -> WindowInsetsCompat.Type.statusBars()
+            BookFullscreenMode.HIDE_NAV_BAR -> WindowInsetsCompat.Type.navigationBars()
+        }
+        if (hiddenTypes == 0) {
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
+        } else {
+            insetsController?.hide(hiddenTypes)
+            if (isUiVisible) {
+                insetsController?.show(WindowInsetsCompat.Type.navigationBars())
+            }
         }
     }
 
     SideEffect {
-        if (screenOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-            (context as? Activity)?.requestedOrientation = screenOrientation
-        }
+        (context as? Activity)?.requestedOrientation = effectiveScreenOrientation
     }
 
     DisposableEffect(Unit) {
@@ -227,6 +319,13 @@ fun BookViewerScreen(
     val originalKeepScreenOn = remember(view) { view.keepScreenOn }
     SideEffect {
         view.keepScreenOn = viewerSettings.keepScreenOn
+        (context as? Activity)?.window?.let { window ->
+            if (viewerSettings.fullscreenMode == BookFullscreenMode.DISABLED) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            } else {
+                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            }
+        }
     }
     DisposableEffect(view) {
         onDispose {
@@ -322,6 +421,19 @@ fun BookViewerScreen(
         if (!isSeeking) {
             seekValue = pageToSeekValue(currentAbsolutePage)
         }
+        preferences.edit()
+            .putString("lastReadBookId:${book.folderPath.hashCode()}", book.id)
+            .putInt("lastReadPage:${book.id}", currentAbsolutePage)
+            .apply()
+    }
+
+    LaunchedEffect(isSlideshowRunning, viewerSettings.slideshowSeconds, viewerSettings.slideshowSpeedMs, pagerState.currentPage, scale) {
+        if (!isSlideshowRunning || viewerSettings.slideshowSeconds <= 0 || scale > 1.01f) return@LaunchedEffect
+        delay(viewerSettings.slideshowSeconds * 1000L)
+        val target = (pagerState.currentPage + 1).coerceAtMost(pagerState.pageCount - 1)
+        if (target != pagerState.currentPage) {
+            pagerState.animateScrollToPage(target, animationSpec = tween(viewerSettings.slideshowSpeedMs))
+        }
     }
 
     LaunchedEffect(isSeeking, seekValue, isRightToLeft) {
@@ -341,6 +453,61 @@ fun BookViewerScreen(
         previewBitmap = loaded
     }
 
+    fun moveSpread(forward: Boolean) {
+        val delta = if (forward) 1 else -1
+        val target = if (isRightToLeft) pagerState.currentPage - delta else pagerState.currentPage + delta
+        if (target in 0 until pagerState.pageCount) {
+            scope.launch { pagerState.animateScrollToPage(target, animationSpec = tween(viewerSettings.transitionSpeedMs)) }
+        }
+    }
+
+    fun saveCurrentScreenshot() {
+        val spreadIndex = if (viewerSettings.scrollMode == BookScrollMode.VERTICAL) currentAbsolutePage else pagerState.currentPage
+        val bitmap = captureViewToBitmap(context, isTwoPageMode, book.pageCount, spreadIndex, pageCache, viewSize)
+        if (bitmap != null) {
+            saveBitmapToGallery(context, bitmap)
+        } else {
+            Toast.makeText(context, "保存に失敗しました", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun toggleZoom() {
+        scale = if (scale > 1.01f) 1f else 2.5f
+        offset = Offset.Zero
+    }
+
+    fun handleTapZone(index: Int, zoneCount: Int) {
+        when (zoneCount) {
+            11 -> when (index) {
+                0 -> onPreviousBook?.invoke() ?: moveSpread(false)
+                1, 2 -> moveSpread(false)
+                3 -> toggleZoom()
+                4 -> saveCurrentScreenshot()
+                5 -> isUiVisible = !isUiVisible
+                6 -> onOpenBookSettings()
+                7 -> if (viewerSettings.slideshowSeconds > 0) {
+                    isSlideshowRunning = !isSlideshowRunning
+                    isUiVisible = !isSlideshowRunning
+                }
+                8 -> toggleZoom()
+                9 -> moveSpread(true)
+                10 -> onNextBook?.invoke() ?: moveSpread(true)
+                else -> isUiVisible = !isUiVisible
+            }
+            4 -> when (index) {
+                0 -> moveSpread(false)
+                1 -> toggleZoom()
+                2 -> onOpenBookSettings()
+                else -> moveSpread(true)
+            }
+            else -> when {
+                index < zoneCount / 3 -> moveSpread(false)
+                index >= zoneCount - zoneCount / 3 -> moveSpread(true)
+                else -> isUiVisible = !isUiVisible
+            }
+        }
+    }
+
     Box(modifier = Modifier
         .fillMaxSize()
         .background(viewerBackground)
@@ -352,6 +519,55 @@ fun BookViewerScreen(
             }
         }
 
+        if (viewerSettings.scrollMode == BookScrollMode.VERTICAL) {
+            LaunchedEffect(verticalListState.firstVisibleItemIndex) {
+                currentAbsolutePage = verticalListState.firstVisibleItemIndex.coerceIn(0, book.pageCount - 1)
+            }
+            LazyColumn(
+                state = verticalListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { position ->
+                            showBookTouchIndicator(position)
+                            val zoneCount = viewerSettings.tapZoneCount.coerceIn(3, 11)
+                            val zoneHeight = size.height.toFloat() / zoneCount.toFloat()
+                            val zoneIndex = (position.y / zoneHeight).toInt().coerceIn(0, zoneCount - 1)
+                            handleTapZone(zoneIndex, zoneCount)
+                        })
+                    },
+                userScrollEnabled = scale <= 1.01f
+            ) {
+                items((0 until book.pageCount).toList()) { pageIndex ->
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+                        val bmp = pageCache[pageIndex]
+                        LaunchedEffect(pageIndex) {
+                            if (pageCache[pageIndex] == null) {
+                                pageCache[pageIndex] = loadPage(pageIndex)
+                            }
+                        }
+                        if (bmp != null) {
+                            val pageAspectRatio = (bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.2f, 5f)
+                            Image(
+                                bmp.asImageBitmap(),
+                                null,
+                                Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(pageAspectRatio)
+                                    .padding(viewerSettings.pageGapDp.dp),
+                                contentScale = pageContentScale,
+                                filterQuality = imageFilterQuality
+                            )
+                        } else {
+                            Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+        val pageTransitionDensity = LocalDensity.current.density
         HorizontalPager(
             state = pagerState,
             modifier = Modifier
@@ -376,7 +592,37 @@ fun BookViewerScreen(
             reverseLayout = isRightToLeft,
             userScrollEnabled = scale <= 1.01f
         ) { spreadIndex ->
-            Box(modifier = Modifier.fillMaxSize()) {
+            val pageOffset = ((pagerState.currentPage - spreadIndex) + pagerState.currentPageOffsetFraction)
+                .absoluteValue
+                .coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        when (viewerSettings.transitionEffect) {
+                            BookTransitionEffect.NONE,
+                            BookTransitionEffect.SLIDE_HORIZONTAL -> Unit
+                            BookTransitionEffect.FADE -> {
+                                alpha = 1f - pageOffset * 0.55f
+                            }
+                            BookTransitionEffect.COVER -> {
+                                alpha = 1f - pageOffset * 0.25f
+                                val nextScale = 1f - pageOffset * 0.08f
+                                scaleX = nextScale
+                                scaleY = nextScale
+                            }
+                            BookTransitionEffect.SLIDE_VERTICAL -> {
+                                translationY = size.height * 0.18f * pageOffset
+                                alpha = 1f - pageOffset * 0.2f
+                            }
+                            BookTransitionEffect.PAGE_CURL -> {
+                                rotationY = pageOffset * if (isRightToLeft) -34f else 34f
+                                cameraDistance = 18f * pageTransitionDensity
+                                alpha = 1f - pageOffset * 0.18f
+                            }
+                        }
+                    }
+            ) {
                 if (isTwoPageMode) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         val firstPageIndex = spreadIndex * 2
@@ -395,7 +641,7 @@ fun BookViewerScreen(
                                     }
                                 }
                                 if (bmp != null) {
-                                    Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = pageContentScale, alignment = Alignment.CenterEnd)
+                                    Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = pageContentScale, alignment = Alignment.CenterEnd, filterQuality = imageFilterQuality)
                                 } else {
                                     CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
                                 }
@@ -412,7 +658,7 @@ fun BookViewerScreen(
                                     }
                                 }
                                 if (bmp != null) {
-                                    Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = pageContentScale, alignment = Alignment.CenterStart)
+                                    Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = pageContentScale, alignment = Alignment.CenterStart, filterQuality = imageFilterQuality)
                                 } else {
                                     CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
                                 }
@@ -433,48 +679,91 @@ fun BookViewerScreen(
                             bmp.asImageBitmap(),
                             null,
                             Modifier.fillMaxSize().padding(viewerSettings.pageGapDp.dp),
-                            contentScale = pageContentScale
+                            contentScale = pageContentScale,
+                            filterQuality = imageFilterQuality
                         )
                     } else {
                         CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
                     }
                 }
 
-                // Tap Areas (Inside Page to not block swiping)
                 if (scale <= 1.01f && viewerSettings.tapNavigation) {
+                    val zoneCount = viewerSettings.tapZoneCount.coerceIn(3, 11)
                     Row(modifier = Modifier.fillMaxSize()) {
-                        Box(Modifier.fillMaxHeight().weight(1f).clickable(interactionSource = remember { MutableInteractionSource() }, indication = ripple(color = Color.White.copy(alpha = 0.2f))) {
-                            val target = if (isRightToLeft) pagerState.currentPage + 1 else pagerState.currentPage - 1
-                            if (target in 0 until pagerState.pageCount) {
-                                scope.launch { pagerState.animateScrollToPage(target) }
-                            }
-                        })
-                        Box(Modifier.fillMaxHeight().weight(1f).pointerInput(Unit) { detectTapGestures { isUiVisible = !isUiVisible } })
-                        Box(Modifier.fillMaxHeight().weight(1f).clickable(interactionSource = remember { MutableInteractionSource() }, indication = ripple(color = Color.White.copy(alpha = 0.2f))) {
-                            val target = if (isRightToLeft) pagerState.currentPage - 1 else pagerState.currentPage + 1
-                            if (target in 0 until pagerState.pageCount) {
-                                scope.launch { pagerState.animateScrollToPage(target) }
-                            }
-                        })
+                        repeat(zoneCount) { zoneIndex ->
+                            Box(
+                                Modifier
+                                    .fillMaxHeight()
+                                    .weight(1f)
+                                    .pointerInput(zoneIndex, zoneCount, viewerSettings.doubleTapFastZoom, viewerSettings.longPressMagnifier, viewerSettings.magnifierScalePercent) {
+                                        detectTapGestures(
+                                            onPress = {
+                                                showBookTouchIndicator(it)
+                                                var magnifierShown = false
+                                                val job = scope.launch {
+                                                    delay(450)
+                                                    if (viewerSettings.longPressMagnifier) {
+                                                        magnifierShown = true
+                                                        suppressTapAfterMagnifier = true
+                                                        scale = (viewerSettings.magnifierScalePercent / 100f).coerceIn(1f, 3f)
+                                                    }
+                                                }
+                                                tryAwaitRelease()
+                                                job.cancel()
+                                                if (magnifierShown) {
+                                                    scale = 1f
+                                                    offset = Offset.Zero
+                                                }
+                                            },
+                                            onTap = {
+                                                showBookTouchIndicator(it)
+                                                if (suppressTapAfterMagnifier) {
+                                                    suppressTapAfterMagnifier = false
+                                                } else {
+                                                    handleTapZone(zoneIndex, zoneCount)
+                                                }
+                                            },
+                                            onDoubleTap = {
+                                                showBookTouchIndicator(it)
+                                                if (viewerSettings.doubleTapFastZoom) {
+                                                    scale = if (scale > 1.01f) 1f else 2.5f
+                                                    offset = Offset.Zero
+                                                }
+                                            }
+                                        )
+                                    }
+                            )
+                        }
                     }
                 } else if (scale <= 1.01f) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .pointerInput(Unit) { detectTapGestures { isUiVisible = !isUiVisible } }
+                            .pointerInput(Unit) { detectTapGestures { showBookTouchIndicator(it); isUiVisible = !isUiVisible } }
                     )
                 }
             }
         }
+        }
+
+        if (viewerSettings.touchIndicator) {
+            val zoneCount = viewerSettings.tapZoneCount.coerceIn(3, 11)
+            TapZoneGuideOverlay(
+                labels = bookTapZoneLabels(zoneCount),
+                vertical = viewerSettings.scrollMode == BookScrollMode.VERTICAL,
+                modifier = Modifier.matchParentSize()
+            )
+        }
 
         if (isUiVisible) {
-            Surface(color = Color.Black.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+            val menuAlpha = (1f - viewerSettings.menuOpacityPercent / 100f).coerceIn(0f, 1f)
+            Surface(color = Color.Black, modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().graphicsLayer { alpha = menuAlpha }) {
                 Box(modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars).height(60.dp).padding(horizontal = 8.dp)) {
                     IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart)) { Icon(Icons.Default.Close, null, tint = Color.White) }
                     Text(
                         book.title,
                         color = Color.White,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 56.dp, end = 192.dp),
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 56.dp, end = 240.dp),
                         maxLines = 1,
                         fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize
                     )
@@ -482,7 +771,7 @@ fun BookViewerScreen(
                         IconButton(onClick = {
                             isBookmarked = !isBookmarked
                             if (isBookmarked) {
-                                // ページ番号を含めて保存する形式に変更 (JSON文字列として保存)
+                                // ページ番号を含めて保存する形式に変更
                                 val bookmarkData = JSONObject()
                                     .put("title", book.title)
                                     .put("page", currentAbsolutePage)
@@ -502,6 +791,10 @@ fun BookViewerScreen(
                             )
                         }
 
+                        IconButton(onClick = onOpenBookSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "設定", tint = Color.White)
+                        }
+
                         var showMoreMenu by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { showMoreMenu = true }) {
@@ -513,6 +806,16 @@ fun BookViewerScreen(
                                 containerColor = GalleryThemeTokens.colors.card
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text(if (isSlideshowRunning) "スライドショー停止" else "スライドショー開始", color = if (viewerSettings.slideshowSeconds > 0) Color.White else Color.Gray) },
+                                    leadingIcon = { Icon(if (isSlideshowRunning) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if (viewerSettings.slideshowSeconds > 0) Color.White else Color.Gray) },
+                                    enabled = viewerSettings.slideshowSeconds > 0,
+                                    onClick = {
+                                        showMoreMenu = false
+                                        isSlideshowRunning = !isSlideshowRunning
+                                        isUiVisible = !isSlideshowRunning
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("この本を検索", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.White) },
                                     onClick = {
@@ -521,20 +824,11 @@ fun BookViewerScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("設定", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Settings, null, tint = Color.White) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showSettings = true
-                                    }
-                                )
-                                DropdownMenuItem(
                                     text = { Text("スクリーンショット", color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Screenshot, null, tint = Color.White) },
                                     onClick = {
                                         showMoreMenu = false
-                                        val bitmap = captureViewToBitmap(context, isTwoPageMode, book.pageCount, pagerState.currentPage, pageCache, viewSize)
-                                        if (bitmap != null) saveBitmapToGallery(context, bitmap) else Toast.makeText(context, "失敗", Toast.LENGTH_SHORT).show()
+                                        saveCurrentScreenshot()
                                     }
                                 )
                                 DropdownMenuItem(
@@ -542,7 +836,7 @@ fun BookViewerScreen(
                                     leadingIcon = { Icon(Icons.Default.ScreenRotation, null, tint = Color.White) },
                                     onClick = {
                                         showMoreMenu = false
-                                        screenOrientation = if (isLandscape) {
+                                        screenOrientationOverride = if (isLandscape) {
                                             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                         } else {
                                             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -554,7 +848,7 @@ fun BookViewerScreen(
                     }
                 }
             }
-            Surface(color = Color.Black.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            Surface(color = Color.Black, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().graphicsLayer { alpha = menuAlpha }) {
                 Column(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${currentAbsolutePage + 1} / ${book.pageCount}", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
@@ -582,7 +876,7 @@ fun BookViewerScreen(
                         TextButton(onClick = { onPreviousBook?.invoke() }, enabled = onPreviousBook != null) {
                             Icon(Icons.Default.SkipPrevious, contentDescription = null)
                             Spacer(Modifier.width(4.dp))
-                        Text("前の本")
+                            Text("前の本")
                         }
                         TextButton(onClick = { onNextBook?.invoke() }, enabled = onNextBook != null) {
                             Text("次の本")
@@ -609,212 +903,115 @@ fun BookViewerScreen(
             val progress = estimateMs?.let {
                 (pageLoadElapsedMs.toFloat() / it.toFloat()).coerceIn(0f, 0.95f)
             }
-            Surface(
-                color = Color.Black.copy(alpha = 0.78f),
-                shape = RoundedCornerShape(8.dp),
+            val progressLabel = if (estimateMs == null) {
+                "ページを読み込み中 ${formatBookLoadTime(pageLoadElapsedMs)}経過"
+            } else {
+                val remainingMs = (estimateMs - pageLoadElapsedMs).coerceAtLeast(0L)
+                "ページを読み込み中 残り約${formatBookLoadTime(remainingMs)}"
+            }
+            OperationProgressIndicator(
+                label = progressLabel,
+                progress = progress,
+                displayMode = progressDisplayMode,
+                minimumStyle = progressMiniStyle,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(if (progressDisplayMode == "MIN" && progressMiniStyle == "CIRCLE") Alignment.BottomEnd else Alignment.BottomCenter)
                     .padding(
                         start = 24.dp,
                         end = 24.dp,
                         bottom = if (isUiVisible) 176.dp else 28.dp
                     )
-                    .fillMaxWidth()
-            ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Text(
-                        text = if (estimateMs == null) {
-                            "ページを読み込み中 ${formatBookLoadTime(pageLoadElapsedMs)}経過"
-                        } else {
-                            val remainingMs = (estimateMs - pageLoadElapsedMs).coerceAtLeast(0L)
-                            "ページを読み込み中 残り約 ${formatBookLoadTime(remainingMs)}"
-                        },
-                        color = Color.White,
-                        fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    if (progress == null) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    } else {
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
+            )
+        }
+
+        val readProgress = ((currentAbsolutePage + 1).toFloat() / book.pageCount.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+        if (!isUiVisible && viewerSettings.readMark != "NONE") {
+            when (viewerSettings.readMark) {
+                "ICON" -> Text(
+                    text = "既読",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                )
+                "PAGE" -> Text(
+                    text = "${currentAbsolutePage + 1}/${book.pageCount}",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                )
+                "PERCENT" -> Text(
+                    text = "${(readProgress * 100).toInt()}%",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                )
+                "PROGRESS_BAR" -> LinearProgressIndicator(
+                    progress = { readProgress },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                )
             }
         }
-    }
 
-    if (showSettings) {
-        ModalBottomSheet(
-            onDismissRequest = { showSettings = false },
-            containerColor = GalleryThemeTokens.colors.card,
-            contentColor = Color.White
-        ) {
-            BookViewerSettingsPanel(
-                settings = viewerSettings,
-                onSettingsChange = ::updateSettings
+        if (viewerSettings.touchIndicator && scale > 1.01f) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier.align(Alignment.TopStart).padding(top = if (isUiVisible) 96.dp else 16.dp, start = 16.dp)
+            ) {
+                Text(
+                    text = "x${"%.1f".format(Locale.US, scale)}",
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                )
+            }
+        }
+
+        if (viewerSettings.showClockBattery) {
+            var clockText by remember { mutableStateOf("") }
+            LaunchedEffect(Unit) {
+                val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+                while (true) {
+                    val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                    val scaleValue = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+                    val battery = if (level >= 0 && scaleValue > 0) "${(level * 100 / scaleValue)}%" else "--%"
+                    clockText = "${formatter.format(Date())}  $battery"
+                    delay(30_000)
+                }
+            }
+            Surface(
+                color = Color.Black.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = if (isUiVisible) 96.dp else 16.dp, end = 16.dp)
+            ) {
+                Text(
+                    text = clockText,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                )
+            }
+        }
+
+        touchIndicatorPoint?.let { point ->
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset((point.x - 22f).roundToInt(), (point.y - 22f).roundToInt()) }
+                    .size(44.dp)
+                    .border(2.dp, Color.White.copy(alpha = 0.75f), RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
             )
         }
     }
+
 }
 
-@Composable
-private fun BookViewerSettingsPanel(
-    settings: BookViewerSettings,
-    onSettingsChange: (BookViewerSettings) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Text("本ビューア設定", fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        Text(
-            "Perfect Viewer の主要項目を参考に、ページ表示、読み方向、表示倍率、補正、キャッシュをここで調整できます。",
-            color = Color.LightGray,
-            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
-        )
-
-        BookChoiceSetting(
-            title = "ページ表示",
-            options = listOf("自動" to BookPageLayout.AUTO, "1ページ" to BookPageLayout.SINGLE, "見開き" to BookPageLayout.DOUBLE),
-            selected = settings.pageLayout,
-            onSelected = { onSettingsChange(settings.copy(pageLayout = it)) }
-        )
-        BookChoiceSetting(
-            title = "読み方向",
-            options = listOf("右から左" to BookReadingDirection.RIGHT_TO_LEFT, "左から右" to BookReadingDirection.LEFT_TO_RIGHT),
-            selected = settings.readingDirection,
-            onSelected = { onSettingsChange(settings.copy(readingDirection = it)) }
-        )
-        BookChoiceSetting(
-            title = "ページ送り",
-            options = listOf("ページ" to BookScrollMode.PAGE, "縦" to BookScrollMode.VERTICAL, "横" to BookScrollMode.HORIZONTAL),
-            selected = settings.scrollMode,
-            onSelected = { onSettingsChange(settings.copy(scrollMode = it)) }
-        )
-        BookChoiceSetting(
-            title = "ページの合わせ方",
-            options = listOf(
-                "画面内" to BookFitMode.SCREEN,
-                "幅" to BookFitMode.WIDTH,
-                "高さ" to BookFitMode.HEIGHT,
-                "原寸" to BookFitMode.FULL_SIZE,
-                "固定" to BookFitMode.FIXED_SIZE,
-                "伸縮" to BookFitMode.STRETCH
-            ),
-            selected = settings.fitMode,
-            onSelected = { onSettingsChange(settings.copy(fitMode = it)) }
-        )
-        BookChoiceSetting(
-            title = "背景",
-            options = listOf("黒" to BookBackground.BLACK, "グレー" to BookBackground.GRAY, "白" to BookBackground.WHITE),
-            selected = settings.background,
-            onSelected = { onSettingsChange(settings.copy(background = it)) }
-        )
-        BookChoiceSetting(
-            title = "表示画質",
-            options = listOf("標準" to BookRenderQuality.STANDARD, "高画質" to BookRenderQuality.HIGH, "最高" to BookRenderQuality.ULTRA),
-            selected = settings.renderQuality,
-            onSelected = { onSettingsChange(settings.copy(renderQuality = it)) }
-        )
-        BookChoiceSetting(
-            title = "スムージング",
-            options = listOf(
-                "平均" to BookSmoothFilter.AVERAGING,
-                "Bilinear" to BookSmoothFilter.BILINEAR,
-                "Bicubic" to BookSmoothFilter.BICUBIC,
-                "Lanczos3" to BookSmoothFilter.LANCZOS3
-            ),
-            selected = settings.smoothFilter,
-            onSelected = { onSettingsChange(settings.copy(smoothFilter = it)) }
-        )
-        BookChoiceSetting(
-            title = "色補正",
-            options = listOf("通常" to BookColorMode.NORMAL, "グレー" to BookColorMode.GRAYSCALE, "色味補正" to BookColorMode.COLORIZE),
-            selected = settings.colorMode,
-            onSelected = { onSettingsChange(settings.copy(colorMode = it)) }
-        )
-
-        BookIntSlider("ページ間隔", settings.pageGapDp, 0f..24f, 5, "dp") { onSettingsChange(settings.copy(pageGapDp = it)) }
-        BookIntSlider("先読み", settings.preloadPages, 0f..5f, 4, "ページ") { onSettingsChange(settings.copy(preloadPages = it)) }
-        BookIntSlider("固定サイズ", settings.fixedSizePercent, 50f..200f, 14, "%") { onSettingsChange(settings.copy(fixedSizePercent = it)) }
-        BookIntSlider("明るさ", settings.brightness, -50f..50f, 19, "") { onSettingsChange(settings.copy(brightness = it)) }
-        BookIntSlider("コントラスト", settings.contrast, -50f..50f, 19, "") { onSettingsChange(settings.copy(contrast = it)) }
-        BookIntSlider("ガンマ", settings.gamma, 50f..200f, 14, "%") { onSettingsChange(settings.copy(gamma = it)) }
-        BookIntSlider("タップ領域", settings.tapZoneCount, 1f..5f, 3, "分割") { onSettingsChange(settings.copy(tapZoneCount = it)) }
-        BookIntSlider("スライドショー", settings.slideshowSeconds, 0f..30f, 29, "秒") { onSettingsChange(settings.copy(slideshowSeconds = it)) }
-
-        BookSwitchSetting("白い余白を自動カット", settings.autoTrimWhiteBorder) { onSettingsChange(settings.copy(autoTrimWhiteBorder = it)) }
-        BookSwitchSetting("前後ページをキャッシュ", settings.cacheAroundPages) { onSettingsChange(settings.copy(cacheAroundPages = it)) }
-        BookSwitchSetting("バルーン拡大鏡", settings.balloonMagnifier) { onSettingsChange(settings.copy(balloonMagnifier = it)) }
-        BookSwitchSetting("左右タップでページ送り", settings.tapNavigation) { onSettingsChange(settings.copy(tapNavigation = it)) }
-        BookSwitchSetting("閲覧中は画面を消さない", settings.keepScreenOn) { onSettingsChange(settings.copy(keepScreenOn = it)) }
-        Spacer(Modifier.height(24.dp))
-    }
-}
-
-@Composable
-private fun <T> BookChoiceSetting(
-    title: String,
-    options: List<Pair<String, T>>,
-    selected: T,
-    onSelected: (T) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.ScrollbarLabelFontSize)
-        options.chunked(3).forEach { rowOptions ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                rowOptions.forEach { (label, value) ->
-                    FilterChip(
-                        selected = selected == value,
-                        onClick = { onSelected(value) },
-                        label = { Text(label) }
-                    )
-                }
-            }
-        }
-
-    }
-}
-
-@Composable
-private fun BookIntSlider(
-    title: String,
-    value: Int,
-    range: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    suffix: String,
-    onValueChange: (Int) -> Unit
-) {
-    Text("$title $value$suffix", color = Color.LightGray)
-    Slider(
-        value = value.toFloat(),
-        onValueChange = { onValueChange(it.toInt()) },
-        valueRange = range,
-        steps = steps
-    )
-}
-
-@Composable
-private fun BookSwitchSetting(
-    title: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(title, color = Color.LightGray, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
 
 private fun openBookTitleSearch(context: Context, title: String) {
     val query = title.substringBeforeLast('.').ifBlank { title }
@@ -826,18 +1023,56 @@ private fun openBookTitleSearch(context: Context, title: String) {
         .onFailure { Toast.makeText(context, "ブラウザを開けませんでした", Toast.LENGTH_SHORT).show() }
 }
 
+private fun bookTapZoneLabels(zoneCount: Int): List<String> {
+    return when (zoneCount) {
+        11 -> listOf(
+            "前の本",
+            "前ページ",
+            "前ページ",
+            "ズーム",
+            "スクショ",
+            "メニュー",
+            "設定",
+            "スライド",
+            "ズーム",
+            "次ページ",
+            "次の本"
+        )
+        4 -> listOf("前ページ", "ズーム", "設定", "次ページ")
+        else -> listOf("前ページ", "メニュー", "次ページ")
+    }
+}
+
 private fun loadBookViewerSettings(preferences: android.content.SharedPreferences): BookViewerSettings {
     fun <T : Enum<T>> enumValue(key: String, default: T, values: Array<T>): T {
         val stored = preferences.getString(key, default.name)
         return values.firstOrNull { it.name == stored } ?: default
     }
+    fun scrollModeValue(): BookScrollMode {
+        val stored = preferences.getString("viewerMode", preferences.getString("scrollMode", BookScrollMode.PAGE.name))
+        return when (stored) {
+            "VERTICAL_SCROLL" -> BookScrollMode.VERTICAL
+            "HORIZONTAL_SCROLL" -> BookScrollMode.HORIZONTAL
+            else -> BookScrollMode.entries.firstOrNull { it.name == stored } ?: BookScrollMode.PAGE
+        }
+    }
+    fun slideshowSecondsValue(): Int {
+        val intervalMs = preferences.getInt("slideshowIntervalMs", -1)
+        return if (intervalMs > 0) (intervalMs / 1000).coerceIn(1, 30) else preferences.getInt("slideshowSeconds", 0).coerceIn(0, 30)
+    }
+    val bindingDirection = preferences.getString("bindingDirection", null)
+    val readingDirection = when (bindingDirection) {
+        "LEFT" -> BookReadingDirection.LEFT_TO_RIGHT
+        "RIGHT" -> BookReadingDirection.RIGHT_TO_LEFT
+        else -> enumValue("readingDirection", BookReadingDirection.RIGHT_TO_LEFT, BookReadingDirection.entries.toTypedArray())
+    }
     return BookViewerSettings(
         pageLayout = enumValue("pageLayout", BookPageLayout.AUTO, BookPageLayout.entries.toTypedArray()),
-        readingDirection = enumValue("readingDirection", BookReadingDirection.RIGHT_TO_LEFT, BookReadingDirection.entries.toTypedArray()),
+        readingDirection = readingDirection,
         fitMode = enumValue("fitMode", BookFitMode.SCREEN, BookFitMode.entries.toTypedArray()),
         background = enumValue("background", BookBackground.BLACK, BookBackground.entries.toTypedArray()),
         renderQuality = enumValue("renderQuality", BookRenderQuality.STANDARD, BookRenderQuality.entries.toTypedArray()),
-        scrollMode = enumValue("scrollMode", BookScrollMode.PAGE, BookScrollMode.entries.toTypedArray()),
+        scrollMode = scrollModeValue(),
         smoothFilter = enumValue("smoothFilter", BookSmoothFilter.BILINEAR, BookSmoothFilter.entries.toTypedArray()),
         colorMode = enumValue("colorMode", BookColorMode.NORMAL, BookColorMode.entries.toTypedArray()),
         pageGapDp = preferences.getInt("pageGapDp", 0).coerceIn(0, 24),
@@ -846,13 +1081,30 @@ private fun loadBookViewerSettings(preferences: android.content.SharedPreference
         brightness = preferences.getInt("brightness", 0).coerceIn(-50, 50),
         contrast = preferences.getInt("contrast", 0).coerceIn(-50, 50),
         gamma = preferences.getInt("gamma", 100).coerceIn(50, 200),
-        tapZoneCount = preferences.getInt("tapZoneCount", 3).coerceIn(1, 5),
-        slideshowSeconds = preferences.getInt("slideshowSeconds", 0).coerceIn(0, 30),
+        tapZoneCount = when (preferences.getString("tapZoneLayout", "")) {
+            "ELEVEN" -> 11
+            "FOUR" -> 4
+            "THREE" -> 3
+            else -> preferences.getInt("tapZoneCount", 3).coerceIn(1, 11)
+        },
+        slideshowSeconds = slideshowSecondsValue(),
         autoTrimWhiteBorder = preferences.getBoolean("autoTrimWhiteBorder", false),
-        cacheAroundPages = preferences.getBoolean("cacheAroundPages", true),
-        balloonMagnifier = preferences.getBoolean("balloonMagnifier", false),
+        cacheAroundPages = preferences.getBoolean("imageCache", preferences.getBoolean("cacheAroundPages", true)),
+        balloonMagnifier = preferences.getBoolean("longPressMagnifier", preferences.getBoolean("balloonMagnifier", false)),
         tapNavigation = preferences.getBoolean("tapNavigation", true),
-        keepScreenOn = preferences.getBoolean("keepScreenOn", true)
+        keepScreenOn = preferences.getBoolean("keepScreenOn", true),
+        fullscreenMode = enumValue("fullscreenMode", BookFullscreenMode.FULLSCREEN, BookFullscreenMode.entries.toTypedArray()),
+        orientationMode = enumValue("orientation", BookOrientationMode.AUTO, BookOrientationMode.entries.toTypedArray()),
+        transitionEffect = enumValue("transitionEffect", BookTransitionEffect.SLIDE_HORIZONTAL, BookTransitionEffect.entries.toTypedArray()),
+        transitionSpeedMs = preferences.getInt("transitionSpeedMs", 250).coerceIn(0, 2000),
+        slideshowSpeedMs = preferences.getInt("slideshowSpeedMs", 250).coerceIn(0, 2000),
+        menuOpacityPercent = preferences.getInt("menuOpacityPercent", 0).coerceIn(0, 100),
+        longPressMagnifier = preferences.getBoolean("longPressMagnifier", false),
+        doubleTapFastZoom = preferences.getBoolean("doubleTapFastZoom", true),
+        magnifierScalePercent = preferences.getInt("magnifierScalePercent", 200).coerceIn(100, 300),
+        readMark = preferences.getString("readMark", "NONE") ?: "NONE",
+        touchIndicator = preferences.getBoolean("touchIndicator", false),
+        showClockBattery = preferences.getBoolean("showClockBattery", false)
     )
 }
 
@@ -863,6 +1115,7 @@ private fun saveBookViewerSettings(
     preferences.edit()
         .putString("pageLayout", settings.pageLayout.name)
         .putString("readingDirection", settings.readingDirection.name)
+        .putString("bindingDirection", if (settings.readingDirection == BookReadingDirection.LEFT_TO_RIGHT) "LEFT" else "RIGHT")
         .putString("fitMode", settings.fitMode.name)
         .putString("background", settings.background.name)
         .putString("renderQuality", settings.renderQuality.name)
@@ -882,12 +1135,24 @@ private fun saveBookViewerSettings(
         .putBoolean("balloonMagnifier", settings.balloonMagnifier)
         .putBoolean("tapNavigation", settings.tapNavigation)
         .putBoolean("keepScreenOn", settings.keepScreenOn)
+        .putString("fullscreenMode", settings.fullscreenMode.name)
+        .putString("orientation", settings.orientationMode.name)
+        .putString("transitionEffect", settings.transitionEffect.name)
+        .putInt("transitionSpeedMs", settings.transitionSpeedMs)
+        .putInt("slideshowSpeedMs", settings.slideshowSpeedMs)
+        .putInt("menuOpacityPercent", settings.menuOpacityPercent)
+        .putBoolean("longPressMagnifier", settings.longPressMagnifier)
+        .putBoolean("doubleTapFastZoom", settings.doubleTapFastZoom)
+        .putInt("magnifierScalePercent", settings.magnifierScalePercent)
+        .putString("readMark", settings.readMark)
+        .putBoolean("touchIndicator", settings.touchIndicator)
+        .putBoolean("showClockBattery", settings.showClockBattery)
         .apply()
 }
 
 private fun formatBookLoadTime(durationMs: Long): String {
     val seconds = durationMs.coerceAtLeast(0L) / 1000f
-    return if (seconds < 10f) "%.1f?".format(Locale.JAPAN, seconds) else "${seconds.toInt()}?"
+    return if (seconds < 10f) "%.1f秒".format(Locale.JAPAN, seconds) else "${seconds.toInt()}秒"
 }
 
 private fun captureViewToBitmap(context: Context, isTwoPageMode: Boolean, pageCount: Int, spreadIdx: Int, cache: Map<Int, Bitmap?>, viewSize: IntSize): Bitmap? {
@@ -944,5 +1209,5 @@ private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
             }
             Toast.makeText(context, "保存しました", Toast.LENGTH_SHORT).show()
         }
-    } catch (e: Exception) { Toast.makeText(context, "失敗", Toast.LENGTH_SHORT).show() }
+    } catch (e: Exception) { Toast.makeText(context, "保存に失敗しました", Toast.LENGTH_SHORT).show() }
 }

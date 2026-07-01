@@ -26,18 +26,20 @@ class GalleryApplication : Application(), ImageLoaderFactory {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun newImageLoader(): ImageLoader {
-        val imageDispatcher = Dispatchers.IO.limitedParallelism(2)
+        val globalPrefs = getSharedPreferences("global_settings", MODE_PRIVATE)
+        val lowMemoryMode = globalPrefs.getBoolean("lowMemoryMode", false)
+        val imageDispatcher = Dispatchers.IO.limitedParallelism(if (lowMemoryMode) 1 else 2)
 
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(if (lowMemoryMode) 0.10 else 0.25)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(this.cacheDir.resolve("image_cache"))
-                    .maxSizePercent(0.1) // 2%から10%に拡大
+                    .maxSizePercent(if (lowMemoryMode) 0.03 else 0.1)
                     .build()
             }
             .components {
@@ -48,7 +50,7 @@ class GalleryApplication : Application(), ImageLoaderFactory {
                 }
                 add(VideoFrameDecoder.Factory())
             }
-            .allowRgb565(true) // デコード速度を向上させメモリ消費を半分に
+            .allowRgb565(lowMemoryMode)
             .dispatcher(imageDispatcher)
             .interceptorDispatcher(imageDispatcher) // IOスレッドで実行
             .allowHardware(true) // グリッド表示を高速化（ビューワーは個別設定可能）

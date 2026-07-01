@@ -50,6 +50,13 @@ object VideoDownloadUrlUtils {
         return lower.contains(".gif") || lower.contains("format=gif")
     }
 
+    fun isLikelyXGifVideoUrl(value: String): Boolean {
+        val lower = value.lowercase(Locale.US)
+        return lower.contains("video.twimg.com/tweet_video/") ||
+            lower.contains("/tweet_video/") ||
+            lower.contains("animated_gif")
+    }
+
     fun detectMediaType(url: String, contentTypeHeader: String?): Pair<String, String> {
         val lowerUrl = url.lowercase(Locale.US)
         val contentType = contentTypeHeader
