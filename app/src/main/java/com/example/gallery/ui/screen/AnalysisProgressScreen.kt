@@ -6,6 +6,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.gallery.ui.AppConstants
@@ -57,12 +60,12 @@ fun AnalysisProgressScreen(
         ) {
             CircularProgressIndicator(color = Color.White)
             Spacer(Modifier.height(16.dp))
-            Text("バックグラウンドで解析を実行中です...", color = Color.White)
+            Text(stringResource(R.string.analysis_bg_running), color = Color.White)
             Spacer(Modifier.height(8.dp))
-            Text("このまま他の画面へ移動しても解析は継続されます。", color = Color.Gray, fontSize = AppConstants.SmallFontSize)
+            Text(stringResource(R.string.analysis_keep_moving), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize)
             Spacer(Modifier.height(24.dp))
             Button(onClick = onComplete) {
-                Text("ギャラリーに戻る")
+                Text(stringResource(R.string.analysis_back_to_gallery))
             }
         }
     }

@@ -67,6 +67,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -79,6 +82,7 @@ import coil.request.videoFrameMillis
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.gallery.ui.AppConstants
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.entity.VideoDownloadEntity
 import com.example.gallery.service.GlobalOperationService
@@ -199,9 +203,9 @@ fun VideoDownloadScreen(
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = "Video Downloader",
+                title = stringResource(R.string.video_dl_title),
                 navigationIcon = Icons.Default.Menu,
-                navigationContentDescription = "メニュー",
+                navigationContentDescription = stringResource(R.string.drawer_menu_title),
                 onNavigationClick = onMenuClick
             )
         },
@@ -216,14 +220,14 @@ fun VideoDownloadScreen(
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
-                label = { Text("X (Twitter) URL") },
+                label = { Text(stringResource(R.string.video_dl_url_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 leadingIcon = { Icon(Icons.Default.Link, null) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = Color.White,
-                    unfocusedBorderColor = Color.Gray
+                    unfocusedBorderColor = colorResource(R.color.gray)
                 ),
                 singleLine = true
             )
@@ -235,7 +239,7 @@ fun VideoDownloadScreen(
                     if (urlInput.isNotBlank()) {
                         showDownloadModal = true
                     } else {
-                        Toast.makeText(context, "Enter a URL", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.video_dl_enter_url), Toast.LENGTH_SHORT).show()
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -243,7 +247,7 @@ fun VideoDownloadScreen(
             ) {
                 Icon(Icons.Default.Download, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Show download options")
+                Text(stringResource(R.string.video_dl_show_options))
             }
 
             Spacer(Modifier.height(32.dp))
@@ -254,9 +258,9 @@ fun VideoDownloadScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.History, null, tint = Color.Gray)
+                    Icon(Icons.Default.History, null, tint = colorResource(R.color.gray))
                     Spacer(Modifier.width(8.dp))
-                    Text("Download history", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.video_dl_history), color = Color.White, fontSize = AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
                 }
 
                 if (downloads.isNotEmpty()) {
@@ -264,13 +268,13 @@ fun VideoDownloadScreen(
                         onClick = {
                             scope.launch {
                                 galleryState.repository.mediaDao.clearVideoDownloadHistory()
-                                Toast.makeText(context, "History cleared", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.video_dl_history_cleared), Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {
                         Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Clear history", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
+                        Text(stringResource(R.string.video_dl_clear_history), fontSize = AppConstants.SmallFontSize)
                     }
                 }
             }
@@ -354,16 +358,16 @@ fun DownloadHistoryItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(download.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
                 Spacer(Modifier.height(4.dp))
-                Text(download.url, color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, maxLines = 1)
+                Text(download.url, color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, maxLines = 1)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(dateFormat.format(Date(download.downloadDate)), color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.ExtraSmallFontSize)
+                    Text(dateFormat.format(Date(download.downloadDate)), color = colorResource(R.color.gray), fontSize = AppConstants.ExtraSmallFontSize)
                     Text(
                         download.status,
-                        color = if (download.status == "COMPLETED") Color.Green else Color.Red,
-                        fontSize = com.example.gallery.ui.AppConstants.ExtraSmallFontSize
+                        color = if (download.status == "COMPLETED") Color.Green else colorResource(R.color.red),
+                        fontSize = AppConstants.ExtraSmallFontSize
                     )
                 }
             }
@@ -402,7 +406,7 @@ private fun DownloadMediaPreview(
                 modifier = Modifier.size(28.dp)
             )
         } else {
-            Text("...", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
+            Text("...", color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize)
         }
     }
 }
@@ -447,18 +451,18 @@ fun DownloadOptionsModal(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = GalleryThemeTokens.colors.surface,
-        title = { Text("Download settings", color = Color.White) },
+        title = { Text(stringResource(R.string.video_dl_settings), color = Color.White) },
         text = {
             when {
                 isLoading -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        CircularProgressIndicator(color = Color.Cyan)
+                        CircularProgressIndicator(color = colorResource(R.color.cyan))
                         Spacer(Modifier.height(8.dp))
-                        Text("Resolving media...", color = Color.LightGray)
+                        Text(stringResource(R.string.video_dl_resolving), color = Color.LightGray)
                     }
                 }
                 error != null -> {
-                    Text(error!!, color = Color.Red)
+                    Text(error!!, color = colorResource(R.color.red))
                 }
                 else -> {
                     Column {
@@ -470,13 +474,13 @@ fun DownloadOptionsModal(
                         )
                         Spacer(Modifier.height(12.dp))
                         if (isDuplicate) {
-                            Text("Note: this post is already downloaded.", color = Color.Yellow, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
+                            Text(stringResource(R.string.video_dl_already_downloaded), color = colorResource(R.color.yellow), fontSize = AppConstants.SubtitleFontSize)
                             Spacer(Modifier.height(8.dp))
                         }
                         if (isGifDownload) {
-                            Text("GIF post detected. Download as GIF image.", color = Color.LightGray)
+                            Text(stringResource(R.string.video_dl_gif_detected), color = Color.LightGray)
                         } else {
-                            Text("Select quality:", color = Color.LightGray)
+                            Text(stringResource(R.string.video_dl_select_quality), color = Color.LightGray)
                             qualities.forEach { quality ->
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -513,8 +517,8 @@ fun DownloadOptionsModal(
         },
         dismissButton = {
             Row {
-                TextButton(onClick = onNavigateHome) { Text("HOME", color = Color.Gray) }
-                TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) }
+                TextButton(onClick = onNavigateHome) { Text(stringResource(R.string.nav_home), color = colorResource(R.color.gray)) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel), color = colorResource(R.color.gray)) }
             }
         }
     )
@@ -758,7 +762,7 @@ fun startDownloadTask(
         )
         galleryState.repository.mediaDao.insertVideoDownload(entity)
         val operationId = GlobalOperationService.startOperation(
-            title = "動画をダウンロード中",
+            title = context.getString(R.string.video_dl_downloading),
             canCancel = false
         )
 
@@ -794,6 +798,7 @@ fun startDownloadTask(
                         tempFile.outputStream().use { output ->
                             responseBody.byteStream().use { input ->
                                 copyDownloadWithProgress(
+                                    context = context,
                                     input = input,
                                     output = output,
                                     totalBytes = totalBytes,
@@ -802,7 +807,7 @@ fun startDownloadTask(
                                 )
                             }
                         }
-            GlobalOperationService.updateProgress(0.92f, "GIFへ変換中...", operationId)
+            GlobalOperationService.updateProgress(0.92f, context.getString(R.string.video_dl_converting_gif), operationId)
                         transcodeMp4ToGif(context, tempFile)
                     } finally {
                         tempFile.delete()
@@ -836,11 +841,12 @@ fun startDownloadTask(
 
                 resolver.openOutputStream(uri)?.use { outputStream ->
                     if (outputBytes != null) {
-            GlobalOperationService.updateProgress(0.98f, "GIFを保存中...", operationId)
+            GlobalOperationService.updateProgress(0.98f, context.getString(R.string.video_dl_saving_gif), operationId)
                         outputStream.write(outputBytes)
                     } else {
                         responseBody.byteStream().use { input ->
                             copyDownloadWithProgress(
+                                context = context,
                                 input = input,
                                 output = outputStream,
                                 totalBytes = totalBytes,
@@ -885,7 +891,7 @@ fun startDownloadTask(
                 }
 
                 galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "COMPLETED", savePath = actualPath))
-            GlobalOperationService.updateProgress(1f, "保存が完了しました", operationId)
+            GlobalOperationService.updateProgress(1f, context.getString(R.string.video_dl_complete), operationId)
 
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Download complete: $extension", Toast.LENGTH_SHORT).show()
@@ -904,6 +910,7 @@ fun startDownloadTask(
 }
 
 private suspend fun copyDownloadWithProgress(
+    context: Context,
     input: InputStream,
     output: OutputStream,
     totalBytes: Long,
@@ -946,10 +953,10 @@ private suspend fun copyDownloadWithProgress(
                 append(formatDownloadSize(bytesPerSecond))
                 append(" /s")
                 if (remainingMs != null && elapsedMs >= 500L) {
-                    append("  残り ")
-                    append(formatDownloadEta(remainingMs))
+                    append("  " + context.getString(R.string.video_dl_remaining) + " ")
+                    append(formatDownloadEta(context, remainingMs))
                 } else {
-                    append("  残り時間を計測中")
+                    append("  " + context.getString(R.string.video_dl_calculating_time))
                 }
             }
             GlobalOperationService.updateProgress(fraction * progressEnd, status, operationId)
@@ -967,12 +974,12 @@ private fun formatDownloadSize(bytes: Long): String {
     }
 }
 
-private fun formatDownloadEta(durationMs: Long): String {
+private fun formatDownloadEta(context: Context, durationMs: Long): String {
     val totalSeconds = (durationMs.coerceAtLeast(0L) + 999L) / 1000L
     return if (totalSeconds < 60L) {
-        "${totalSeconds}秒"
+        "${totalSeconds}" + context.getString(R.string.unit_seconds)
     } else {
-        "${totalSeconds / 60L}分${totalSeconds % 60L}秒"
+        "${totalSeconds / 60L}" + context.getString(R.string.unit_minutes) + "${totalSeconds % 60L}" + context.getString(R.string.unit_seconds)
     }
 }
 

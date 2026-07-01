@@ -51,6 +51,12 @@ object GlobalOperationService {
         _operationsMap.value = _operationsMap.value + (targetId to current.copy(isCancelRequested = true))
     }
 
+    fun getOperation(idOrTag: String?): OperationState? {
+        if (idOrTag == null) return null
+        return _operationsMap.value[idOrTag]
+            ?: _operationsMap.value.values.firstOrNull { it.id == idOrTag || it.tag == idOrTag }
+    }
+
     fun updateProgress(current: Float, text: String = "", id: String? = null) {
         val targetId = id ?: lastOperationId ?: return
         val op = _operationsMap.value[targetId] ?: return

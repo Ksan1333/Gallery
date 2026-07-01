@@ -11,6 +11,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.gallery.ui.AppConstants
@@ -93,15 +96,15 @@ fun FolderPickerScreen(
     if (showCreateFolderDialog) {
         AlertDialog(
             onDismissRequest = { showCreateFolderDialog = false },
-            title = { Text("新規フォルダ作成") },
+            title = { Text(stringResource(R.string.folder_create_new)) },
             text = {
                 Column {
-                    Text("DCIM直下に作成されます", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray)
+                    Text(stringResource(R.string.folder_dcim_desc), fontSize = AppConstants.SmallFontSize, color = Color.Gray)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newFolderName,
                         onValueChange = { newFolderName = it },
-                        label = { Text("フォルダ名") },
+                        label = { Text(stringResource(R.string.folder_name)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -119,10 +122,10 @@ fun FolderPickerScreen(
                             }
                         }
                     }
-                ) { Text("作成") }
+                ) { Text(stringResource(R.string.btn_create)) }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateFolderDialog = false }) { Text("キャンセル") }
+                TextButton(onClick = { showCreateFolderDialog = false }) { Text(stringResource(R.string.btn_cancel)) }
             }
         )
     }

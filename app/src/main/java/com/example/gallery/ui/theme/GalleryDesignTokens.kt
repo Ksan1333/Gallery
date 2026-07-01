@@ -6,6 +6,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
+import com.example.gallery.R
 
 enum class GalleryThemeMode {
     SYSTEM,
@@ -50,80 +53,89 @@ object GalleryTextSizeTokens {
     private const val MinScale = 0.75f
     private const val MaxScale = 1.45f
 
-    val Default = GalleryTextSizes(
-        title = 24.sp,
-        header = 20.sp,
-        body = 16.sp,
-        subtitle = 14.sp,
-        small = 12.sp,
-        extraSmall = 11.sp,
-        tiny = 10.sp,
-        bottomNav = 9.sp,
-        scrollbarLabel = 13.sp,
-        badge = 10.sp,
-        denseBadge = 9.sp
-    )
+    val Default: GalleryTextSizes
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryTextSizes(
+            title = dimensionResource(R.dimen.text_size_title).value.sp,
+            header = dimensionResource(R.dimen.text_size_header).value.sp,
+            body = dimensionResource(R.dimen.text_size_body).value.sp,
+            subtitle = dimensionResource(R.dimen.text_size_subtitle).value.sp,
+            small = dimensionResource(R.dimen.text_size_small).value.sp,
+            extraSmall = dimensionResource(R.dimen.text_size_extra_small).value.sp,
+            tiny = dimensionResource(R.dimen.text_size_tiny).value.sp,
+            bottomNav = dimensionResource(R.dimen.text_size_bottom_nav).value.sp,
+            scrollbarLabel = dimensionResource(R.dimen.text_size_scrollbar_label).value.sp,
+            badge = dimensionResource(R.dimen.text_size_badge).value.sp,
+            denseBadge = dimensionResource(R.dimen.text_size_dense_badge).value.sp
+        )
 
+    @Composable
+    @ReadOnlyComposable
     fun scaled(scale: Float): GalleryTextSizes {
         val safeScale = scale.coerceIn(MinScale, MaxScale)
+        val default = Default
         fun TextUnit.scaled() = (value * safeScale).sp
         return GalleryTextSizes(
-            title = Default.title.scaled(),
-            header = Default.header.scaled(),
-            body = Default.body.scaled(),
-            subtitle = Default.subtitle.scaled(),
-            small = Default.small.scaled(),
-            extraSmall = Default.extraSmall.scaled(),
-            tiny = Default.tiny.scaled(),
-            bottomNav = Default.bottomNav.scaled(),
-            scrollbarLabel = Default.scrollbarLabel.scaled(),
-            badge = Default.badge.scaled(),
-            denseBadge = Default.denseBadge.scaled()
+            title = default.title.scaled(),
+            header = default.header.scaled(),
+            body = default.body.scaled(),
+            subtitle = default.subtitle.scaled(),
+            small = default.small.scaled(),
+            extraSmall = default.extraSmall.scaled(),
+            tiny = default.tiny.scaled(),
+            bottomNav = default.bottomNav.scaled(),
+            scrollbarLabel = default.scrollbarLabel.scaled(),
+            badge = default.badge.scaled(),
+            denseBadge = default.denseBadge.scaled()
         )
     }
 }
 
 object GalleryColorTokens {
-    private val Blue = Color(0xFF4DA3FF)
-    private val BlueSoft = Color(0xFF163B5F)
+    val Dark: GalleryColors
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryColors(
+            background = colorResource(R.color.bg_dark),
+            surface = colorResource(R.color.surface_dark),
+            surfaceVariant = colorResource(R.color.surface_variant_dark),
+            topBar = colorResource(R.color.top_bar_dark),
+            drawer = colorResource(R.color.drawer_dark),
+            card = colorResource(R.color.card_dark),
+            field = colorResource(R.color.field_dark),
+            primaryText = colorResource(R.color.primary_text_dark),
+            secondaryText = colorResource(R.color.secondary_text_dark),
+            mutedText = colorResource(R.color.muted_text_dark),
+            accent = colorResource(R.color.accent_dark),
+            accentSoft = colorResource(R.color.accent_soft_dark),
+            danger = colorResource(R.color.danger_dark),
+            success = colorResource(R.color.success_dark),
+            divider = colorResource(R.color.divider_dark),
+            disabled = colorResource(R.color.disabled_dark)
+        )
 
-    val Dark = GalleryColors(
-        background = Color(0xFF101418),
-        surface = Color(0xFF151B22),
-        surfaceVariant = Color(0xFF1D2630),
-        topBar = Color(0xFF0B0F14),
-        drawer = Color(0xFF101418),
-        card = Color(0xFF17202A),
-        field = Color(0xFF1F2B36),
-        primaryText = Color(0xFFF4F8FC),
-        secondaryText = Color(0xFFB7C6D5),
-        mutedText = Color(0xFF8392A3),
-        accent = Blue,
-        accentSoft = BlueSoft,
-        danger = Color(0xFFFF6B7A),
-        success = Color(0xFF47D18C),
-        divider = Color(0x33FFFFFF),
-        disabled = Color(0xFF6E7A86)
-    )
-
-    val Light = GalleryColors(
-        background = Color(0xFFF4F8FC),
-        surface = Color(0xFFFFFFFF),
-        surfaceVariant = Color(0xFFE8F0F8),
-        topBar = Color(0xFFFFFFFF),
-        drawer = Color(0xFFFFFFFF),
-        card = Color(0xFFFFFFFF),
-        field = Color(0xFFEAF2FA),
-        primaryText = Color(0xFF101820),
-        secondaryText = Color(0xFF435466),
-        mutedText = Color(0xFF6D7C8C),
-        accent = Color(0xFF006ACB),
-        accentSoft = Color(0xFFD8ECFF),
-        danger = Color(0xFFD9364E),
-        success = Color(0xFF168A52),
-        divider = Color(0x1F000000),
-        disabled = Color(0xFF9AA8B6)
-    )
+    val Light: GalleryColors
+        @Composable
+        @ReadOnlyComposable
+        get() = GalleryColors(
+            background = colorResource(R.color.bg_light),
+            surface = colorResource(R.color.surface_light),
+            surfaceVariant = colorResource(R.color.surface_variant_light),
+            topBar = colorResource(R.color.top_bar_light),
+            drawer = colorResource(R.color.drawer_light),
+            card = colorResource(R.color.card_light),
+            field = colorResource(R.color.field_light),
+            primaryText = colorResource(R.color.primary_text_light),
+            secondaryText = colorResource(R.color.secondary_text_light),
+            mutedText = colorResource(R.color.muted_text_light),
+            accent = colorResource(R.color.accent_light),
+            accentSoft = colorResource(R.color.accent_soft_light),
+            danger = colorResource(R.color.danger_light),
+            success = colorResource(R.color.success_light),
+            divider = colorResource(R.color.divider_light),
+            disabled = colorResource(R.color.disabled_light)
+        )
 }
 
 object GalleryPaletteSwatches {
@@ -178,8 +190,41 @@ object GalleryPaletteSwatches {
     )
 }
 
-val LocalGalleryColors = staticCompositionLocalOf { GalleryColorTokens.Dark }
-val LocalGalleryTextSizes = staticCompositionLocalOf { GalleryTextSizeTokens.Default }
+val LocalGalleryColors = staticCompositionLocalOf {
+    GalleryColors(
+        background = Color(0xFF101418),
+        surface = Color(0xFF151B22),
+        surfaceVariant = Color(0xFF1D2630),
+        topBar = Color(0xFF0B0F14),
+        drawer = Color(0xFF101418),
+        card = Color(0xFF17202A),
+        field = Color(0xFF1F2B36),
+        primaryText = Color(0xFFF4F8FC),
+        secondaryText = Color(0xFFB7C6D5),
+        mutedText = Color(0xFF8392A3),
+        accent = Color(0xFF4DA3FF),
+        accentSoft = Color(0xFF163B5F),
+        danger = Color(0xFFFF6B7A),
+        success = Color(0xFF47D18C),
+        divider = Color(0x33FFFFFF),
+        disabled = Color(0xFF6E7A86)
+    )
+}
+val LocalGalleryTextSizes = staticCompositionLocalOf {
+    GalleryTextSizes(
+        title = 24.sp,
+        header = 20.sp,
+        body = 16.sp,
+        subtitle = 14.sp,
+        small = 12.sp,
+        extraSmall = 11.sp,
+        tiny = 10.sp,
+        bottomNav = 9.sp,
+        scrollbarLabel = 13.sp,
+        badge = 10.sp,
+        denseBadge = 9.sp
+    )
+}
 
 object GalleryThemeTokens {
     val colors: GalleryColors

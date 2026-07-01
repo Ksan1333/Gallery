@@ -3,12 +3,11 @@ package com.example.gallery.ui.component
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.gallery.ui.AppConstants
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun TapZoneGuideOverlay(
     labels: List<String>,
@@ -27,34 +27,25 @@ fun TapZoneGuideOverlay(
     if (labels.isEmpty()) return
     val borderColor = Color.White.copy(alpha = 0.28f)
     val labelBackground = Color.Black.copy(alpha = 0.46f)
-    val cellModifier = Modifier
-        .border(1.dp, borderColor)
-        .padding(4.dp)
+    val specs = tapZoneSpecs(labels.size)
 
-    if (vertical) {
-        Column(modifier = modifier.fillMaxSize()) {
-            labels.forEach { label ->
-                Box(
-                    modifier = cellModifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    TapZoneLabel(label, labelBackground)
-                }
-            }
-        }
-    } else {
-        Row(modifier = modifier.fillMaxSize()) {
-            labels.forEach { label ->
-                Box(
-                    modifier = cellModifier
-                        .fillMaxHeight()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    TapZoneLabel(label, labelBackground)
-                }
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val cellWidth = maxWidth / 5f
+        val cellHeight = maxHeight / 5f
+        specs.zip(labels).forEach { (spec, label) ->
+            val x = cellWidth * spec.column.toFloat()
+            val y = cellHeight * spec.row.toFloat()
+            val width = cellWidth * spec.columnSpan.toFloat()
+            val height = cellHeight * spec.rowSpan.toFloat()
+            Box(
+                modifier = Modifier
+                    .offset(x = x, y = y)
+                    .size(width = width, height = height)
+                    .border(1.dp, borderColor)
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                TapZoneLabel(label, labelBackground)
             }
         }
     }

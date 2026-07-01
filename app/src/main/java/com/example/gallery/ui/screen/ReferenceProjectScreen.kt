@@ -16,6 +16,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -62,7 +65,7 @@ fun ReferenceProjectScreen(
     ) { padding ->
         if (projects.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("プロジェクトがありません", color = Color.Gray)
+                Text(stringResource(R.string.ref_no_projects), color = colorResource(R.color.gray))
             }
         } else {
             LazyColumn(

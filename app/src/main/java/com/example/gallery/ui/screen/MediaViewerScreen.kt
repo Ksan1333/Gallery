@@ -49,6 +49,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -66,6 +69,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -115,6 +119,7 @@ import com.example.gallery.service.TagTranslationService
 import com.example.gallery.ui.component.GalleryFloatingActionButton
 import com.example.gallery.ui.component.OperationProgressIndicator
 import com.example.gallery.ui.component.TapZoneGuideOverlay
+import com.example.gallery.ui.component.tapZoneCountForLayout
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.Dispatchers
@@ -149,7 +154,7 @@ fun MediaViewerScreen(
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { imageList.size })
     val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", android.content.Context.MODE_PRIVATE) }
-    val doubleTapFastZoom = remember { globalSettingsPrefs.getBoolean("doubleTapFastZoom", true) }
+    val doubleTapFastZoom = globalSettingsPrefs.getBoolean("doubleTapFastZoom", true)
     val slideshowIntervalMs = remember { globalSettingsPrefs.getInt("slideshowIntervalMs", 0) }
     val slideshowSpeedMs = remember { globalSettingsPrefs.getInt("slideshowSpeedMs", 250).coerceIn(0, 2000) }
     val randomPlayback = remember { globalSettingsPrefs.getBoolean("randomPlayback", false) }
@@ -158,15 +163,11 @@ fun MediaViewerScreen(
     val controlPanelAutoHideMs = remember { globalSettingsPrefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS).coerceIn(1000, 10000) }
     val progressDisplayMode = globalSettingsPrefs.getString("progressDisplayMode", "MAX") ?: "MAX"
     val progressMiniStyle = globalSettingsPrefs.getString("progressMiniStyle", "BAR") ?: "BAR"
-    val longPressMagnifier = remember { globalSettingsPrefs.getBoolean("longPressMagnifier", false) }
-    val magnifierScale = remember { (globalSettingsPrefs.getInt("magnifierScalePercent", 200) / 100f).coerceIn(1f, 3f) }
-    val touchIndicatorEnabled = remember { globalSettingsPrefs.getBoolean("touchIndicator", false) }
+    val longPressMagnifier = globalSettingsPrefs.getBoolean("longPressMagnifier", false)
+    val magnifierScale = (globalSettingsPrefs.getInt("magnifierScalePercent", 200) / 100f).coerceIn(1f, 3f)
+    val touchIndicatorEnabled = globalSettingsPrefs.getBoolean("touchIndicator", false)
     val tapZonePrefs = remember { context.getSharedPreferences("book_viewer_settings", android.content.Context.MODE_PRIVATE) }
-    val tapZoneCount = when (tapZonePrefs.getString("tapZoneLayout", "THREE")) {
-        "ELEVEN" -> 11
-        "FOUR" -> 4
-        else -> 3
-    }
+    val tapZoneCount = tapZoneCountForLayout(tapZonePrefs.getString("tapZoneLayout", "THREE"))
     val fullscreenMode = remember { globalSettingsPrefs.getString("fullscreenMode", "HIDE_STATUS_BAR") ?: "HIDE_STATUS_BAR" }
     val orientationMode = remember { globalSettingsPrefs.getString("orientation", "AUTO") ?: "AUTO" }
     val imageFilterQuality = remember {
@@ -286,7 +287,7 @@ fun MediaViewerScreen(
         window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
-    LaunchedEffect(isUiVisible, insetsController, keepNavigationBarsHidden, fullscreenMode) {
+    LaunchedEffect(isUiVisible, insetsController, keepNavigationBarsHidden, fullscreenMode, screenOrientation) {
         window?.navigationBarColor = android.graphics.Color.BLACK
         window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -300,12 +301,14 @@ fun MediaViewerScreen(
             else -> WindowInsetsCompat.Type.statusBars()
         }
         if (hiddenTypes == 0) {
-            insetsController?.show(WindowInsetsCompat.Type.systemBars())
+            insetsController?.show(WindowInsetsCompat.Type.statusBars())
         } else {
             insetsController?.hide(hiddenTypes)
-            if (fullscreenMode == "HIDE_STATUS_BAR" || isUiVisible) {
-                insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-            }
+        }
+        if (isUiVisible) {
+            insetsController?.show(WindowInsetsCompat.Type.navigationBars())
+        } else {
+            insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
         }
     }
 
@@ -398,6 +401,11 @@ fun MediaViewerScreen(
             val scale = remember { Animatable(1f) }
             val offsetX = remember { Animatable(0f) }
             val offsetY = remember { Animatable(0f) }
+            var magnifierBaseScale by remember(page) { mutableFloatStateOf(1f) }
+            var magnifierBaseOffsetX by remember(page) { mutableFloatStateOf(0f) }
+            var magnifierBaseOffsetY by remember(page) { mutableFloatStateOf(0f) }
+            var isMagnifierActive by remember(page) { mutableStateOf(false) }
+            var magnifierDragOffset by remember(page) { mutableStateOf(Offset.Zero) }
 
             LaunchedEffect(isRecommendationVisible) {
                 if (isRecommendationVisible) {
@@ -433,6 +441,18 @@ fun MediaViewerScreen(
                         scale = scale.value, offsetX = offsetX.value, offsetY = offsetY.value,
                         onZoomPan = { z, p ->
                             scope.launch {
+                                if (isMagnifierActive) {
+                                    magnifierDragOffset += p
+                                    val targetScale = (magnifierBaseScale * magnifierScale).coerceIn(1f, 5f)
+                                    val clamped = clampOffset(
+                                        targetScale,
+                                        magnifierBaseOffsetX + magnifierDragOffset.x * targetScale,
+                                        magnifierBaseOffsetY + magnifierDragOffset.y * targetScale
+                                    )
+                                    offsetX.snapTo(clamped.x)
+                                    offsetY.snapTo(clamped.y)
+                                    return@launch
+                                }
                                 val newScale = (scale.value * z).coerceIn(1f, 5f)
                                 scale.snapTo(newScale)
                                 val clamped = clampOffset(
@@ -570,19 +590,28 @@ fun MediaViewerScreen(
                         },
                         onLongPressStart = {
                             if (longPressMagnifier) {
-                                scope.launch { scale.animateTo(magnifierScale) }
+                                magnifierBaseScale = scale.value
+                                magnifierBaseOffsetX = offsetX.value
+                                magnifierBaseOffsetY = offsetY.value
+                                magnifierDragOffset = Offset.Zero
+                                isMagnifierActive = true
+                                scope.launch {
+                                    scale.animateTo((magnifierBaseScale * magnifierScale).coerceIn(1f, 5f))
+                                }
                             }
                         },
                         onLongPressEnd = {
+                            isMagnifierActive = false
                             scope.launch {
-                                scale.animateTo(1f)
-                                offsetX.animateTo(0f)
-                                offsetY.animateTo(0f)
+                                scale.animateTo(magnifierBaseScale)
+                                offsetX.animateTo(magnifierBaseOffsetX)
+                                offsetY.animateTo(magnifierBaseOffsetY)
                             }
                         },
                         onTouchIndicator = ::showViewerTouchIndicator,
                         imageLoader = imageLoader, isFrameSteppingVisible = isFrameSteppingVisible,
                         gifFrames = gifFrames, currentFrameIndex = currentFrameIndex,
+                        longPressEnabled = longPressMagnifier,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -613,6 +642,22 @@ fun MediaViewerScreen(
                                         val panChange = event.calculatePan()
                                         val currentScale = scale.value
                                         val isZoomed = currentScale > 1.01f
+                                        if (isMagnifierActive && event.changes.size == 1 && panChange != Offset.Zero) {
+                                            magnifierDragOffset += panChange
+                                            scope.launch {
+                                                val targetScale = (magnifierBaseScale * magnifierScale).coerceIn(1f, 5f)
+                                                val clamped = clampOffset(
+                                                    targetScale,
+                                                    magnifierBaseOffsetX + magnifierDragOffset.x * targetScale,
+                                                    magnifierBaseOffsetY + magnifierDragOffset.y * targetScale,
+                                                    fittedImageSize
+                                                )
+                                                offsetX.snapTo(clamped.x)
+                                                offsetY.snapTo(clamped.y)
+                                            }
+                                            event.changes.forEach { if (it.pressed) it.consume() }
+                                            continue
+                                        }
                                         if (!verticalSwipeStarted && (event.changes.size >= 2 || isZoomed)) {
                                             accumulatedPan += panChange
                                             val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
@@ -689,21 +734,27 @@ fun MediaViewerScreen(
                                 detectTapGestures(onPress = {
                                     showViewerTouchIndicator(it)
                                     var magnifierShown = false
+                                    magnifierBaseScale = scale.value
+                                    magnifierBaseOffsetX = offsetX.value
+                                    magnifierBaseOffsetY = offsetY.value
+                                    magnifierDragOffset = Offset.Zero
                                     val job = scope.launch {
                                         delay(450)
                                         if (longPressMagnifier) {
                                             magnifierShown = true
                                             suppressImageTapAfterMagnifier = true
-                                            scale.animateTo(magnifierScale)
+                                            isMagnifierActive = true
+                                            scale.animateTo((magnifierBaseScale * magnifierScale).coerceIn(1f, 5f))
                                         }
                                     }
                                     tryAwaitRelease()
                                     job.cancel()
                                     if (magnifierShown) {
+                                        isMagnifierActive = false
                                         scope.launch {
-                                            scale.animateTo(1f)
-                                            offsetX.animateTo(0f)
-                                            offsetY.animateTo(0f)
+                                            scale.animateTo(magnifierBaseScale)
+                                            offsetX.animateTo(magnifierBaseOffsetX)
+                                            offsetY.animateTo(magnifierBaseOffsetY)
                                         }
                                     }
                                 }, onTap = {
@@ -880,12 +931,29 @@ fun MediaViewerScreen(
                         }
 
                         // 画面回転
-                        GalleryFloatingActionButton(icon = Icons.Default.ScreenRotation, tooltipDescription = "回転（縦横切替）", size = 36.dp, iconSize = 20.dp, onClick = { val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; screenOrientation = target; (context as Activity).requestedOrientation = target })
+                        GalleryFloatingActionButton(
+                            icon = Icons.Default.ScreenRotation,
+                            tooltipDescription = stringResource(R.string.viewer_rotate),
+                            size = 36.dp,
+                            iconSize = 20.dp,
+                            onClick = {
+                                val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
+                                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                } else {
+                                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                }
+                                screenOrientation = target
+                                (context as Activity).requestedOrientation = target
+                                if (!isUiVisible || keepNavigationBarsHidden) {
+                                    insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
+                                }
+                            }
+                        )
 
                         // Playback control is disabled in the image viewer toolbar.
                         if (false) GalleryFloatingActionButton(
                             icon = if (isVideoPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            tooltipDescription = if (isVideoPlaying) "一時停止" else "再生",
+                            tooltipDescription = if (isVideoPlaying) stringResource(R.string.viewer_pause) else stringResource(R.string.viewer_play),
                             size = 36.dp,
                             iconSize = 20.dp,
                             enabled = false,
@@ -897,7 +965,7 @@ fun MediaViewerScreen(
                         galleryState?.let { state ->
                             val favorites by state.repository.getFavoriteMedia().collectAsState(initial = emptyList<MediaData>())
                             val isFavorite = favorites.any { it.uri == currentMediaItem.uri }
-                            GalleryFloatingActionButton(icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tooltipDescription = "お気に入り切替", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { state.repository.toggleFavorite(currentMediaItem.uri) } }, contentColor = if (isFavorite) Color.Red else Color.White)
+                            GalleryFloatingActionButton(icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tooltipDescription = stringResource(R.string.viewer_favorite_toggle), size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { state.repository.toggleFavorite(currentMediaItem.uri) } }, contentColor = if (isFavorite) Color.Red else Color.White)
                         }
 
                         // その他のボタン
@@ -918,7 +986,7 @@ fun MediaViewerScreen(
                             ) {
                                 val canUseSlideshow = imageList.size > 1 && !currentMediaItem.isVideo
                                 DropdownMenuItem(
-                                    text = { Text(if (isSlideshowRunning) "スライドショー停止" else "スライドショー開始", color = if (canUseSlideshow) Color.White else Color.Gray) },
+                                    text = { Text(if (isSlideshowRunning) stringResource(R.string.viewer_slideshow_stop) else stringResource(R.string.viewer_slideshow_start), color = if (canUseSlideshow) Color.White else Color.Gray) },
                                     leadingIcon = { Icon(if (isSlideshowRunning) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if (canUseSlideshow) Color.White else Color.Gray) },
                                     enabled = canUseSlideshow,
                                     onClick = {
@@ -929,7 +997,7 @@ fun MediaViewerScreen(
                                 )
                                 // GIF frame stepping.
                                 DropdownMenuItem(
-                                    text = { Text(if (isFrameSteppingVisible) "GIFコマ送り停止" else "GIFコマ送り", color = if (currentMediaItem.isGif) (if (isFrameSteppingVisible) Color.Yellow else Color.White) else Color.Gray) },
+                                    text = { Text(if (isFrameSteppingVisible) stringResource(R.string.viewer_gif_stepping_stop) else stringResource(R.string.viewer_gif_stepping), color = if (currentMediaItem.isGif) (if (isFrameSteppingVisible) Color.Yellow else Color.White) else Color.Gray) },
                                     leadingIcon = { Icon(if (isFrameSteppingVisible) Icons.Default.Close else Icons.Default.Collections, null, tint = if (currentMediaItem.isGif) (if (isFrameSteppingVisible) Color.Yellow else Color.White) else Color.Gray) },
                                     enabled = currentMediaItem.isGif && !isGifFrameLoading,
                                     onClick = {
@@ -958,7 +1026,7 @@ fun MediaViewerScreen(
                                 )
 
                                 DropdownMenuItem(
-                                    text = { Text("設定", color = Color.White) },
+                                    text = { Text(stringResource(R.string.settings_title), color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Settings, null, tint = Color.White) },
                                     onClick = {
                                         isOverflowMenuVisible = false
@@ -969,13 +1037,13 @@ fun MediaViewerScreen(
                                 // Image search.
                                 val isAscii2dEnabled = !currentMediaItem.isVideo && !isAscii2dSearching
                                 DropdownMenuItem(
-                                    text = { Text(if (isAscii2dSearching) "ascii2d検索中..." else "ascii2dで検索", color = if (isAscii2dEnabled) Color.White else Color.Gray) },
+                                    text = { Text(if (isAscii2dSearching) stringResource(R.string.viewer_searching_ascii2d) else stringResource(R.string.viewer_search_ascii2d), color = if (isAscii2dEnabled) Color.White else Color.Gray) },
                                     leadingIcon = { Icon(Icons.Default.Search, null, tint = if (isAscii2dEnabled) Color.White else Color.Gray) },
                                     enabled = isAscii2dEnabled,
                                     onClick = {
                                         isOverflowMenuVisible = false
                                         isAscii2dSearching = true
-                                        Toast.makeText(context, "ascii2dで検索中...", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), Toast.LENGTH_SHORT).show()
                                         scope.launch {
                                             val result = withContext(Dispatchers.IO) {
                                                 runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) }
@@ -985,7 +1053,7 @@ fun MediaViewerScreen(
                                                 ascii2dUploadData = uploadData
                                             }.onFailure { error ->
                                                 Log.e("Ascii2dSearch", "Failed to search ascii2d", error)
-                                                Toast.makeText(context, "ascii2d検索に失敗しました: ${error.message}", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), Toast.LENGTH_LONG).show()
                                             }
                                         }
                                     }
@@ -993,21 +1061,21 @@ fun MediaViewerScreen(
 
                                 val isSaveEnabled = currentMediaItem.isVideo || currentMediaItem.isGif
                                 DropdownMenuItem(
-                                    text = { Text("Save screenshot", color = if (isSaveEnabled) Color.White else Color.Gray) },
+                                    text = { Text(stringResource(R.string.viewer_save_screenshot), color = if (isSaveEnabled) Color.White else colorResource(R.color.gray)) },
                                     leadingIcon = { Icon(Icons.Default.Screenshot, null, tint = if (isSaveEnabled) Color.White else Color.Gray) },
                                     enabled = isSaveEnabled,
                                     onClick = {
                                         isOverflowMenuVisible = false
                                         if (currentMediaItem.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) saveBitmapToScreenshots(context, gifFrames[currentFrameIndex])
-                                        else if (currentMediaItem.isVideo) captureVideoFrame(context, currentMediaItem.uri, videoPosition) { bitmap -> if (bitmap != null) saveBitmapToScreenshots(context, bitmap) else Toast.makeText(context, "動画フレームの取得に失敗しました", Toast.LENGTH_SHORT).show() }
-                                        else if (currentMediaItem.isGif) Toast.makeText(context, "GIFはコマ送りモードで保存してください", Toast.LENGTH_SHORT).show()
+                                        else if (currentMediaItem.isVideo) captureVideoFrame(context, currentMediaItem.uri, videoPosition) { bitmap -> if (bitmap != null) saveBitmapToScreenshots(context, bitmap) else Toast.makeText(context, context.getString(R.string.msg_error_get_frame), Toast.LENGTH_SHORT).show() }
+                                        else if (currentMediaItem.isGif) Toast.makeText(context, context.getString(R.string.msg_gif_use_stepping), Toast.LENGTH_SHORT).show()
                                     }
                                 )
 
                                 // Wallpaper setting.
                                 val isWallpaperEnabled = !currentMediaItem.isVideo && (!currentMediaItem.isGif || isFrameSteppingVisible)
                                 DropdownMenuItem(
-                                    text = { Text("Set wallpaper", color = if (isWallpaperEnabled) Color.White else Color.Gray) },
+                                    text = { Text(stringResource(R.string.viewer_set_wallpaper), color = if (isWallpaperEnabled) Color.White else colorResource(R.color.gray)) },
                                     leadingIcon = { Icon(Icons.Default.Wallpaper, null, tint = if (isWallpaperEnabled) Color.White else Color.Gray) },
                                     enabled = isWallpaperEnabled,
                                     onClick = {
@@ -1019,13 +1087,13 @@ fun MediaViewerScreen(
 
                                 // Set as folder thumbnail.
                                 DropdownMenuItem(
-                                    text = { Text("Set folder thumbnail", color = Color.White) },
+                                    text = { Text(stringResource(R.string.edit_set_folder_thumbnail), color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.FolderSpecial, null, tint = Color.White) },
                                     onClick = {
                                         isOverflowMenuVisible = false
                                         scope.launch {
                                             galleryState?.repository?.updateFolderThumbnail(currentMediaItem.folderName, currentMediaItem.uri)
-                                            Toast.makeText(context, "フォルダ「${currentMediaItem.folderName}」のサムネイルに設定しました", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, context.getString(R.string.msg_set_folder_thumbnail, currentMediaItem.folderName), Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 )
@@ -1033,7 +1101,7 @@ fun MediaViewerScreen(
                                 // Edit tags.
                                 galleryState?.let { _ ->
                                     DropdownMenuItem(
-                                        text = { Text("Edit tags", color = Color.White) },
+                                        text = { Text(stringResource(R.string.edit_tags), color = Color.White) },
                                         leadingIcon = { Icon(Icons.Default.LocalOffer, null, tint = Color.White) },
                                         onClick = {
                                             isOverflowMenuVisible = false
@@ -1055,26 +1123,16 @@ fun MediaViewerScreen(
             }
         }
 
-        touchIndicatorPoint?.let { point ->
-            Box(
-                modifier = Modifier
-                    .offset { IntOffset((point.x - 22f).roundToInt(), (point.y - 22f).roundToInt()) }
-                    .size(44.dp)
-                    .border(2.dp, Color.White.copy(alpha = 0.75f), CircleShape)
-                    .background(Color.White.copy(alpha = 0.16f), CircleShape)
-            )
-        }
-
         if (touchIndicatorEnabled) {
             TapZoneGuideOverlay(
-                labels = mediaTapZoneLabels(tapZoneCount),
+                labels = mediaTapZoneGuideLabels(tapZoneCount),
                 modifier = Modifier.matchParentSize()
             )
         }
 
         if (isGifFrameLoading) {
             OperationProgressIndicator(
-                label = "GIFのコマを抽出中",
+                label = stringResource(R.string.viewer_extracting_gif),
                 progress = gifFrameProgress,
                 displayMode = progressDisplayMode,
                 minimumStyle = progressMiniStyle,
@@ -1099,11 +1157,11 @@ fun MediaViewerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Details", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.BodyFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Text(stringResource(R.string.viewer_details), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold)
                         Text(
-                            "Close",
-                            color = Color.Gray,
-                            fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize,
+                            stringResource(R.string.btn_close),
+                            color = colorResource(R.color.gray),
+                            fontSize = AppConstants.SubtitleFontSize,
                             modifier = Modifier.clickable { isRecommendationVisible = false }.padding(8.dp)
                         )
                     }
@@ -1112,12 +1170,12 @@ fun MediaViewerScreen(
                         if (currentMediaItem != null) {
                             // Visual recommendations.
                             if (!currentMediaItem.isVideo && !isTrashMode) {
-                                item { Text("似た雰囲気の画像（AIベクトル）", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.BodyFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                                item { Text(stringResource(R.string.viewer_similar_images), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                                 item {
                                     if (currentMetadata?.hasFeatureVector != true) {
-                                        Text("This image has not been analyzed yet.", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
+                                        Text(stringResource(R.string.viewer_not_analyzed), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
                                     } else if (recommendedMediaByVisual.isEmpty()) {
-                                        Text("No similar images found.", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
+                                        Text(stringResource(R.string.viewer_no_similar), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
                                     } else {
                                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             itemsIndexed(recommendedMediaByVisual) { _, similarity ->
@@ -1141,10 +1199,10 @@ fun MediaViewerScreen(
 
                             // Random media.
                             if (!isTrashMode) {
-                                item { Text(if (currentMediaItem.isVideo) "Random videos" else "Random images", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.BodyFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                                item { Text(if (currentMediaItem.isVideo) stringResource(R.string.viewer_random_videos) else stringResource(R.string.viewer_random_images), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                                 item {
                                     if (randomMediaList.isEmpty()) {
-                                        Text(if (currentMediaItem.isVideo) "動画が見つかりませんでした" else "読み込み中...", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
+                                        Text(if (currentMediaItem.isVideo) stringResource(R.string.viewer_no_videos) else stringResource(R.string.viewer_loading), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
                                     } else {
                                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             itemsIndexed(randomMediaList) { _, item ->
@@ -1168,7 +1226,7 @@ fun MediaViewerScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.LocalOffer, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("タグ", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.BodyFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                        Text(stringResource(R.string.viewer_tags), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold)
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Surface(color = when(currentAgeRating) { "R18" -> Color.Red.copy(alpha = 0.8f); "R15" -> Color.Yellow.copy(alpha = 0.8f); else -> Color.Green.copy(alpha = 0.8f) }, shape = RoundedCornerShape(4.dp)) {
                                             Text(text = if (isTrashMode) "$currentAgeRating Trash" else currentAgeRating, color = if (currentAgeRating == "R15") Color.Black else Color.White, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
@@ -1176,7 +1234,7 @@ fun MediaViewerScreen(
                                     }
 
                                     if (!currentMediaItem.isVideo && currentMetadata?.isAiAnalyzed != true) {
-                                        Text("AI analysis has not run.", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
+                                        Text(stringResource(R.string.viewer_no_tags), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize)
                                     }
 
                                     Spacer(Modifier.height(8.dp))
@@ -1209,7 +1267,7 @@ fun MediaViewerScreen(
                                         }
                                         if (!isTrashMode) {
                                             IconButton(onClick = { showTagDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) {
-                                                Icon(Icons.Default.Add, contentDescription = "タグ追加", tint = Color.White, modifier = Modifier.size(16.dp))
+                                                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.edit_new_tag), tint = Color.White, modifier = Modifier.size(16.dp))
                                             }
                                         }
                                     }
@@ -1218,10 +1276,10 @@ fun MediaViewerScreen(
                             item {
                                 val media = currentMediaItem
                                 Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 16.dp))
-                                    Text("ファイル情報", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
-                                    MediaInfoRow("Date", SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault()).format(Date(media.dateAdded)))
-                                    MediaInfoRow("File name", media.fileName)
+                                    HorizontalDivider(color = colorResource(R.color.gray).copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 16.dp))
+                                    Text(stringResource(R.string.viewer_file_info), color = Color.White, fontSize = AppConstants.SubtitleFontSize, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                                    MediaInfoRow(stringResource(R.string.viewer_date), SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault()).format(Date(media.dateAdded)))
+                                    MediaInfoRow(stringResource(R.string.viewer_file_name), media.fileName)
                                     val actualPath = remember(media.uri) {
                                         try {
                                             val cursor = context.contentResolver.query(Uri.parse(media.uri), arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)
@@ -1230,7 +1288,7 @@ fun MediaViewerScreen(
                                             media.uri
                                         }
                                     }
-                                    MediaInfoRow("ファイルパス", actualPath)
+                                    MediaInfoRow(stringResource(R.string.viewer_file_path), actualPath)
                                     val labels = currentMediaTagsFlow.filter { !it.tag.endsWith("系") }.map { TagTranslationService.translate(it.tag) }
                                     if (labels.isNotEmpty()) MediaInfoRow("画像情報", labels.joinToString(", "))
                                     MediaInfoRow("ファイルサイズ", formatFileSize(media.fileSize))
@@ -1427,7 +1485,7 @@ fun SeekButtonWithPicker(isForward: Boolean, currentInterval: Int, onIntervalSel
     Box(contentAlignment = Alignment.Center) {
         Column(modifier = Modifier.pointerInput(currentInterval) { awaitPointerEventScope { while (true) { val down = awaitFirstDown(); val startTimestamp = System.currentTimeMillis(); var isLongPress = false; val baseIndex = options.indexOf(currentInterval).let { if (it == -1) 3 else it }; selectedIndexByDrag = baseIndex; while (true) { val event = awaitPointerEvent(); val currentTime = System.currentTimeMillis(); if (currentTime - startTimestamp > 400 && !isLongPress) { isLongPress = true; isPickerVisible = true }; if (isLongPress) { val dragChange = event.changes.first(); val dragY = dragChange.position.y - down.position.y; val indexOffset = (dragY / 40f).roundToInt(); selectedIndexByDrag = (baseIndex + indexOffset).coerceIn(0, options.size - 1); dragChange.consume() }; if (event.changes.any { !it.pressed }) { if (isLongPress) { currentOnIntervalSelected(options[selectedIndexByDrag]); isPickerVisible = false } else currentOnClick(); break } } } } }.size(48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) { Icon(imageVector = if (isForward) Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(28.dp)); Text(text = currentInterval.toString(), color = Color.White, fontSize = com.example.gallery.ui.AppConstants.BottomNavFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
-            Text("skip", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.BottomNavFontSize)
+            Text(stringResource(R.string.viewer_skip), color = Color.White, fontSize = AppConstants.BottomNavFontSize)
         }
         if (isPickerVisible) { Popup(alignment = Alignment.Center, offset = IntOffset(0, 0)) { Surface(color = Color.Black.copy(alpha = 0.8f), shape = RoundedCornerShape(24.dp), modifier = Modifier.width(60.dp)) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 12.dp)) { options.forEachIndexed { index, value -> val isSelected = index == selectedIndexByDrag; Text(text = value.toString(), color = if (isSelected) Color.Cyan else Color.White, fontSize = if (isSelected) com.example.gallery.ui.AppConstants.HeaderFontSize else com.example.gallery.ui.AppConstants.SubtitleFontSize, fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null, modifier = Modifier.padding(vertical = 8.dp)) } } } } }
     }
@@ -1489,7 +1547,7 @@ private fun readImageBytes(context: android.content.Context, uri: Uri, uriString
         return bytes
     }
 
-    throw IllegalStateException("画像を開けませんでした")
+    throw IllegalStateException(context.getString(R.string.msg_error_open_image))
 }
 
 private fun encodeBitmapForAscii2d(bitmap: Bitmap): ByteArray {
@@ -2036,7 +2094,7 @@ fun VideoPlayer(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
                     ) {
                         Text(
-                            text = "コマ送り",
+                            text = stringResource(R.string.viewer_frame_stepping),
                             color = Color.Cyan,
                             fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
@@ -2056,7 +2114,7 @@ fun VideoPlayer(
 }
 
 @Composable
-fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: Float, offsetX: Float, offsetY: Float, onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDoubleTap: () -> Unit, onLongPressStart: () -> Unit = {}, onLongPressEnd: () -> Unit = {}, onTouchIndicator: (Offset) -> Unit = {}, imageLoader: ImageLoader, isFrameSteppingVisible: Boolean, gifFrames: List<Bitmap>, currentFrameIndex: Int, modifier: Modifier = Modifier) {
+fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: Float, offsetX: Float, offsetY: Float, onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDoubleTap: () -> Unit, onLongPressStart: () -> Unit = {}, onLongPressEnd: () -> Unit = {}, onTouchIndicator: (Offset) -> Unit = {}, imageLoader: ImageLoader, isFrameSteppingVisible: Boolean, gifFrames: List<Bitmap>, currentFrameIndex: Int, longPressEnabled: Boolean = false, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var suppressNextTap by remember { mutableStateOf(false) }
@@ -2066,17 +2124,21 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
             detectTapGestures(
                 onPress = {
                     onTouchIndicator(it)
-                    var magnifierShown = false
-                    val job = scope.launch {
-                        delay(450)
-                        magnifierShown = true
-                        suppressNextTap = true
-                        onLongPressStart()
-                    }
-                    tryAwaitRelease()
-                    job.cancel()
-                    if (magnifierShown) {
-                        onLongPressEnd()
+                    if (!longPressEnabled) {
+                        tryAwaitRelease()
+                    } else {
+                        var magnifierShown = false
+                        val job = scope.launch {
+                            delay(450)
+                            magnifierShown = true
+                            suppressNextTap = true
+                            onLongPressStart()
+                        }
+                        tryAwaitRelease()
+                        job.cancel()
+                        if (magnifierShown) {
+                            onLongPressEnd()
+                        }
                     }
                 },
                 onTap = {
@@ -2128,13 +2190,35 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
 }
 
 @Composable
-fun RecommendationCard(mediaItem: MediaData, score: String?, imageLoader: ImageLoader, isDeleted: Boolean = false, onClick: () -> Unit) { Box(modifier = Modifier.size(110.dp).clip(RoundedCornerShape(8.dp)).background(Color.DarkGray).clickable { onClick() }) { Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(LocalContext.current).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit); if (score != null) Box(modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text(score, color = Color.White, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize) }; if (isDeleted) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) { Icon(imageVector = Icons.Default.Delete, contentDescription = "削除済み", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(32.dp)) } } }
+fun RecommendationCard(mediaItem: MediaData, score: String?, imageLoader: ImageLoader, isDeleted: Boolean = false, onClick: () -> Unit) { Box(modifier = Modifier.size(110.dp).clip(RoundedCornerShape(8.dp)).background(Color.DarkGray).clickable { onClick() }) { Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(LocalContext.current).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit); if (score != null) Box(modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text(score, color = Color.White, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize) }; if (isDeleted) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) { Icon(imageVector = Icons.Default.Delete, contentDescription = stringResource(R.string.viewer_deleted), tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(32.dp)) } } }
 
 private fun mediaTapZoneLabels(zoneCount: Int): List<String> {
     return when (zoneCount) {
         11 -> listOf("前へ", "前へ", "前へ", "ズーム", "保存", "表示切替", "設定", "検索", "ズーム", "次へ", "次へ")
         4 -> listOf("前へ", "ズーム", "表示切替", "次へ")
         else -> listOf("前へ", "表示切替", "次へ")
+    }
+}
+
+private fun mediaTapZoneGuideLabels(zoneCount: Int): List<String> {
+    return when (zoneCount) {
+        11 -> listOf(
+            "前のメディア",
+            "詳細を開く",
+            "次のメディア",
+            "前へ",
+            "ズーム",
+            "コントロール",
+            "設定",
+            "タグ編集",
+            "スライドショー",
+            "スクリーンショット",
+            "検索"
+        )
+        7 -> listOf("前のメディア", "次のメディア", "前へ", "コントロール", "次へ", "ズーム", "設定")
+        5 -> listOf("前へ", "前のメディア", "コントロール", "次のメディア", "次へ")
+        4 -> listOf("前へ", "ズーム", "コントロール", "次へ")
+        else -> listOf("前へ", "コントロール", "次へ")
     }
 }
 

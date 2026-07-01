@@ -16,11 +16,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.paging.compose.collectAsLazyPagingItems
+import com.example.gallery.R
 import com.example.gallery.data.model.MediaData
+import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.search.filterGallerySearchResults
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -30,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val SCROLL_RESTORE_TRACE = "GALLERY_SCROLL_RESTORE_TRACE"
+private val HomeAnalysisOperationTags = setOf("AI_TAGGING", "COLOR_VECTOR", "AUTO_RATING")
 
 private fun logScrollRestoreTrace(message: String) {
     Log.d(SCROLL_RESTORE_TRACE, "$SCROLL_RESTORE_TRACE $message")
@@ -78,6 +85,13 @@ fun HomeGalleryScreen(
     var centerViewedMediaOnReturn by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var restoreScrollRequestKey by remember { mutableIntStateOf(0) }
+    val operations by GlobalOperationService.operations.collectAsState(initial = emptyList())
+    val isAiAnalysisRunning = operations.any { op ->
+        op.tag?.let { it in HomeAnalysisOperationTags } == true || op.id in HomeAnalysisOperationTags
+    }
+    val aiAnalysisContentDescription = stringResource(
+        if (isAiAnalysisRunning) R.string.gallery_ai_analysis_running else R.string.gallery_ai_analysis
+    )
     var pendingScrollRestore by remember { mutableStateOf(false) }
     
     // インスタンス状態への保存を停止（TransactionTooLargeException対策）
@@ -331,9 +345,15 @@ fun HomeGalleryScreen(
                 pagingItems = if (isSearchActive || isFavoriteFilterActive || isSearchFiltering) null else pagingItems,
                 onImageClick = { index, list ->
                     centerViewedMediaOnReturn = true
-                    galleryState.lastViewedUri = list.getOrNull(index)?.uri
-                    flatListForViewer = list
-                    selectedIndex = index
+                    val clickedUri = list.getOrNull(index)?.uri
+                    val viewerList = if (imageList.isNotEmpty()) imageList else list
+                    val viewerIndex = clickedUri
+                        ?.let { uri -> viewerList.indexOfFirst { it.uri == uri } }
+                        ?.takeIf { it >= 0 }
+                        ?: index.coerceIn(0, (viewerList.size - 1).coerceAtLeast(0))
+                    galleryState.lastViewedUri = clickedUri
+                    flatListForViewer = viewerList
+                    selectedIndex = viewerIndex
                     onShowViewer()
                 },
                 galleryState = galleryState,
@@ -442,12 +462,24 @@ fun HomeGalleryScreen(
                             tint = if (isSearchActive) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
                         )
                     }
-                    IconButton(onClick = onStartAnalysis) {
+                    IconButton(
+                        onClick = onStartAnalysis,
+                        enabled = !isAiAnalysisRunning,
+                        modifier = Modifier.semantics { contentDescription = aiAnalysisContentDescription }
+                    ) {
+                        if (isAiAnalysisRunning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(ButtonDefaults.IconSize),
+                                strokeWidth = 2.dp,
+                                color = GalleryThemeTokens.colors.accent
+                            )
+                        } else {
                         Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = "解析",
                             tint = GalleryThemeTokens.colors.primaryText
                         )
+                        }
                     }
                     IconButton(onClick = {
                         galleryState.homeFavoritesOnly = !galleryState.homeFavoritesOnly

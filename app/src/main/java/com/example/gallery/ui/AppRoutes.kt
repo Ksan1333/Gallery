@@ -24,8 +24,10 @@ object AppRoutes {
 
     fun referenceDetail(projectId: Long) = "reference_detail/$projectId"
     fun referenceSearch(projectId: Long) = "reference_search/$projectId"
-    fun analysis(type: String = AppDefaults.ANALYSIS_TYPE_AI_TAGGING, periodDays: Int = AppDefaults.ANALYSIS_PERIOD_ALL) =
-        "analysis/$type/$periodDays"
+    fun analysis(
+        type: String = AppDefaults.ANALYSIS_TYPE_AI_TAGGING,
+        periodDays: Int = AppDefaults.ANALYSIS_PERIOD_ALL
+    ) = "analysis/$type/$periodDays"
 }
 
 object AppText {
@@ -33,7 +35,7 @@ object AppText {
     const val DRAWER_TITLE = "ギャラリーメニュー"
     const val DRAWER_BASIC = "基本機能"
     const val DRAWER_TOOLS = "便利機能"
-    const val DRAWER_INFO = "情報"
+    const val DRAWER_INFO = "設定"
     const val HOME = "ホーム"
     const val ALL_MEDIA = "すべて"
     const val FOLDERS = "フォルダ"
@@ -42,14 +44,14 @@ object AppText {
     const val TRASH = "ゴミ箱"
     const val VIDEO_DOWNLOAD = "動画DL"
     const val FAVORITE_ARTISTS = "お気に入りクリエイター"
-    const val FAVORITE_SITES = "項目"
+    const val FAVORITE_SITES = "お気に入りサイト"
     const val REFERENCES = "お絵描き資料"
-    const val SETTINGS = "項目"
+    const val SETTINGS = "設定"
     const val ABOUT = "このアプリについて"
-    const val GUIDE = "項目"
+    const val GUIDE = "チュートリアル"
     const val SEARCH = "検索"
     const val ANALYSIS = "分析"
-    const val FAVORITES = "項目"
+    const val FAVORITES = "お気に入り"
 }
 
 object AppDefaults {

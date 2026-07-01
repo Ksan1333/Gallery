@@ -32,6 +32,7 @@ enum class BookType { ZIP, PDF }
 class BookRepository(context: Context) {
     private val thumbDir = File(context.cacheDir, "book_thumbs").apply { if (!exists()) mkdirs() }
     private val indexFile = File(context.cacheDir, "book_index.json")
+    private val trashRootsFile = File(context.cacheDir, "book_trash_roots.json")
     private val zipEntryCache = ConcurrentHashMap<String, List<String>>()
 
     private data class CachedBook(
@@ -151,6 +152,7 @@ class BookRepository(context: Context) {
             val moved = source.renameTo(target)
             if (moved) {
                 saveCachedIndex(loadCachedIndex().filterNot { it.book.path == book.path })
+                saveTrashRoot(parent.absolutePath)
                 thumbnailFile(source).takeIf { it.exists() }?.delete()
             }
             moved
@@ -160,21 +162,20 @@ class BookRepository(context: Context) {
     }
 
     suspend fun loadTrashedBooks(): List<BookData> = withContext(Dispatchers.IO) {
-        val root = Environment.getExternalStorageDirectory()
         val trashedBooks = mutableListOf<BookData>()
+        val candidateParents = loadCachedIndex()
+            .mapNotNull { File(it.book.path).parentFile }
+            .plus(loadTrashRoots().map(::File))
+            .distinctBy { it.absolutePath }
         runCatching {
-            root.walkTopDown()
-                .onEnter { dir ->
-                    dir.name != "Android" && (!dir.name.startsWith(".") || dir.name == ".gallery_book_trash")
-                }
-                .filter { file ->
-                    val nameLower = file.name.lowercase()
-                    file.isFile &&
-                        file.parentFile?.name == ".gallery_book_trash" &&
-                        (nameLower.endsWith(".zip") || nameLower.endsWith(".pdf"))
-                }
+            candidateParents
+                .asSequence()
+                .map { File(it, ".gallery_book_trash") }
+                .filter { it.isDirectory }
+                .flatMap { trashDir -> trashDir.listFiles()?.asSequence() ?: emptySequence() }
                 .forEach { file ->
                     val nameLower = file.name.lowercase()
+                    if (!file.isFile || (!nameLower.endsWith(".zip") && !nameLower.endsWith(".pdf"))) return@forEach
                     val type = if (nameLower.endsWith(".zip")) BookType.ZIP else BookType.PDF
                     val pageCount = if (type == BookType.ZIP) getZipPageCount(file) else getPdfPageCount(file)
                     if (pageCount > 0) {
@@ -196,6 +197,50 @@ class BookRepository(context: Context) {
                 }
         }.onFailure { e -> Log.w(TAG, "Failed to load trashed books", e) }
         trashedBooks.sortedBy { it.title }
+    }
+
+    suspend fun restoreBookFromTrash(book: BookData): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val source = File(book.path)
+            if (!source.exists()) return@withContext false
+            val restoreDir = File(book.folderPath).takeIf { it.exists() || it.mkdirs() }
+                ?: source.parentFile?.parentFile
+                ?: return@withContext false
+            val target = uniqueFile(restoreDir, source.name)
+            source.renameTo(target)
+        }.onFailure { e ->
+            Log.e(TAG, "Failed to restore book from trash: ${book.path}", e)
+        }.getOrDefault(false)
+    }
+
+    suspend fun permanentlyDeleteTrashedBook(book: BookData): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val source = File(book.path)
+            val deleted = !source.exists() || source.delete()
+            if (deleted) {
+                thumbnailFile(source).takeIf { it.exists() }?.delete()
+            }
+            deleted
+        }.onFailure { e ->
+            Log.e(TAG, "Failed to permanently delete trashed book: ${book.path}", e)
+        }.getOrDefault(false)
+    }
+
+    private fun loadTrashRoots(): List<String> {
+        if (!trashRootsFile.exists()) return emptyList()
+        return runCatching {
+            val array = JSONArray(trashRootsFile.readText(Charsets.UTF_8))
+            List(array.length()) { index -> array.getString(index) }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun saveTrashRoot(path: String) {
+        runCatching {
+            val roots = (loadTrashRoots() + path).distinct()
+            val array = JSONArray()
+            roots.forEach(array::put)
+            trashRootsFile.writeText(array.toString(), Charsets.UTF_8)
+        }.onFailure { Log.w(TAG, "Failed to save book trash root", it) }
     }
 
     private fun getZipPageCount(file: File): Int {
@@ -295,6 +340,10 @@ class BookRepository(context: Context) {
     }
 
     private fun uniqueTrashFile(dir: File, name: String): File {
+        return uniqueFile(dir, name)
+    }
+
+    private fun uniqueFile(dir: File, name: String): File {
         val base = name.substringBeforeLast('.', name)
         val ext = name.substringAfterLast('.', "").takeIf { it != name }?.let { ".$it" }.orEmpty()
         var candidate = File(dir, name)

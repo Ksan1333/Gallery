@@ -66,6 +66,9 @@ import com.example.gallery.ui.screen.VideoFullscreenViewerScreen
 import com.example.gallery.ui.screen.*
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.GalleryViewMode
+import com.example.gallery.data.local.PreferenceManager
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.dimensionResource
 import com.example.gallery.ui.component.GalleryBottomNavigationBar
 import com.example.gallery.ui.component.GlobalProgressOverlay
 import com.example.gallery.ui.component.TutorialChooserDialog
@@ -106,27 +109,23 @@ private fun logScrollRestoreTrace(message: String) {
 }
 
 private fun loadThemeMode(context: Context): GalleryThemeMode {
-    val stored = context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
-        .getString(THEME_MODE_PREF, GalleryThemeMode.SYSTEM.name)
+    val pm = PreferenceManager(context)
+    val stored = pm.getString(PreferenceManager.THEME_MODE, GalleryThemeMode.SYSTEM.name)
     return runCatching { GalleryThemeMode.valueOf(stored ?: GalleryThemeMode.SYSTEM.name) }
         .getOrDefault(GalleryThemeMode.SYSTEM)
 }
 
 private fun saveThemeMode(context: Context, mode: GalleryThemeMode) {
-    context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString(THEME_MODE_PREF, mode.name)
-        .apply()
+    PreferenceManager(context).setString(PreferenceManager.THEME_MODE, mode.name)
 }
 
 private fun loadTextScale(context: Context): Float =
-    context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
-        .getFloat(TEXT_SCALE_PREF, 1f)
+    PreferenceManager(context).getFloat(PreferenceManager.TEXT_SCALE, 1f)
         .coerceIn(0.75f, 1.45f)
 
 private fun loadStartupRoute(context: Context): String {
-    val route = context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE)
-        .getString("startupScreen", AppRoutes.HOME)
+    val pm = PreferenceManager(context)
+    val route = pm.getGlobalString(PreferenceManager.STARTUP_SCREEN, AppRoutes.HOME)
     return when (route) {
         AppRoutes.HOME,
         AppRoutes.FOLDERS,
@@ -144,67 +143,64 @@ private fun loadStartupRoute(context: Context): String {
 }
 
 private fun saveTextScale(context: Context, scale: Float) {
-    context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putFloat(TEXT_SCALE_PREF, scale.coerceIn(0.75f, 1.45f))
-        .apply()
+    PreferenceManager(context).setFloat(PreferenceManager.TEXT_SCALE, scale.coerceIn(0.75f, 1.45f))
 }
 
 private fun loadCustomPalette(context: Context): GalleryColors? {
-    val prefs = context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
-    if (!prefs.getBoolean(CUSTOM_PALETTE_ENABLED_PREF, false)) return null
+    val pm = PreferenceManager(context)
+    if (!pm.getBoolean(PreferenceManager.CUSTOM_PALETTE_ENABLED, false)) return null
 
-    val fallback = GalleryColorTokens.Dark
-    fun color(key: String, fallbackColor: Color): Color =
-        Color(prefs.getInt(CUSTOM_PALETTE_PREFIX + key, fallbackColor.toArgb()).toLong() and 0xFFFFFFFFL)
+    // We can't use @Composable inside loadCustomPalette which is called in onCreate,
+    // but the fallback was GalleryColorTokens.Dark which is now @Composable.
+    // However, the original code used GalleryColorTokens.Dark.background directly.
+    // Let's use hardcoded fallbacks or just null as it was.
+
+    fun color(key: String, fallbackArgb: Int): Color =
+        Color(pm.getInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + key, fallbackArgb).toLong() and 0xFFFFFFFFL)
 
     return GalleryColors(
-        background = color("background", fallback.background),
-        surface = color("surface", fallback.surface),
-        surfaceVariant = color("surfaceVariant", fallback.surfaceVariant),
-        topBar = color("topBar", fallback.topBar),
-        drawer = color("drawer", fallback.drawer),
-        card = color("card", fallback.card),
-        field = color("field", fallback.field),
-        primaryText = color("primaryText", fallback.primaryText),
-        secondaryText = color("secondaryText", fallback.secondaryText),
-        mutedText = color("mutedText", fallback.mutedText),
-        accent = color("accent", fallback.accent),
-        accentSoft = color("accentSoft", fallback.accentSoft),
-        danger = color("danger", fallback.danger),
-        success = color("success", fallback.success),
-        divider = color("divider", fallback.divider),
-        disabled = color("disabled", fallback.disabled)
+        background = color("background", 0xFF101418.toInt()),
+        surface = color("surface", 0xFF151B22.toInt()),
+        surfaceVariant = color("surfaceVariant", 0xFF1D2630.toInt()),
+        topBar = color("topBar", 0xFF0B0F14.toInt()),
+        drawer = color("drawer", 0xFF101418.toInt()),
+        card = color("card", 0xFF17202A.toInt()),
+        field = color("field", 0xFF1F2B36.toInt()),
+        primaryText = color("primaryText", 0xFFF4F8FC.toInt()),
+        secondaryText = color("secondaryText", 0xFFB7C6D5.toInt()),
+        mutedText = color("mutedText", 0xFF8392A3.toInt()),
+        accent = color("accent", 0xFF4DA3FF.toInt()),
+        accentSoft = color("accentSoft", 0xFF163B5F.toInt()),
+        danger = color("danger", 0xFFFF6B7A.toInt()),
+        success = color("success", 0xFF47D18C.toInt()),
+        divider = color("divider", 0x33FFFFFF.toInt()),
+        disabled = color("disabled", 0xFF6E7A86.toInt())
     )
 }
 
 private fun saveCustomPalette(context: Context, colors: GalleryColors?) {
-    context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .apply {
-            if (colors == null) {
-                putBoolean(CUSTOM_PALETTE_ENABLED_PREF, false)
-            } else {
-                putBoolean(CUSTOM_PALETTE_ENABLED_PREF, true)
-                putInt(CUSTOM_PALETTE_PREFIX + "background", colors.background.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "surface", colors.surface.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "surfaceVariant", colors.surfaceVariant.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "topBar", colors.topBar.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "drawer", colors.drawer.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "card", colors.card.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "field", colors.field.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "primaryText", colors.primaryText.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "secondaryText", colors.secondaryText.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "mutedText", colors.mutedText.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "accent", colors.accent.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "accentSoft", colors.accentSoft.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "danger", colors.danger.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "success", colors.success.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "divider", colors.divider.toArgb())
-                putInt(CUSTOM_PALETTE_PREFIX + "disabled", colors.disabled.toArgb())
-            }
-        }
-        .apply()
+    val pm = PreferenceManager(context)
+    if (colors == null) {
+        pm.setBoolean(PreferenceManager.CUSTOM_PALETTE_ENABLED, false)
+    } else {
+        pm.setBoolean(PreferenceManager.CUSTOM_PALETTE_ENABLED, true)
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "background", colors.background.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "surface", colors.surface.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "surfaceVariant", colors.surfaceVariant.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "topBar", colors.topBar.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "drawer", colors.drawer.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "card", colors.card.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "field", colors.field.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "primaryText", colors.primaryText.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "secondaryText", colors.secondaryText.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "mutedText", colors.mutedText.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "accent", colors.accent.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "accentSoft", colors.accentSoft.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "danger", colors.danger.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "success", colors.success.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "divider", colors.divider.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "disabled", colors.disabled.toArgb())
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -272,6 +268,7 @@ fun AppNavigation(
 ) {
     val context = LocalContext.current
     val galleryState = (context.applicationContext as GalleryApplication).galleryState
+    val preferenceManager = remember { PreferenceManager(context) }
     val scope = rememberCoroutineScope()
     val startDestination = remember { loadStartupRoute(context) }
     val globalSettingsPrefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
@@ -552,7 +549,7 @@ fun AppNavigation(
                         modifier = Modifier.padding(start = 16.dp, top = 8.dp).size(28.dp)
                     )
                     Text(
-                        "ギャラリーメニュー",
+                        stringResource(R.string.drawer_menu_title),
                         modifier = Modifier.padding(16.dp, 8.dp),
                         fontSize = AppConstants.SubtitleFontSize,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
@@ -560,14 +557,14 @@ fun AppNavigation(
                     HorizontalDivider(color = colors.divider)
 
                     Text(
-                        "基本機能",
+                        stringResource(R.string.drawer_basic_features),
                         modifier = Modifier.padding(16.dp, 8.dp),
                         fontSize = AppConstants.ExtraSmallFontSize,
                         color = colors.mutedText
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("ホーム") },
+                        label = { Text(stringResource(R.string.nav_home)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "home",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -586,7 +583,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("フォルダ") },
+                        label = { Text(stringResource(R.string.nav_folders)) },
                         selected = galleryState.galleryViewMode == GalleryViewMode.FOLDER && navController.currentBackStackEntryAsState().value?.destination?.route == "folders",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -605,7 +602,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("動画") },
+                        label = { Text(stringResource(R.string.nav_videos)) },
                         selected = galleryState.galleryViewMode == GalleryViewMode.VIDEO && navController.currentBackStackEntryAsState().value?.destination?.route == "videos",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -624,7 +621,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("本") },
+                        label = { Text(stringResource(R.string.nav_books)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "books",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -636,7 +633,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("ゴミ箱") },
+                        label = { Text(stringResource(R.string.nav_trash)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "trash",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -659,13 +656,13 @@ fun AppNavigation(
                     )
 
                     Text(
-                        "便利機能",
+                        stringResource(R.string.drawer_handy_features),
                         modifier = Modifier.padding(16.dp, 8.dp),
                         fontSize = AppConstants.ExtraSmallFontSize,
                         color = colors.mutedText
                     )
                     NavigationDrawerItem(
-                        label = { Text("お絵描き資料") },
+                        label = { Text(stringResource(R.string.nav_references)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "references",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -677,7 +674,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("お気に入りクリエイター") },
+                        label = { Text(stringResource(R.string.nav_fav_creators)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_artists",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -689,7 +686,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("お気に入りサイト") },
+                        label = { Text(stringResource(R.string.nav_fav_sites)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "favorite_sites",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -701,7 +698,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("本のしおり ($bookmarksCount)") },
+                        label = { Text("${stringResource(R.string.nav_book_bookmarks)} ($bookmarksCount)") },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "book_bookmarks",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -713,7 +710,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("動画DL") },
+                        label = { Text(stringResource(R.string.nav_video_dl)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -731,14 +728,14 @@ fun AppNavigation(
 
 
                     Text(
-                        "情報",
+                        stringResource(R.string.drawer_info),
                         modifier = Modifier.padding(16.dp, 8.dp),
                         fontSize = AppConstants.ExtraSmallFontSize,
                         color = colors.mutedText
                     )
 
                     NavigationDrawerItem(
-                        label = { Text(AppText.SETTINGS) },
+                        label = { Text(stringResource(R.string.nav_settings)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == AppRoutes.SETTINGS,
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -750,7 +747,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("チュートリアル") },
+                        label = { Text(stringResource(R.string.nav_tutorial)) },
                         selected = false,
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -762,7 +759,7 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("このアプリについて") },
+                        label = { Text(stringResource(R.string.nav_about)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "about",
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -977,7 +974,7 @@ fun AppNavigation(
                         galleryState = galleryState,
                         onFolderSelected = { folder ->
                             scope.launch {
-                                GlobalOperationService.startOperation("アイテムを移動中...")
+                                GlobalOperationService.startOperation("繧｢繧､繝・Β繧堤ｧｻ蜍穂ｸｭ...")
                                 galleryState.repository.moveMediaToFolder(galleryState.urisToMove, folder)
                                 GlobalOperationService.finishOperation()
                                 navController.popBackStack()
@@ -1019,7 +1016,7 @@ fun AppNavigation(
                         onOpenBookSettings = { navController.navigate(AppRoutes.BOOK_VIEWER_SETTINGS) },
                         initialJumpBookId = pendingBookmarkBookId,
                         initialJumpPage = pendingBookmarkPage,
-                        onJumpHandled = { 
+                        onJumpHandled = {
                             pendingBookmarkBookId = null
                             pendingBookmarkPage = -1
                         }
@@ -1157,16 +1154,16 @@ fun AppNavigation(
                     isBottomBarVisible = true
                     FavoriteArtistsScreen(
                         onMenuClick = { scope.launch { drawerState.open() } },
-                        onNavigateHome = {
-                            galleryState.lastViewedUri = null
-                            navController.navigate("home") {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = false
-                                }
-                                launchSingleTop = true
-                                restoreState = false
-                            }
-                        }
+//                        onNavigateHome = {
+//                            galleryState.lastViewedUri = null
+//                            navController.navigate("home") {
+//                                popUpTo(navController.graph.findStartDestination().id) {
+//                                    saveState = false
+//                                }
+//                                launchSingleTop = true
+//                                restoreState = false
+//                            }
+//                        }
                     )
                 }
                 composable("favorite_sites") {
@@ -1275,7 +1272,7 @@ fun AppNavigation(
                                 startupPasswordError = true
                             }
                         }) {
-                            Text("解除")
+                            Text("隗｣髯､")
                         }
                     }
                 )
@@ -1336,7 +1333,7 @@ fun AppNavigation(
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
 
-            // 基本機能では下部ナビゲーションを表示する。
+            // 蝓ｺ譛ｬ讖溯・縺ｧ縺ｯ荳矩Κ繝翫ン繧ｲ繝ｼ繧ｷ繝ｧ繝ｳ繧定｡ｨ遉ｺ縺吶ｋ縲・
             val isBasicFunction = currentRoute == AppRoutes.HOME ||
                 currentRoute == AppRoutes.FOLDERS ||
                 currentRoute == AppRoutes.BOOKS ||
@@ -1394,7 +1391,7 @@ private fun AnalysisPeriodDialog(
     val estimatedSeconds = targetCount?.times(4)
     val estimatedText = when (estimatedSeconds) {
         null -> "計算中..."
-        0 -> "約1分"
+        0 -> "約0分"
         else -> "約${(estimatedSeconds + 59) / 60}分（${targetCount}件）"
     }
 
@@ -1467,7 +1464,7 @@ private fun AnalysisPeriodDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("キャンセル")
+                Text("繧ｭ繝｣繝ｳ繧ｻ繝ｫ")
             }
         }
     )
@@ -1497,7 +1494,7 @@ private fun AnalysisDatePickerDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("キャンセル")
+                Text("繧ｭ繝｣繝ｳ繧ｻ繝ｫ")
             }
         }
     ) {

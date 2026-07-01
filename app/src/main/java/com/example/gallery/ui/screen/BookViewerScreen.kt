@@ -55,6 +55,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -78,6 +81,8 @@ import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.data.repository.BookType
 import com.example.gallery.ui.component.OperationProgressIndicator
 import com.example.gallery.ui.component.TapZoneGuideOverlay
+import com.example.gallery.ui.component.tapZoneCountForLayout
+import com.example.gallery.ui.component.tapZoneIndexAt
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -259,6 +264,10 @@ fun BookViewerScreen(
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    var isBookMagnifierActive by remember { mutableStateOf(false) }
+    var bookMagnifierBaseScale by remember { mutableFloatStateOf(1f) }
+    var bookMagnifierBaseOffset by remember { mutableStateOf(Offset.Zero) }
+    var bookMagnifierStartPosition by remember { mutableStateOf(Offset.Zero) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     var touchIndicatorPoint by remember { mutableStateOf<Offset?>(null) }
     var touchIndicatorToken by remember { mutableIntStateOf(0) }
@@ -280,6 +289,7 @@ fun BookViewerScreen(
     LaunchedEffect(pagerState.currentPage) {
         scale = 1f
         offset = Offset.Zero
+        isBookMagnifierActive = false
     }
 
     val window = (context as? Activity)?.window
@@ -287,7 +297,7 @@ fun BookViewerScreen(
         window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
-    LaunchedEffect(insetsController, viewerSettings.fullscreenMode, isUiVisible) {
+    LaunchedEffect(insetsController, viewerSettings.fullscreenMode, isUiVisible, effectiveScreenOrientation) {
         insetsController?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         val hiddenTypes = when (viewerSettings.fullscreenMode) {
@@ -494,6 +504,29 @@ fun BookViewerScreen(
                 10 -> onNextBook?.invoke() ?: moveSpread(true)
                 else -> isUiVisible = !isUiVisible
             }
+            7 -> when (index) {
+                0 -> onPreviousBook?.invoke() ?: moveSpread(false)
+                1 -> onNextBook?.invoke() ?: moveSpread(true)
+                2 -> moveSpread(false)
+                3 -> isUiVisible = !isUiVisible
+                4 -> moveSpread(true)
+                5 -> toggleZoom()
+                6 -> if (viewerSettings.slideshowSeconds > 0) {
+                    isSlideshowRunning = !isSlideshowRunning
+                    isUiVisible = !isSlideshowRunning
+                } else {
+                    saveCurrentScreenshot()
+                }
+                else -> isUiVisible = !isUiVisible
+            }
+            5 -> when (index) {
+                0 -> moveSpread(false)
+                1 -> onPreviousBook?.invoke() ?: moveSpread(false)
+                2 -> isUiVisible = !isUiVisible
+                3 -> onNextBook?.invoke() ?: moveSpread(true)
+                4 -> moveSpread(true)
+                else -> isUiVisible = !isUiVisible
+            }
             4 -> when (index) {
                 0 -> moveSpread(false)
                 1 -> toggleZoom()
@@ -531,8 +564,13 @@ fun BookViewerScreen(
                         detectTapGestures(onTap = { position ->
                             showBookTouchIndicator(position)
                             val zoneCount = viewerSettings.tapZoneCount.coerceIn(3, 11)
-                            val zoneHeight = size.height.toFloat() / zoneCount.toFloat()
-                            val zoneIndex = (position.y / zoneHeight).toInt().coerceIn(0, zoneCount - 1)
+                            val zoneIndex = tapZoneIndexAt(
+                                zoneCount = zoneCount,
+                                width = size.width.toFloat(),
+                                height = size.height.toFloat(),
+                                x = position.x,
+                                y = position.y
+                            )
                             handleTapZone(zoneIndex, zoneCount)
                         })
                     },
@@ -687,54 +725,78 @@ fun BookViewerScreen(
                     }
                 }
 
-                if (scale <= 1.01f && viewerSettings.tapNavigation) {
+                if ((scale <= 1.01f || isBookMagnifierActive) && viewerSettings.tapNavigation) {
                     val zoneCount = viewerSettings.tapZoneCount.coerceIn(3, 11)
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        repeat(zoneCount) { zoneIndex ->
-                            Box(
-                                Modifier
-                                    .fillMaxHeight()
-                                    .weight(1f)
-                                    .pointerInput(zoneIndex, zoneCount, viewerSettings.doubleTapFastZoom, viewerSettings.longPressMagnifier, viewerSettings.magnifierScalePercent) {
-                                        detectTapGestures(
-                                            onPress = {
-                                                showBookTouchIndicator(it)
-                                                var magnifierShown = false
-                                                val job = scope.launch {
-                                                    delay(450)
-                                                    if (viewerSettings.longPressMagnifier) {
-                                                        magnifierShown = true
-                                                        suppressTapAfterMagnifier = true
-                                                        scale = (viewerSettings.magnifierScalePercent / 100f).coerceIn(1f, 3f)
-                                                    }
-                                                }
-                                                tryAwaitRelease()
-                                                job.cancel()
-                                                if (magnifierShown) {
-                                                    scale = 1f
-                                                    offset = Offset.Zero
-                                                }
-                                            },
-                                            onTap = {
-                                                showBookTouchIndicator(it)
-                                                if (suppressTapAfterMagnifier) {
-                                                    suppressTapAfterMagnifier = false
-                                                } else {
-                                                    handleTapZone(zoneIndex, zoneCount)
-                                                }
-                                            },
-                                            onDoubleTap = {
-                                                showBookTouchIndicator(it)
-                                                if (viewerSettings.doubleTapFastZoom) {
-                                                    scale = if (scale > 1.01f) 1f else 2.5f
-                                                    offset = Offset.Zero
-                                                }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(isBookMagnifierActive, viewerSettings.magnifierScalePercent) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        if (isBookMagnifierActive) {
+                                            val change = event.changes.firstOrNull()
+                                            if (change != null && change.pressed) {
+                                                val drag = change.position - bookMagnifierStartPosition
+                                                val targetScale = (bookMagnifierBaseScale * (viewerSettings.magnifierScalePercent / 100f)).coerceIn(1f, 3f)
+                                                scale = targetScale
+                                                offset = bookMagnifierBaseOffset + drag * targetScale
+                                                change.consume()
                                             }
-                                        )
+                                        }
                                     }
-                            )
-                        }
-                    }
+                                }
+                            }
+                            .pointerInput(zoneCount, viewerSettings.doubleTapFastZoom, viewerSettings.longPressMagnifier, viewerSettings.magnifierScalePercent) {
+                                detectTapGestures(
+                                    onPress = {
+                                        showBookTouchIndicator(it)
+                                        var magnifierShown = false
+                                        bookMagnifierBaseScale = scale
+                                        bookMagnifierBaseOffset = offset
+                                        bookMagnifierStartPosition = it
+                                        val job = scope.launch {
+                                            delay(450)
+                                            if (viewerSettings.longPressMagnifier) {
+                                                magnifierShown = true
+                                                suppressTapAfterMagnifier = true
+                                                isBookMagnifierActive = true
+                                                scale = (bookMagnifierBaseScale * (viewerSettings.magnifierScalePercent / 100f)).coerceIn(1f, 3f)
+                                            }
+                                        }
+                                        tryAwaitRelease()
+                                        job.cancel()
+                                        if (magnifierShown) {
+                                            isBookMagnifierActive = false
+                                            scale = bookMagnifierBaseScale
+                                            offset = bookMagnifierBaseOffset
+                                        }
+                                    },
+                                    onTap = { position ->
+                                        showBookTouchIndicator(position)
+                                        if (suppressTapAfterMagnifier) {
+                                            suppressTapAfterMagnifier = false
+                                        } else {
+                                            val zoneIndex = tapZoneIndexAt(
+                                                zoneCount = zoneCount,
+                                                width = size.width.toFloat(),
+                                                height = size.height.toFloat(),
+                                                x = position.x,
+                                                y = position.y
+                                            )
+                                            handleTapZone(zoneIndex, zoneCount)
+                                        }
+                                    },
+                                    onDoubleTap = {
+                                        showBookTouchIndicator(it)
+                                        if (viewerSettings.doubleTapFastZoom) {
+                                            scale = if (scale > 1.01f) 1f else 2.5f
+                                            offset = Offset.Zero
+                                        }
+                                    }
+                                )
+                            }
+                    )
                 } else if (scale <= 1.01f) {
                     Box(
                         Modifier
@@ -749,7 +811,7 @@ fun BookViewerScreen(
         if (viewerSettings.touchIndicator) {
             val zoneCount = viewerSettings.tapZoneCount.coerceIn(3, 11)
             TapZoneGuideOverlay(
-                labels = bookTapZoneLabels(zoneCount),
+                labels = bookTapZoneGuideLabels(zoneCount),
                 vertical = viewerSettings.scrollMode == BookScrollMode.VERTICAL,
                 modifier = Modifier.matchParentSize()
             )
@@ -816,7 +878,7 @@ fun BookViewerScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("この本を検索", color = Color.White) },
+                                    text = { Text(stringResource(R.string.book_search_this), color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.White) },
                                     onClick = {
                                         showMoreMenu = false
@@ -824,7 +886,7 @@ fun BookViewerScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("スクリーンショット", color = Color.White) },
+                                    text = { Text(stringResource(R.string.book_screenshot), color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.Screenshot, null, tint = Color.White) },
                                     onClick = {
                                         showMoreMenu = false
@@ -832,7 +894,7 @@ fun BookViewerScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("画面回転", color = Color.White) },
+                                    text = { Text(stringResource(R.string.book_rotate), color = Color.White) },
                                     leadingIcon = { Icon(Icons.Default.ScreenRotation, null, tint = Color.White) },
                                     onClick = {
                                         showMoreMenu = false
@@ -876,10 +938,10 @@ fun BookViewerScreen(
                         TextButton(onClick = { onPreviousBook?.invoke() }, enabled = onPreviousBook != null) {
                             Icon(Icons.Default.SkipPrevious, contentDescription = null)
                             Spacer(Modifier.width(4.dp))
-                            Text("前の本")
+                            Text(stringResource(R.string.book_prev))
                         }
                         TextButton(onClick = { onNextBook?.invoke() }, enabled = onNextBook != null) {
-                            Text("次の本")
+                            Text(stringResource(R.string.book_next))
                             Spacer(Modifier.width(4.dp))
                             Icon(Icons.Default.SkipNext, contentDescription = null)
                         }
@@ -1043,6 +1105,28 @@ private fun bookTapZoneLabels(zoneCount: Int): List<String> {
     }
 }
 
+private fun bookTapZoneGuideLabels(zoneCount: Int): List<String> {
+    return when (zoneCount) {
+        11 -> listOf(
+            "前の本",
+            "前ページ",
+            "前ページ",
+            "ズーム",
+            "スクリーンショット",
+            "メニュー",
+            "設定",
+            "スライドショー",
+            "ズーム",
+            "次ページ",
+            "次の本"
+        )
+        7 -> listOf("前の本", "次の本", "前ページ", "メニュー", "次ページ", "ズーム", "スライドショー")
+        5 -> listOf("前ページ", "前の本", "メニュー", "次の本", "次ページ")
+        4 -> listOf("前ページ", "ズーム", "設定", "次ページ")
+        else -> listOf("前ページ", "メニュー", "次ページ")
+    }
+}
+
 private fun loadBookViewerSettings(preferences: android.content.SharedPreferences): BookViewerSettings {
     fun <T : Enum<T>> enumValue(key: String, default: T, values: Array<T>): T {
         val stored = preferences.getString(key, default.name)
@@ -1081,12 +1165,10 @@ private fun loadBookViewerSettings(preferences: android.content.SharedPreference
         brightness = preferences.getInt("brightness", 0).coerceIn(-50, 50),
         contrast = preferences.getInt("contrast", 0).coerceIn(-50, 50),
         gamma = preferences.getInt("gamma", 100).coerceIn(50, 200),
-        tapZoneCount = when (preferences.getString("tapZoneLayout", "")) {
-            "ELEVEN" -> 11
-            "FOUR" -> 4
-            "THREE" -> 3
-            else -> preferences.getInt("tapZoneCount", 3).coerceIn(1, 11)
-        },
+        tapZoneCount = tapZoneCountForLayout(
+            preferences.getString("tapZoneLayout", ""),
+            preferences.getInt("tapZoneCount", 3)
+        ),
         slideshowSeconds = slideshowSecondsValue(),
         autoTrimWhiteBorder = preferences.getBoolean("autoTrimWhiteBorder", false),
         cacheAroundPages = preferences.getBoolean("imageCache", preferences.getBoolean("cacheAroundPages", true)),

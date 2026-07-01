@@ -97,6 +97,7 @@ import coil.request.videoFrameMillis
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.AppDefaults
 import com.example.gallery.ui.component.TapZoneGuideOverlay
+import com.example.gallery.ui.component.tapZoneCountForLayout
 import com.example.gallery.ui.state.GalleryState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -143,11 +144,7 @@ fun VideoFullscreenViewerScreen(
     val controlPanelAutoHideMs = remember { globalSettingsPrefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS).coerceIn(1000, 10000) }
     val touchIndicatorEnabled = remember { globalSettingsPrefs.getBoolean("touchIndicator", false) }
     val tapZonePrefs = remember { context.getSharedPreferences("book_viewer_settings", Context.MODE_PRIVATE) }
-    val tapZoneCount = when (tapZonePrefs.getString("tapZoneLayout", "THREE")) {
-        "ELEVEN" -> 11
-        "FOUR" -> 4
-        else -> 3
-    }
+    val tapZoneCount = tapZoneCountForLayout(tapZonePrefs.getString("tapZoneLayout", "THREE"))
 
     var currentIndex by remember {
         mutableIntStateOf(initialIndex.coerceIn(0, (videoList.size - 1).coerceAtLeast(0)))
@@ -337,8 +334,7 @@ fun VideoFullscreenViewerScreen(
             insetsController?.show(WindowInsetsCompat.Type.navigationBars())
         } else {
             window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
-            insetsController?.hide(WindowInsetsCompat.Type.statusBars())
-            insetsController?.show(WindowInsetsCompat.Type.navigationBars())
+            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
         }
         if (isControlsVisible && !isVideoStripVisible && !isControlInteractionActive) {
             delay(controlPanelAutoHideMs.toLong())
@@ -724,20 +720,9 @@ fun VideoFullscreenViewerScreen(
             }
         }
 
-        touchIndicatorPoint?.let { point ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = point.x.dp, top = point.y.dp)
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.18f))
-            )
-        }
-
         if (touchIndicatorEnabled) {
             TapZoneGuideOverlay(
-                labels = videoTapZoneLabels(tapZoneCount),
+                labels = videoTapZoneGuideLabels(tapZoneCount),
                 modifier = Modifier.matchParentSize()
             )
         }
@@ -894,6 +879,28 @@ private fun videoTapZoneLabels(zoneCount: Int): List<String> {
         11 -> listOf("前の動画", "戻す", "戻す", "明るさ", "スクショ", "再生/停止", "設定", "一覧", "音量", "進める", "次の動画")
         4 -> listOf("前の動画", "明るさ", "音量", "次の動画")
         else -> listOf("前の動画", "再生/停止", "次の動画")
+    }
+}
+
+private fun videoTapZoneGuideLabels(zoneCount: Int): List<String> {
+    return when (zoneCount) {
+        11 -> listOf(
+            "前の動画",
+            "10秒戻す",
+            "次の動画",
+            "明るさ",
+            "スクリーンショット",
+            "再生/一時停止",
+            "設定",
+            "一覧",
+            "音量",
+            "10秒進む",
+            "次の動画"
+        )
+        7 -> listOf("前の動画", "次の動画", "10秒戻す", "再生/一時停止", "10秒進む", "明るさ", "音量")
+        5 -> listOf("10秒戻す", "前の動画", "再生/一時停止", "次の動画", "10秒進む")
+        4 -> listOf("前の動画", "再生/一時停止", "音量", "次の動画")
+        else -> listOf("前の動画", "再生/一時停止", "次の動画")
     }
 }
 

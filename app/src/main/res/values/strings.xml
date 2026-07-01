@@ -1,3 +1,441 @@
 <resources>
     <string name="app_name">MediaNest</string>
+    <string name="book_scan_progress_title">本を走査中...</string>
+    <string name="book_scan_checking_folders">本棚フォルダを確認中...</string>
+    <string name="book_scan_complete">走査完了</string>
+    <string name="gallery_ai_analysis">AI分析</string>
+    <string name="gallery_ai_analysis_running">AI分析中</string>
+    <string name="tutorial_close">閉じる</string>
+    <string name="tutorial_next">次へ</string>
+    <string name="tutorial_done">完了</string>
+    <string name="tutorial_hint_home_gallery">ギャラリー一覧</string>
+    <string name="tutorial_hint_home_viewer">ビューア操作</string>
+    <string name="tutorial_hint_search">検索ボタン</string>
+    <string name="tutorial_hint_folders">フォルダ一覧</string>
+    <string name="tutorial_hint_folder_bulk_edit">一括編集ボタン</string>
+    <string name="tutorial_hint_books_toolbar">本画面の更新・設定ボタン</string>
+    <string name="tutorial_hint_book_viewer">ブックビューア操作</string>
+    <string name="tutorial_hint_trash_actions">復元・削除ボタン</string>
+    <string name="tutorial_hint_settings">設定カード</string>
+    <string name="tutorial_hint_video_downloader">URL入力・保存ボタン</string>
+    <string name="tutorial_hint_references">資料追加ボタン</string>
+    <string name="tutorial_hint_overview">主なボタン</string>
+
+    <!-- Drawer and Navigation -->
+    <string name="drawer_menu_title">ギャラリーメニュー</string>
+    <string name="drawer_basic_features">基本機能</string>
+    <string name="drawer_handy_features">便利機能</string>
+    <string name="drawer_info">情報</string>
+    <string name="nav_home">ホーム</string>
+    <string name="nav_folders">フォルダ</string>
+    <string name="nav_videos">動画</string>
+    <string name="nav_books">本</string>
+    <string name="nav_trash">ゴミ箱</string>
+    <string name="nav_references">お絵描き資料</string>
+    <string name="nav_fav_creators">お気に入りクリエイター</string>
+    <string name="nav_fav_sites">お気に入りサイト</string>
+    <string name="nav_book_bookmarks">本のしおり</string>
+    <string name="nav_video_dl">動画DL</string>
+    <string name="nav_settings">設定</string>
+    <string name="nav_tutorial">チュートリアル</string>
+    <string name="nav_about">このアプリについて</string>
+
+    <!-- Settings Screens -->
+    <string name="settings_title">設定</string>
+    <string name="settings_global">全体設定</string>
+    <string name="settings_theme">テーマ</string>
+    <string name="settings_book_viewer">ブックビューア</string>
+    <string name="settings_global_desc">ビューア、起動、パスワード、操作の設定です。</string>
+    <string name="settings_theme_desc">表示テーマ、カラーパレット、文字サイズを設定します。</string>
+    <string name="settings_book_viewer_desc">本の表示、操作、読書補助の設定です。</string>
+    <string name="settings_data_title">設定データ</string>
+    <string name="settings_data_desc">全体設定、テーマ、ブックビューア設定をJSONとして保存・読み込みします。</string>
+    <string name="settings_reset_confirm_title">デフォルト値に戻しますか？</string>
+    <string name="settings_reset_confirm_text">この画面の設定を初期値に戻します。</string>
+    <string name="settings_restore_standard_colors">標準色に戻す</string>
+    <string name="settings_hex_hint">#RRGGBB または #AARRGGBB</string>
+    <string name="settings_sample_header">見出しサンプル</string>
+    <string name="settings_sample_body">本文サンプル。選択した値がアプリ内の文字に反映されます。</string>
+    <string name="settings_sample_label">補足 / ラベル</string>
+    <string name="settings_json_label">設定JSON</string>
+
+    <!-- General UI -->
+    <string name="btn_back">戻る</string>
+    <string name="btn_close">閉じる</string>
+    <string name="btn_cancel">キャンセル</string>
+    <string name="btn_ok">OK</string>
+    <string name="btn_retry">再試行</string>
+    <string name="btn_start">開始</string>
+    <string name="btn_save">保存</string>
+    <string name="btn_load">読み込み</string>
+    <string name="btn_reset">戻す</string>
+    <string name="btn_open">開く</string>
+    <string name="btn_create">作成</string>
+    <string name="btn_delete">削除</string>
+    <string name="btn_restore">復元</string>
+    <string name="btn_unlock">解除</string>
+    <string name="btn_search_open">検索を開く</string>
+    <string name="btn_decide">決定</string>
+    <string name="btn_complete">完了する</string>
+
+    <!-- Trash Screen -->
+    <string name="trash_title">ゴミ箱</string>
+    <string name="trash_restore_all">すべて復元</string>
+    <string name="trash_delete_all">すべて削除</string>
+    <string name="trash_permanent_delete">完全に削除</string>
+    <string name="trash_empty">ゴミ箱は空です</string>
+    <string name="trash_item_count">%1$d 件選択中</string>
+    <string name="trash_media_label">メディア</string>
+    <string name="trash_media_count_unit">枚</string>
+    <string name="trash_book_count_unit">本</string>
+    <string name="trash_restore_confirm">すべてのアイテムを元に戻しますか？</string>
+    <string name="trash_delete_confirm">すべてのアイテムを完全に削除しますか？この操作は取り消せません。</string>
+
+    <!-- Video Downloader -->
+    <string name="video_dl_title">Video Downloader</string>
+    <string name="video_dl_url_label">X (Twitter) URL</string>
+    <string name="video_dl_show_options">ダウンロードオプションを表示</string>
+    <string name="video_dl_history">ダウンロード履歴</string>
+    <string name="video_dl_clear_history">履歴をクリア</string>
+    <string name="video_dl_settings">ダウンロード設定</string>
+    <string name="video_dl_resolving">メディアを解析中...</string>
+    <string name="video_dl_already_downloaded">注意: この投稿は既にダウンロード済みです。</string>
+    <string name="video_dl_gif_detected">GIF投稿を検出しました。GIF画像としてダウンロードします。</string>
+    <string name="video_dl_select_quality">画質を選択:</string>
+    <string name="video_dl_gif_post">GIF投稿を検出しました</string>
+    <string name="video_dl_enter_url">URLを入力してください</string>
+    <string name="video_dl_history_cleared">履歴を削除しました</string>
+
+    <!-- Book Viewer / Screen -->
+    <string name="book_search_this">この本を検索</string>
+    <string name="book_screenshot">スクリーンショット</string>
+    <string name="book_rotate">画面回転</string>
+    <string name="book_prev">前の本</string>
+    <string name="book_next">次の本</string>
+    <string name="book_no_books">本が見つかりませんでした</string>
+    <string name="book_check_permission">フォルダの権限や保存場所を確認してください</string>
+    <string name="book_delete_confirm">本を削除しますか？</string>
+    <string name="book_grant_permission">設定を開いて許可する</string>
+
+    <!-- Bookmarks -->
+    <string name="bookmarks_empty">しおりはありません</string>
+
+    <!-- Favorite Artists / Sites -->
+    <string name="fav_add_creator_tab">クリエイタータブを追加</string>
+    <string name="fav_user_sites">ユーザーサイト</string>
+    <string name="fav_site_name">サイト名</string>
+    <string name="fav_search_google">Googleで検索してURLを入力</string>
+    <string name="fav_creator_tab">クリエイタータブ</string>
+    <string name="fav_creator_name">クリエイター名</string>
+    <string name="fav_add_link">リンクを追加</string>
+    <string name="fav_add_site_card">サイトカードを追加</string>
+    <string name="fav_delete_site_card">サイトカードを削除</string>
+    <string name="fav_delete_site_confirm">このサイトカードを削除します。埋め込みプレビューなどは削除されません。</string>
+    <string name="fav_search_site_google">Googleでサイトを検索</string>
+    <string name="fav_no_sites">お気に入りサイトがありません</string>
+    <string name="fav_site_card">サイトカード</string>
+    <string name="fav_url">URL</string>
+    <string name="fav_description">説明</string>
+    <string name="fav_creator_search_desc">URLが空なのでWebViewでGoogle検索を開きます。最初に開いたページのURLをこのリンク欄へ自動入力します。URLが入っている場合は外部ブラウザで開きます。</string>
+    <string name="fav_site_search_desc">URLが空なのでサイト名でGoogle検索を開きます。最初に開いたページのURLを自動入力します。</string>
+    <string name="fav_untitled_creator">無名のクリエイター</string>
+
+    <!-- Analysis -->
+    <string name="analysis_bg_running">バックグラウンドで解析を実行中です...</string>
+    <string name="analysis_keep_moving">このまま他の画面へ移動しても解析は継続されます。</string>
+    <string name="analysis_back_to_gallery">ギャラリーに戻る</string>
+    <string name="analysis_select_period">分析対象の期間を選択してください</string>
+    <string name="analysis_start">分析開始</string>
+    <string name="analysis_target_count">対象件数: %1$s件</string>
+    <string name="analysis_estimated_time">推定時間: %1$s</string>
+
+    <!-- Folders -->
+    <string name="folder_create_new">新規フォルダ作成</string>
+    <string name="folder_create">フォルダ作成</string>
+    <string name="folder_dcim_desc">DCIM直下に作成されます</string>
+    <string name="folder_name">フォルダ名</string>
+    <string name="folder_reset_thumbnail">サムネイルをリセット</string>
+
+    <!-- Media Edit -->
+    <string name="edit_target_age">対象年齢</string>
+    <string name="edit_tag_settings">タグ設定</string>
+    <string name="edit_new_tag">新しいタグ</string>
+    <string name="edit_add_tags">追加するタグ:</string>
+    <string name="edit_select_existing_tags">既存のタグから選択:</string>
+    <string name="edit_search_tags">タグを検索...</string>
+    <string name="edit_bulk">一括編集</string>
+    <string name="edit_move_folder">フォルダ移動</string>
+    <string name="edit_bulk_tags_rating">一括タグ・評価編集</string>
+    <string name="edit_set_folder_thumbnail">フォルダのサムネイルに設定</string>
+    <string name="edit_tags">タグを編集</string>
+
+    <!-- Reference Projects -->
+    <string name="ref_no_projects">プロジェクトがありません</string>
+    <string name="ref_create_project">プロジェクトを作成</string>
+    <string name="ref_project_name_hint">プロジェクト名（例: エルフの描き方）</string>
+    <string name="ref_search_placeholder">キーワード検索...</string>
+    <string name="ref_search_guide">画像検索の使い方</string>
+    <string name="ref_search_guide_text">・キーワードを入力して画像検索\n・画像を長押しして資料に追加\n・右上のカメラボタンで現在の画面のスクショを資料に保存\n検索ページを操作して参考画像を探してください。</string>
+    <string name="ref_no_references">資料が登録されていません</string>
+    <string name="ref_complete_project_title">プロジェクトを完了しますか？</string>
+    <string name="ref_complete_project_text">プロジェクトを完了にします。ギャラリー参照の画像は削除せず保持します。</string>
+    <string name="ref_add_reference">資料を追加</string>
+    <string name="ref_add_method_desc">追加方法を選択してください</string>
+    <string name="ref_from_gallery">ギャラリーから選択</string>
+    <string name="ref_from_web">Webで検索</string>
+
+    <!-- Auth -->
+    <string name="auth_startup_password">起動パスワード</string>
+    <string name="auth_password_label">パスワード</string>
+    <string name="auth_wrong_password">パスワードが違います</string>
+
+    <string name="settings_reset_to_default">デフォルト値に戻す</string>
+    <string name="settings_section_viewer_display">ビューア表示</string>
+    <string name="settings_section_viewer_display_desc">表示、全画面、画面の向き、メニュー透明度を設定します。</string>
+    <string name="settings_smoothing">画像平滑化</string>
+    <string name="settings_fullscreen">全画面表示</string>
+    <string name="settings_orientation">画面の向き</string>
+    <string name="settings_menu_opacity">メニュー透明度</string>
+    <string name="settings_section_playback">再生</string>
+    <string name="settings_section_playback_desc">ページ遷移、スライドショー、ランダム再生を設定します。</string>
+    <string name="settings_transition_speed">ページ遷移のスピード</string>
+    <string name="settings_slideshow_interval">スライドショー切り替え時間</string>
+    <string name="settings_slideshow_speed">切り替えスピード</string>
+    <string name="settings_random_playback">ランダム再生</string>
+    <string name="settings_continuous_playback">連続再生</string>
+    <string name="settings_section_operation">操作</string>
+    <string name="settings_section_operation_desc">長押し、ダブルタップ、タッチ表示、自動非表示を設定します。</string>
+    <string name="settings_long_press_magnifier">長押し拡大鏡</string>
+    <string name="settings_double_tap_zoom">ダブルタップ高速ズーム</string>
+    <string name="settings_touch_indicator">タッチインジケーター</string>
+    <string name="settings_control_panel_hide">コントロールパネル自動非表示</string>
+    <string name="settings_magnifier_scale">拡大鏡の拡大率</string>
+    <string name="settings_section_progress">進捗表示</string>
+    <string name="settings_section_progress_desc">読み込みや解析中の進捗表示を設定します。</string>
+    <string name="settings_display_size">表示サイズ</string>
+    <string name="settings_mini_progress_style">最小表示の形</string>
+    <string name="settings_section_launch_protection">起動と保護</string>
+    <string name="settings_section_launch_protection_desc">起動時の画面、パスワード、省メモリモードを設定します。</string>
+    <string name="settings_startup_screen">起動時の画面</string>
+    <string name="settings_low_memory_mode">省メモリモード</string>
+    <string name="settings_display_theme">表示テーマ</string>
+    <string name="settings_display_theme_desc">システム、ダーク、ライトを切り替えます。</string>
+    <string name="settings_color_palette">カラーパレット</string>
+    <string name="settings_color_palette_desc">プリセットの適用後に、すべての色を個別に編集できます。</string>
+    <string name="settings_theme_preset">テーマプリセット</string>
+    <string name="settings_section_bookshelf">本棚</string>
+    <string name="settings_section_bookshelf_desc">本一覧とサムネイルの設定です。</string>
+    <string name="settings_file_sort">ファイルの並び替え</string>
+    <string name="settings_show_thumbnail">サムネイルを表示</string>
+    <string name="settings_thumbnail_smoothing">サムネイルの画像平滑化</string>
+    <string name="settings_swipe_delete_book">スワイプで本を削除</string>
+    <string name="settings_auto_load_on_launch">起動時のファイル自動読み込み</string>
+    <string name="settings_section_display">表示</string>
+    <string name="settings_section_display_desc">ブックビューアの表示とページ移動を設定します。</string>
+    <string name="settings_binding_direction">綴じ方向</string>
+    <string name="settings_viewer_mode">ビューアモード</string>
+    <string name="settings_transition_effect">ページ遷移の効果</string>
+    <string name="settings_screen_allocation">スクリーン割り当て</string>
+    <string name="settings_read_mark">既読マーク</string>
+    <string name="settings_show_clock_battery">時計とバッテリー残量を表示</string>
+    <string name="settings_text_size">文字サイズ</string>
+    <string name="settings_text_size_desc">アプリ全体の文字サイズをまとめて調整します。</string>
+    <string name="settings_current_value">現在: %1$d%%</string>
+
+    <string name="theme_system">システム</string>
+    <string name="theme_dark">ダーク</string>
+    <string name="theme_light">ライト</string>
+
+    <string name="unit_ms">ms</string>
+    <string name="unit_seconds">秒</string>
+    <string name="unit_percent">%%</string>
+
+    <!-- Settings Options -->
+    <string name="opt_nearest">最近傍法</string>
+    <string name="opt_averaging">平均画素法</string>
+    <string name="opt_bilinear">バイリニア補間</string>
+    <string name="opt_bicubic">バイキュービック補間</string>
+    <string name="opt_lanczos3">Lanczos3</string>
+    <string name="opt_disabled">無効</string>
+    <string name="opt_fullscreen">全画面表示</string>
+    <string name="opt_hide_status_bar">ステータスバーを隠す</string>
+    <string name="opt_hide_nav_bar">ナビゲーションバーを非表示</string>
+    <string name="opt_auto">自動回転</string>
+    <string name="opt_portrait">縦</string>
+    <string name="opt_landscape">横</string>
+    <string name="opt_reverse_portrait">縦の逆</string>
+    <string name="opt_reverse_landscape">横の逆</string>
+    <string name="opt_page">ページ</string>
+    <string name="opt_vertical">縦スクロール</string>
+    <string name="opt_horizontal">横スクロール</string>
+    <string name="opt_none">なし</string>
+    <string name="opt_page_curl">ページめくり</string>
+    <string name="opt_slide_horizontal">スライド（左右）</string>
+    <string name="opt_slide_vertical">スライド（上下）</string>
+    <string name="opt_cover">カバー</string>
+    <string name="opt_fade">フェードイン</string>
+    <string name="opt_icon">アイコン</string>
+    <string name="opt_percent">パーセント</string>
+    <string name="opt_progress_bar">プログレスバー</string>
+    <string name="opt_name_asc">名前 昇順</string>
+    <string name="opt_name_desc">名前 降順</string>
+    <string name="opt_date_desc">新しい順</string>
+    <string name="opt_date_asc">古い順</string>
+    <string name="opt_three_split">3分割</string>
+    <string name="opt_four_split">4分割</string>
+    <string name="opt_five_split">5&#x5206;&#x5272;</string>
+    <string name="opt_seven_split">7&#x5206;&#x5272;</string>
+    <string name="opt_eleven_split">11分割</string>
+    <string name="opt_max">最大表示</string>
+    <string name="opt_min">最小表示</string>
+    <string name="opt_bar">バー</string>
+    <string name="opt_circle">円</string>
+    <string name="opt_right">右</string>
+    <string name="opt_left">左</string>
+
+    <!-- Color Names -->
+    <string name="color_background">背景</string>
+    <string name="color_surface">面</string>
+    <string name="color_surface_variant">面の補助色</string>
+    <string name="color_top_bar">トップバー</string>
+    <string name="color_drawer">サイドバー</string>
+    <string name="color_card">カード</string>
+    <string name="color_field">入力欄</string>
+    <string name="color_primary_text">主文字</string>
+    <string name="color_secondary_text">副文字</string>
+    <string name="color_muted_text">薄い文字</string>
+    <string name="color_accent">アクセント</string>
+    <string name="color_accent_soft">アクセント背景</string>
+    <string name="color_danger">危険</string>
+    <string name="color_success">成功</string>
+    <string name="color_divider">区切り線</string>
+    <string name="color_disabled">無効</string>
+
+    <!-- Theme Presets -->
+    <string name="preset_standard">標準</string>
+    <string name="preset_custom">カスタム</string>
+    <string name="preset_midnight">ミッドナイト</string>
+    <string name="preset_paper">ペーパー</string>
+    <string name="preset_sunrise">朝焼け</string>
+    <string name="preset_sunset">夕焼け</string>
+    <string name="preset_gorgeous">ゴージャス</string>
+    <string name="preset_calm">落ち着き</string>
+    <string name="preset_spring">春</string>
+    <string name="preset_summer">夏</string>
+    <string name="preset_winter">冬</string>
+    <string name="preset_forest">森</string>
+    <string name="preset_neon">ネオン</string>
+    <string name="preset_mono">モノクロ</string>
+    <string name="preset_sakura_mist">桜霞</string>
+    <string name="preset_fresh_leaf">若葉</string>
+    <string name="preset_deep_sea">深海</string>
+    <string name="preset_starry">星空</string>
+    <string name="preset_coffee">コーヒー</string>
+    <string name="preset_jade">翡翠</string>
+    <string name="preset_grape">葡萄</string>
+    <string name="preset_porcelain">磁器</string>
+    <string name="preset_autumn_leaf">紅葉</string>
+    <string name="preset_jewel">宝石</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_delete_link_title">リンクを削除</string>
+    <string name="dialog_delete_link_text">このリンクを削除します。</string>
+    <string name="dialog_delete_creator_title">Creator tabを削除</string>
+    <string name="dialog_delete_creator_text">このCreator tabと中のリンクを削除します。</string>
+
+    <!-- About -->
+    <string name="about_title">アプリ情報</string>
+    <string name="about_changelog">更新履歴</string>
+    <string name="about_dev_info">開発情報</string>
+    <string name="about_dev_desc">Android Studio AI Assistant によって開発を支援しています。</string>
+    <string name="error_fetch_data">データの取得に失敗しました</string>
+
+    <!-- Media Viewer -->
+    <string name="viewer_details">詳細</string>
+    <string name="viewer_similar_images">似た雰囲気の画像（AIベクトル）</string>
+    <string name="viewer_not_analyzed">この画像はまだ解析されていません。</string>
+    <string name="viewer_no_similar">似た画像は見つかりませんでした。</string>
+    <string name="viewer_tags">タグ</string>
+    <string name="viewer_no_tags">AI分析が実行されていません。</string>
+    <string name="viewer_file_info">ファイル情報</string>
+    <string name="viewer_save_screenshot">スクリーンショットを保存</string>
+    <string name="viewer_set_wallpaper">壁紙に設定</string>
+    <string name="viewer_skip">スキップ</string>
+    <string name="viewer_random_videos">おすすめ動画</string>
+    <string name="viewer_random_images">おすすめ画像</string>
+    <string name="viewer_date">日付</string>
+    <string name="viewer_file_name">ファイル名</string>
+    <string name="viewer_file_path">ファイルパス</string>
+    <string name="viewer_loading">読み込み中...</string>
+    <string name="viewer_no_videos">動画が見つかりませんでした</string>
+
+    <!-- Common -->
+    <string name="label_media_type">メディア種別</string>
+    <string name="label_device_bg">デバイス背景</string>
+
+    <string name="viewer_rotate">回転（縦横切替）</string>
+    <string name="viewer_pause">一時停止</string>
+    <string name="viewer_play">再生</string>
+    <string name="viewer_favorite_toggle">お気に入り切替</string>
+    <string name="viewer_slideshow_start">スライドショー開始</string>
+    <string name="viewer_slideshow_stop">スライドショー停止</string>
+    <string name="viewer_gif_stepping">GIFコマ送り</string>
+    <string name="viewer_gif_stepping_stop">GIFコマ送り停止</string>
+    <string name="viewer_search_ascii2d">ascii2dで検索</string>
+    <string name="viewer_searching_ascii2d">ascii2d検索中...</string>
+    <string name="viewer_extracting_gif">GIFのコマを抽出中</string>
+    <string name="viewer_info_image">画像情報</string>
+    <string name="viewer_file_size">ファイルサイズ</string>
+    <string name="viewer_image_res">画像の幅・高さ</string>
+    <string name="viewer_loading_ascii2d">ascii2dを読み込み中...</string>
+    <string name="viewer_ascii2d_ready">画像をセットしました。ascii2dの検索ボタンを押してください</string>
+    <string name="viewer_preparing_selection">画像選択を準備中...</string>
+    <string name="viewer_frame_stepping">コマ送り</string>
+    <string name="viewer_deleted">削除済み</string>
+
+    <string name="msg_search_ascii2d">ascii2dで検索中...</string>
+    <string name="msg_error_ascii2d">ascii2d検索に失敗しました: %1$s</string>
+    <string name="msg_error_get_frame">動画フレームの取得に失敗しました</string>
+    <string name="msg_gif_use_stepping">GIFはコマ送りモードで保存してください</string>
+    <string name="msg_set_folder_thumbnail">フォルダ「%1$s」のサムネイルに設定しました</string>
+    <string name="msg_error_extract_frame">コマの抽出に失敗しました</string>
+    <string name="msg_screenshot_saved">スクリーンショットを保存しました</string>
+    <string name="msg_error_save_failed">保存に失敗しました</string>
+    <string name="msg_wallpaper_set">壁紙に設定しました</string>
+    <string name="msg_error_wallpaper_failed">壁紙の設定に失敗しました</string>
+    <string name="msg_wallpaper_set_frame">今表示しているコマを壁紙に設定しました</string>
+    <string name="msg_error_open_image">画像を開けませんでした</string>
+
+    <string name="tap_prev">前へ</string>
+    <string name="tap_next">次へ</string>
+    <string name="tap_zoom">ズーム</string>
+    <string name="tap_save">保存</string>
+    <string name="tap_toggle_ui">表示切替</string>
+    <string name="tap_settings">設定</string>
+    <string name="tap_search">検索</string>
+
+    <string name="video_dl_downloading">動画をダウンロード中</string>
+    <string name="video_dl_converting_gif">GIFへ変換中...</string>
+    <string name="video_dl_saving_gif">GIFを保存中...</string>
+    <string name="video_dl_complete">保存が完了しました</string>
+    <string name="video_dl_remaining">残り</string>
+    <string name="video_dl_calculating_time">残り時間を計測中</string>
+    <string name="unit_minutes">分</string>
+
+    <string name="msg_no_data_backup">データがないためバックアップできません</string>
+    <string name="msg_saved_to">保存しました: %1$s</string>
+    <string name="msg_save_failed">保存に失敗しました: %1$s</string>
+    <string name="msg_backup_not_found">バックアップファイルが見つかりません</string>
+    <string name="msg_loaded">読み込みました</string>
+    <string name="msg_load_failed">読み込みに失敗しました: %1$s</string>
+    <string name="msg_no_new_sites">追加できる新しいサイトがありません</string>
+    <string name="label_site">サイト</string>
+
+    <!-- Tutorial -->
+    <string name="tutorial_setup_title">チュートリアル設定</string>
+    <string name="tutorial_setup_desc">表示したい画面のチュートリアルを選んでください。</string>
+    <string name="tutorial_none">表示しない</string>
+    <string name="tutorial_to_watch">見るチュートリアル</string>
+    <string name="trash_permanently_delete">完全に削除</string>
+    <string name="trash_move_to">ゴミ箱へ</string>
 </resources>

@@ -21,6 +21,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -95,7 +98,7 @@ fun ReferenceSearchScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-            placeholder = { Text("キーワード検索...", color = Color.Gray) },
+            placeholder = { Text(stringResource(R.string.ref_search_placeholder), color = colorResource(R.color.gray)) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     leadingIcon = {

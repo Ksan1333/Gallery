@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Font Sizes -->
+    <dimen name="text_size_title">24sp</dimen>
+    <dimen name="text_size_header">20sp</dimen>
+    <dimen name="text_size_body">16sp</dimen>
+    <dimen name="text_size_subtitle">14sp</dimen>
+    <dimen name="text_size_small">12sp</dimen>
+    <dimen name="text_size_extra_small">11sp</dimen>
+    <dimen name="text_size_tiny">10sp</dimen>
+    <dimen name="text_size_bottom_nav">9sp</dimen>
+    <dimen name="text_size_scrollbar_label">13sp</dimen>
+    <dimen name="text_size_badge">10sp</dimen>
+    <dimen name="text_size_dense_badge">9sp</dimen>
+
+    <!-- Layout -->
+    <dimen name="drawer_width">260dp</dimen>
+    <dimen name="drawer_item_height">44dp</dimen>
+    <dimen name="header_height">56dp</dimen>
+    <dimen name="drawer_edge_hit_width">25dp</dimen>
+</resources>

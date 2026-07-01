@@ -17,6 +17,7 @@ class AnalysisService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private var analysisJob: Job? = null
+    private var isModelDownloadActive = false
 
     companion object {
         const val CHANNEL_ID = "AnalysisChannel"
@@ -59,15 +60,17 @@ class AnalysisService : Service() {
         val type = intent?.getStringExtra("type") ?: "AI_TAGGING"
         if (intent?.action == ACTION_CANCEL) {
             GlobalOperationService.requestCancel(type)
-            analysisJob?.cancel()
-            GlobalOperationService.finishOperation(type)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
+            if (!isModelDownloadActive) {
+                analysisJob?.cancel()
+                GlobalOperationService.finishOperation(type)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                stopSelf()
             }
-            stopSelf()
             return START_NOT_STICKY
         }
 
@@ -103,17 +106,22 @@ class AnalysisService : Service() {
                                  (needsVector && !ModelDownloader.isVectorModelValid(this@AnalysisService))
 
                 if (modelMissing) {
+                    isModelDownloadActive = true
                     GlobalOperationService.updateProgress(0f, "AIモデルをダウンロード中...", opId)
                     val success = ModelDownloader.downloadAllModels(this@AnalysisService) { progress ->
                         GlobalOperationService.updateProgress(progress, "AIモデルをダウンロード中...", opId)
                         updateNotification("AIモデルをダウンロード中... ${(progress * 100).toInt()}%", progress)
                     }
+                    isModelDownloadActive = false
                     if (!success) {
                         GlobalOperationService.finishOperation(opId)
                         withContext(Dispatchers.Main) {
                             android.widget.Toast.makeText(this@AnalysisService, "AIモデルの準備に失敗しました。通信環境を確認してください。", android.widget.Toast.LENGTH_LONG).show()
                         }
                         stopSelf()
+                        return@launch
+                    }
+                    if (GlobalOperationService.isCanceled(opId)) {
                         return@launch
                     }
                 }
@@ -188,6 +196,7 @@ class AnalysisService : Service() {
             } catch (e: Exception) {
                 Log.e("AnalysisService", "Analysis failed", e)
             } finally {
+                isModelDownloadActive = false
                 GlobalOperationService.finishOperation(type)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_REMOVE)

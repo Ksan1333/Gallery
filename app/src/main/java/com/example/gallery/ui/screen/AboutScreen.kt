@@ -26,6 +26,8 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import com.example.gallery.ui.component.GalleryTopAppBar
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import com.example.gallery.BuildConfig
 
 class ChangelogViewModel : ViewModel() {
@@ -50,7 +52,7 @@ class ChangelogViewModel : ViewModel() {
                 }
                 changelogText = result
             } catch (e: Exception) {
-                error = e.message ?: "データの取得に失敗しました"
+                error = e.message ?: context.getString(R.string.error_fetch_data)
             } finally {
                 isLoading = false
             }
@@ -71,9 +73,9 @@ fun AboutScreen(
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = "アプリ情報",
+                title = stringResource(R.string.about_title),
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                navigationContentDescription = "戻る",
+                navigationContentDescription = stringResource(R.string.btn_back),
                 onNavigationClick = onBack
             )
         },
@@ -103,7 +105,7 @@ fun AboutScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            Text("更新履歴", color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.about_changelog), color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
 
             when {
@@ -122,7 +124,7 @@ fun AboutScreen(
                             onClick = { viewModel.fetchChangelog(context) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
                         ) {
-                            Text("再試行")
+                            Text(stringResource(R.string.btn_retry))
                         }
                     }
                 }
@@ -133,10 +135,10 @@ fun AboutScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            Text("開発情報", color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.about_dev_info), color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
 
-            Text("Android Studio AI Assistant によって開発を支援しています。", color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
+            Text(stringResource(R.string.about_dev_desc), color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
 
             Spacer(Modifier.height(48.dp))
         }

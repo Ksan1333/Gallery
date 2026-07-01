@@ -29,6 +29,9 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -1821,7 +1824,7 @@ private fun SelectionModeBar(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Default.Close, null) }
-            Text(text = "${selectedCount} 件選択中", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            Text(text = stringResource(R.string.trash_item_count, selectedCount), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (!isTrashMode) { IconButton(onClick = onFavorite) { Icon(Icons.Default.Favorite, null, tint = Color.Red) } }
@@ -1829,11 +1832,11 @@ private fun SelectionModeBar(
             Box {
                 IconButton(onClick = { showOverflow = true }) { Icon(Icons.Default.MoreVert, null) }
                 DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }, modifier = Modifier.background(Color.DarkGray)) {
-        DropdownMenuItem(text = { Text(if (isTrashMode) "完全に削除" else "ゴミ箱へ", color = Color.White) }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color.White) }, onClick = { showOverflow = false; onDelete() })
-                    DropdownMenuItem(text = { Text("フォルダ移動", color = Color.White) }, leadingIcon = { Icon(Icons.Default.Folder, null, tint = Color.White) }, onClick = { showOverflow = false; onMove() })
-                    DropdownMenuItem(text = { Text("一括タグ・評価編集", color = Color.White) }, leadingIcon = { Icon(Icons.Default.Edit, null, tint = Color.White) }, onClick = { showOverflow = false; onEdit() })
+        DropdownMenuItem(text = { Text(if (isTrashMode) stringResource(R.string.trash_permanently_delete) else stringResource(R.string.trash_move_to), color = Color.White) }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color.White) }, onClick = { showOverflow = false; onDelete() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.edit_move_folder), color = Color.White) }, leadingIcon = { Icon(Icons.Default.Folder, null, tint = Color.White) }, onClick = { showOverflow = false; onMove() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.edit_bulk_tags_rating), color = Color.White) }, leadingIcon = { Icon(Icons.Default.Edit, null, tint = Color.White) }, onClick = { showOverflow = false; onEdit() })
                     if (canSetThumbnail) {
-                        DropdownMenuItem(text = { Text("フォルダのサムネイルに設定", color = Color.White) }, leadingIcon = { Icon(Icons.Default.FolderSpecial, null, tint = Color.White) }, onClick = { showOverflow = false; onSetThumbnail() })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.edit_set_folder_thumbnail), color = Color.White) }, leadingIcon = { Icon(Icons.Default.FolderSpecial, null, tint = Color.White) }, onClick = { showOverflow = false; onSetThumbnail() })
                     }
                 }
             }

@@ -20,6 +20,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -115,7 +118,7 @@ fun UnifiedMediaEditDialog(
                         },
                         enabled = !isProcessing
                     ) {
-                        Text("保存", color = if (!isProcessing) Color.White else Color.Gray)
+                        Text(stringResource(R.string.btn_save), color = if (!isProcessing) Color.White else colorResource(R.color.gray))
                     }
                 }
             )
@@ -180,7 +183,7 @@ fun UnifiedMediaEditDialog(
 
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 item {
-                    Text("対象年齢", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
+                    Text(stringResource(R.string.edit_target_age), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -205,13 +208,13 @@ fun UnifiedMediaEditDialog(
 
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("タグ設定", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
+                    Text(stringResource(R.string.edit_tag_settings), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
 
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextField(
                             value = newTagName,
                             onValueChange = { newTagName = it },
-                            placeholder = { Text("新しいタグ") },
+                            placeholder = { Text(stringResource(R.string.edit_new_tag)) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             enabled = !isProcessing
@@ -226,12 +229,12 @@ fun UnifiedMediaEditDialog(
                             },
                             enabled = !isProcessing
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "追加", tint = if (!isProcessing) Color.White else Color.Gray)
+                            Icon(Icons.Default.Add, contentDescription = "追加", tint = if (!isProcessing) Color.White else colorResource(R.color.gray))
                         }
                     }
 
                     if (selectedTags.isNotEmpty()) {
-                        Text("追加するタグ:", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray)
+                        Text(stringResource(R.string.edit_add_tags), fontSize = AppConstants.SmallFontSize, color = colorResource(R.color.gray))
                         FlowRow(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -251,12 +254,12 @@ fun UnifiedMediaEditDialog(
                     if (filteredTags.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("既存のタグから選択:", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray, modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.edit_select_existing_tags), fontSize = AppConstants.SmallFontSize, color = colorResource(R.color.gray), modifier = Modifier.weight(1f))
                             // タグ検索フィールド
                             OutlinedTextField(
                                 value = tagSearchQuery,
                                 onValueChange = { tagSearchQuery = it },
-                                placeholder = { Text("タグを検索...", fontSize = com.example.gallery.ui.AppConstants.TinyFontSize) },
+                                placeholder = { Text(stringResource(R.string.edit_search_tags), fontSize = AppConstants.TinyFontSize) },
                                 modifier = Modifier.width(150.dp).height(40.dp),
                                 singleLine = true,
                                 textStyle = LocalTextStyle.current.copy(fontSize = com.example.gallery.ui.AppConstants.SmallFontSize),

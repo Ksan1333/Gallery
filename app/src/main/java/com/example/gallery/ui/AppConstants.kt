@@ -2,70 +2,67 @@ package com.example.gallery.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.TextUnit
-import com.example.gallery.ui.theme.GalleryColorTokens
+import androidx.compose.ui.res.dimensionResource
+import com.example.gallery.R
 import com.example.gallery.ui.theme.GalleryThemeTokens
 
 object AppConstants {
-    // 旧コード互換用。新規UIは GalleryThemeTokens.colors を優先する。
-    val BackgroundColor = GalleryColorTokens.Dark.background
+    val BackgroundColor @Composable @ReadOnlyComposable get() = GalleryThemeTokens.colors.background
 
-    // レイアウト
-    val HeaderHeight = 56.dp
-    val DrawerWidth = AppDefaults.DRAWER_WIDTH_DP.dp
-    val DrawerItemHeight = AppDefaults.DRAWER_ITEM_HEIGHT_DP.dp
-    val DrawerEdgeHitWidth = AppDefaults.DRAWER_EDGE_HIT_WIDTH_DP.dp
+    val HeaderHeight @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.header_height)
+    val DrawerWidth @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_width)
+    val DrawerItemHeight @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_item_height)
+    val DrawerEdgeHitWidth @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_edge_hit_width)
 
-    // フォントサイズ
-    val TitleFontSize: TextUnit
+    // 繝輔か繝ｳ繝医し繧､繧ｺ (GalleryThemeTokens 邨檎罰縺ｧ繝ｪ繧ｽ繝ｼ繧ｹ縺九ｉ蜿門ｾ・
+    val TitleFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.title
-    val HeaderFontSize: TextUnit
+    val HeaderFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.header
-    val BodyFontSize: TextUnit
+    val BodyFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.body
-    val SubtitleFontSize: TextUnit
+    val SubtitleFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.subtitle
-    val SmallFontSize: TextUnit
+    val SmallFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.small
-    val ExtraSmallFontSize: TextUnit
+    val ExtraSmallFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.extraSmall
-    val TinyFontSize: TextUnit
+    val TinyFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.tiny
-    val BottomNavFontSize: TextUnit
+    val BottomNavFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.bottomNav
-    val ScrollbarLabelFontSize: TextUnit
+    val ScrollbarLabelFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.scrollbarLabel
-    val BadgeFontSize: TextUnit
+    val BadgeFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.badge
-    val DenseBadgeFontSize: TextUnit
+    val DenseBadgeFontSize: androidx.compose.ui.unit.TextUnit
         @Composable
         @ReadOnlyComposable
         get() = GalleryThemeTokens.textSizes.denseBadge
+
     const val GRID_IMAGE_LOAD_PAUSE_VELOCITY_ITEMS_PER_SEC = 90f
     const val GALLERY_SELECTION_LONG_PRESS_EXTRA_MS = 220L
 
-    // センシティブなワード (これらが含まれていたら自動的に R15/R18)
     val R15Keywords = setOf(
         "cleavage", "underboob", "sideboob", "bikini", "swimsuit", "one-piece_swimsuit",
         "school_swimsuit", "competition_swimsuit", "micro_bikini", "slingshot_swimsuit",
@@ -86,7 +83,7 @@ object AppConstants {
         "zettai_ryouiki", "thigh_gap", "moles", "mole_under_eye", "mole_under_mouth",
         "mole_on_breast", "tanlines", "tan", "dark_skin", "shiny_skin", "sweat", "sweatdrop",
         "blush", "full-face_blush", "ear_blush", "nose_blush", "heart-shaped_pupils", "heart_eyes",
-        "tongue_out", "licking_lips", "parted_lips", "open_mouth", "ahegao"  // 軽めのみ
+        "tongue_out", "licking_lips", "parted_lips", "open_mouth", "ahegao"
     )
     val R18Keywords = setOf(
         "nipples", "pussy", "penis", "nude", "sex", "vaginal", "cum", "cum_in_pussy",

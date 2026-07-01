@@ -26,6 +26,9 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -224,7 +227,7 @@ fun CategoryScreen(
                                 modifier = Modifier.background(Color.DarkGray)
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("一括編集", color = Color.White) },
+                                    text = { Text(stringResource(R.string.edit_bulk), color = Color.White) },
                                     onClick = {
                                         showSelectionMenu = false
                                         showBulkEditDialog = true

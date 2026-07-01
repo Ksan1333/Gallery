@@ -15,6 +15,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -55,9 +58,9 @@ fun TrashScreen(
     Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
         Column(modifier = Modifier.fillMaxSize()) {
             GalleryTopAppBar(
-                title = "ゴミ箱",
+                title = stringResource(R.string.trash_title),
                 navigationIcon = if (onMenuClick != null) Icons.Default.Menu else null,
-                navigationContentDescription = "メニュー",
+                navigationContentDescription = stringResource(R.string.btn_open),
                 onNavigationClick = onMenuClick,
                 actions = {
                     if (isSelectionModeActive && selectedUris.isNotEmpty()) {
@@ -71,7 +74,7 @@ fun TrashScreen(
                                     }
                                 }
                             ) {
-                                Text("完全に削除", color = Color.Red, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
+                                Text(stringResource(R.string.trash_permanent_delete), color = colorResource(R.color.red), fontSize = AppConstants.SmallFontSize)
                             }
                             Spacer(Modifier.width(8.dp))
                             Button(
@@ -86,7 +89,7 @@ fun TrashScreen(
                             ) {
                                 Icon(Icons.Default.Restore, contentDescription = null)
                                 Spacer(Modifier.width(4.dp))
-                                Text("復元")
+                                Text(stringResource(R.string.btn_restore))
                             }
                         }
                     }
@@ -95,7 +98,7 @@ fun TrashScreen(
 
             if (trashMedia.isEmpty() && trashedBooks.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("ゴミ箱は空です", color = Color.Gray)
+                    Text(stringResource(R.string.trash_empty), color = colorResource(R.color.gray))
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
@@ -129,7 +132,7 @@ fun TrashScreen(
                                 .background(Color.Black.copy(alpha = 0.2f))
                         ) {
                             Text(
-                                "本",
+                                stringResource(R.string.nav_books),
                                 color = Color.White,
                                 fontSize = AppConstants.SubtitleFontSize,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -198,7 +201,7 @@ private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
                 )
             }
             Surface(
-                color = Color(0xFF1E88E5),
+                color = colorResource(R.color.book_badge_color),
                 shape = RoundedCornerShape(999.dp),
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
             ) {
@@ -208,7 +211,7 @@ private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
                 ) {
                     Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(3.dp))
-                    Text("本", color = Color.White, fontSize = AppConstants.TinyFontSize)
+                    Text(stringResource(R.string.nav_books), color = Color.White, fontSize = AppConstants.TinyFontSize)
                 }
             }
         }

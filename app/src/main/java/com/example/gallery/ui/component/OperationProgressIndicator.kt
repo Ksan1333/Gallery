@@ -1,6 +1,7 @@
 package com.example.gallery.ui.component
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -26,10 +26,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.gallery.ui.AppConstants
 import kotlin.math.roundToInt
+
+private object OperationProgressTokens {
+    val CircleSize = 58.dp
+    val CollapsedBarHeight = 6.dp
+    val CollapsedBarTouchHeight = 18.dp
+    val CardCornerRadius = 8.dp
+    val CardHorizontalPadding = 14.dp
+    val CardVerticalPadding = 10.dp
+    val CardGap = 6.dp
+    val StrokeWidth = 1.dp
+    val CircleColor = Color.Cyan
+    val TrackColor = Color.White
+    val CardColor = Color.Black
+}
 
 @Composable
 fun OperationProgressIndicator(
@@ -37,6 +53,8 @@ fun OperationProgressIndicator(
     progress: Float?,
     displayMode: String,
     minimumStyle: String,
+    centerText: String? = null,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val boundedProgress = progress?.coerceIn(0f, 1f)
@@ -44,48 +62,70 @@ fun OperationProgressIndicator(
     val normalizedMinimumStyle = minimumStyle.uppercase()
     if (normalizedDisplayMode == "MIN") {
         if (normalizedMinimumStyle == "CIRCLE") {
+            val configuration = LocalConfiguration.current
+            val density = LocalDensity.current
+            val maxOffsetX = with(density) {
+                (configuration.screenWidthDp.dp - OperationProgressTokens.CircleSize).toPx().coerceAtLeast(0f)
+            }
+            val maxOffsetY = with(density) {
+                (configuration.screenHeightDp.dp - OperationProgressTokens.CircleSize).toPx().coerceAtLeast(0f)
+            }
             var offset by remember { mutableStateOf(Offset.Zero) }
             Box(
                 modifier = modifier
                     .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
-                    .size(58.dp)
+                    .size(OperationProgressTokens.CircleSize)
                     .pointerInput(Unit) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
-                            offset += dragAmount
+                            offset = Offset(
+                                x = (offset.x + dragAmount.x).coerceIn(0f, maxOffsetX),
+                                y = (offset.y + dragAmount.y).coerceIn(0f, maxOffsetY)
+                            )
                         }
-                    },
+                    }
+                    .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 if (boundedProgress == null) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(58.dp),
-                        color = Color.Cyan,
-                        trackColor = Color.White.copy(alpha = 0.2f)
+                        modifier = Modifier.size(OperationProgressTokens.CircleSize),
+                        color = OperationProgressTokens.CircleColor,
+                        trackColor = OperationProgressTokens.TrackColor.copy(alpha = 0.2f)
                     )
                 } else {
                     CircularProgressIndicator(
                         progress = { boundedProgress },
-                        modifier = Modifier.size(58.dp),
-                        color = Color.Cyan,
-                        trackColor = Color.White.copy(alpha = 0.2f)
+                        modifier = Modifier.size(OperationProgressTokens.CircleSize),
+                        color = OperationProgressTokens.CircleColor,
+                        trackColor = OperationProgressTokens.TrackColor.copy(alpha = 0.2f)
                     )
                 }
                 Text(
-                    text = boundedProgress?.let { "${(it * 100).roundToInt()}%" } ?: "...",
+                    text = centerText ?: boundedProgress?.let { "${(it * 100).roundToInt()}%" } ?: "...",
                     color = Color.White,
                     fontSize = AppConstants.TinyFontSize
                 )
             }
         } else {
-            Column(modifier = modifier.width(180.dp).padding(horizontal = 8.dp)) {
-                Text(label, color = Color.White, fontSize = AppConstants.TinyFontSize)
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .height(OperationProgressTokens.CollapsedBarTouchHeight),
+                contentAlignment = Alignment.Center
+            ) {
                 if (boundedProgress == null) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(OperationProgressTokens.CollapsedBarHeight)
+                    )
                 } else {
                     LinearProgressIndicator(
                         progress = { boundedProgress },
-                        modifier = Modifier.fillMaxWidth().height(4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(OperationProgressTokens.CollapsedBarHeight)
                     )
                 }
             }
@@ -94,14 +134,14 @@ fun OperationProgressIndicator(
     }
 
     Surface(
-        color = Color.Black.copy(alpha = 0.78f),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+        color = OperationProgressTokens.CardColor.copy(alpha = 0.78f),
+        shape = RoundedCornerShape(OperationProgressTokens.CardCornerRadius),
+        border = BorderStroke(OperationProgressTokens.StrokeWidth, OperationProgressTokens.TrackColor.copy(alpha = 0.12f)),
         modifier = modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(horizontal = OperationProgressTokens.CardHorizontalPadding, vertical = OperationProgressTokens.CardVerticalPadding)) {
             Text(label, color = Color.White, fontSize = AppConstants.SmallFontSize)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(OperationProgressTokens.CardGap))
             if (boundedProgress == null) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {

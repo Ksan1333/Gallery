@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,10 +44,13 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
+import com.example.gallery.R
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.data.repository.BookType
+import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.component.OperationProgressIndicator
 import com.example.gallery.ui.screen.BookViewerScreen
 import kotlinx.coroutines.launch
 import java.io.File
@@ -71,6 +75,9 @@ fun BookScreen(
     val context = LocalContext.current
     val repository = remember { BookRepository(context) }
     val scope = rememberCoroutineScope()
+    val bookScanTitle = stringResource(R.string.book_scan_progress_title)
+    val bookScanCheckingText = stringResource(R.string.book_scan_checking_folders)
+    val bookScanCompleteText = stringResource(R.string.book_scan_complete)
     val bookSettingsPrefs = remember { context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE) }
     val bookFavoritesPrefs = remember { context.getSharedPreferences(BOOK_FAVORITES_PREFS, Context.MODE_PRIVATE) }
     var bookSettingsVersion by remember { mutableIntStateOf(0) }
@@ -188,8 +195,19 @@ fun BookScreen(
 
         scope.launch {
             isLoading = true
-            books = sortBooks(repository.scanBooks(), fileSort)
-            isLoading = false
+            val operationId = GlobalOperationService.startOperation(
+                title = "本を走査中...",
+                tag = "BOOK_SCAN",
+                canCancel = false
+            )
+            try {
+                GlobalOperationService.updateProgress(0.15f, "本棚フォルダを確認中...", operationId)
+                books = sortBooks(repository.scanBooks(), fileSort)
+                GlobalOperationService.updateProgress(1f, "走査完了", operationId)
+            } finally {
+                GlobalOperationService.finishOperation(operationId)
+                isLoading = false
+            }
         }
     }
 
@@ -216,7 +234,19 @@ fun BookScreen(
                 isLoading = false
             }
             if (autoLoadOnLaunch || cachedBooks.isEmpty()) {
-                books = sortBooks(repository.scanBooks(), fileSort)
+                isLoading = true
+                val operationId = GlobalOperationService.startOperation(
+                    title = bookScanTitle,
+                    tag = "BOOK_SCAN",
+                    canCancel = false
+                )
+                try {
+                    GlobalOperationService.updateProgress(0.15f, bookScanCheckingText, operationId)
+                    books = sortBooks(repository.scanBooks(), fileSort)
+                    GlobalOperationService.updateProgress(1f, bookScanCompleteText, operationId)
+                } finally {
+                    GlobalOperationService.finishOperation(operationId)
+                }
             }
             isLoading = false
         }
@@ -343,8 +373,20 @@ fun BookScreen(
                     }
                 }
             }
-            if (isLoading && books.isNotEmpty()) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            if (false && isLoading && books.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    OperationProgressIndicator(
+                        label = "本を走査中",
+                        progress = null,
+                        displayMode = "MAX",
+                        minimumStyle = "BAR"
+                    )
+                }
             }
 
             // パンくずリスト風の表示

@@ -24,6 +24,7 @@ import androidx.compose.ui.zIndex
 import com.example.gallery.service.AnalysisService
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.OperationState
+import com.example.gallery.service.selectRepresentativeProgressOperation
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.AgeRatingFilter
 import com.example.gallery.ui.state.DeviceFilter
@@ -37,7 +38,12 @@ import kotlinx.coroutines.delay
 fun GlobalProgressOverlay() {
     val operations by GlobalOperationService.operations.collectAsState(initial = emptyList())
     val context = LocalContext.current
-    var isMinimized by rememberSaveable { mutableStateOf(false) }
+    val progressPrefs = remember { context.getSharedPreferences("global_settings", android.content.Context.MODE_PRIVATE) }
+    val progressDisplayMode = progressPrefs.getString("progressDisplayMode", "MAX") ?: "MAX"
+    val progressMiniStyle = progressPrefs.getString("progressMiniStyle", "BAR") ?: "BAR"
+    var isMinimized by rememberSaveable(progressDisplayMode) {
+        mutableStateOf(progressDisplayMode.equals("MIN", ignoreCase = true))
+    }
 
     if (operations.isNotEmpty()) {
         Box(
@@ -48,11 +54,21 @@ fun GlobalProgressOverlay() {
                 .zIndex(2000f)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // 最大2つまで表示する。
-                operations.take(2).forEach { op ->
+                val visibleOperations = if (
+                    isMinimized &&
+                    progressMiniStyle.equals("CIRCLE", ignoreCase = true)
+                ) {
+                    listOfNotNull(selectRepresentativeProgressOperation(operations))
+                } else {
+                    operations.take(2)
+                }
+                visibleOperations.forEach { op ->
                     OperationCard(
                         op = op,
                         isMinimized = isMinimized,
+                        displayMode = progressDisplayMode,
+                        miniStyle = progressMiniStyle,
+                        activeCount = operations.size,
                         onMinimizeToggle = { isMinimized = !isMinimized },
                         onCancel = {
                             GlobalOperationService.requestCancel(op.id)
@@ -65,7 +81,7 @@ fun GlobalProgressOverlay() {
 
                 if (operations.size > 2 && !isMinimized) {
                     Text(
-                    text = "他 ${operations.size - 2} 件のタスクが進行中...",
+                    text = "莉・${operations.size - 2} 莉ｶ縺ｮ繧ｿ繧ｹ繧ｯ縺碁ｲ陦御ｸｭ...",
                         color = Color.Gray,
                         fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
                         modifier = Modifier.padding(start = 8.dp)
@@ -74,7 +90,7 @@ fun GlobalProgressOverlay() {
             }
         }
     } else {
-        SideEffect { isMinimized = false }
+        SideEffect { isMinimized = progressDisplayMode.equals("MIN", ignoreCase = true) }
     }
 }
 
@@ -82,29 +98,24 @@ fun GlobalProgressOverlay() {
 private fun OperationCard(
     op: OperationState,
     isMinimized: Boolean,
+    displayMode: String,
+    miniStyle: String,
+    activeCount: Int,
     onMinimizeToggle: () -> Unit,
     onCancel: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
-    if (isMinimized) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .clickable { onMinimizeToggle() },
-            color = colors.surface.copy(alpha = 0.7f),
-            border = BorderStroke(1.dp, colors.divider)
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(op.progress.coerceIn(0f, 1f))
-                        .background(if (op.tag == "STARTUP_TASKS") colors.secondaryText else colors.accent)
-                )
-            }
-        }
+    val shouldUseMinimum = isMinimized
+    if (shouldUseMinimum) {
+        OperationProgressIndicator(
+            label = op.title,
+            progress = op.progress,
+            displayMode = "MIN",
+            minimumStyle = miniStyle,
+            centerText = if (miniStyle.equals("CIRCLE", ignoreCase = true)) activeCount.toString() else null,
+            onClick = onMinimizeToggle,
+            modifier = Modifier.clickable { onMinimizeToggle() }
+        )
     } else {
         Surface(
             modifier = Modifier
@@ -158,7 +169,7 @@ private fun OperationCard(
                                 onClick = onCancel,
                                 modifier = Modifier.size(24.dp)
                             ) {
-                        Icon(Icons.Default.Close, "中断", tint = colors.mutedText, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.Close, "荳ｭ譁ｭ", tint = colors.mutedText, modifier = Modifier.size(14.dp))
                             }
                         }
                     }
@@ -200,7 +211,6 @@ fun TooltipWrapper(
     showExternally: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // 外部からのトリガーと内部の表示状態をまとめて扱う。
     var showTooltipLocal by remember { mutableStateOf(false) }
     val isVisible = showExternally || showTooltipLocal
 
@@ -213,12 +223,12 @@ fun TooltipWrapper(
         if (isVisible) {
             Popup(
                 alignment = Alignment.BottomCenter,
-                offset = androidx.compose.ui.unit.IntOffset(0, -100), // ナビゲーションバーより少し上に表示する。
+                offset = androidx.compose.ui.unit.IntOffset(0, -100),
                 properties = PopupProperties(
                     focusable = false,
                     dismissOnClickOutside = true,
                     clippingEnabled = false,
-                    usePlatformDefaultWidth = false // タップイベントの吸い込みを防ぐ。
+                    usePlatformDefaultWidth = false
                 )
             ) {
                 Surface(
@@ -226,7 +236,7 @@ fun TooltipWrapper(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
-                        .padding(bottom = 16.dp) // 画面下端からの余白。
+                        .padding(bottom = 16.dp)
                 ) {
                     Text(
                         text = description,
@@ -274,12 +284,43 @@ fun GalleryTopControlBar(
                         DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(colors.surfaceVariant)) {
                             Text("メディア種別", color = colors.mutedText, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(8.dp))
                             MediaTypeFilter.entries.forEach { filter ->
-                                DropdownMenuItem(text = { Text(text = when (filter) { MediaTypeFilter.ALL -> "すべて"; MediaTypeFilter.IMAGE -> "画像"; MediaTypeFilter.VIDEO -> "動画"; MediaTypeFilter.GIF -> "GIF" }, color = if(galleryState.mediaTypeFilter == filter) colors.accent else colors.primaryText) }, onClick = { galleryState.mediaTypeFilter = filter; showFilterMenu = false })
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = when (filter) {
+                                                MediaTypeFilter.ALL -> "すべて"
+                                                MediaTypeFilter.IMAGE -> "画像"
+                                                MediaTypeFilter.VIDEO -> "動画"
+                                                MediaTypeFilter.GIF -> "GIF"
+                                            },
+                                            color = if (galleryState.mediaTypeFilter == filter) colors.accent else colors.primaryText
+                                        )
+                                    },
+                                    onClick = {
+                                        galleryState.mediaTypeFilter = filter
+                                        showFilterMenu = false
+                                    }
+                                )
                             }
                             HorizontalDivider(color = colors.divider)
                             Text("デバイス背景", color = colors.mutedText, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(8.dp))
                             DeviceFilter.entries.forEach { filter ->
-                                DropdownMenuItem(text = { Text(text = when (filter) { DeviceFilter.ALL -> "すべて"; DeviceFilter.SMARTPHONE -> "スマホ背景"; DeviceFilter.PC -> "PC背景" }, color = if(galleryState.deviceFilter == filter) colors.accent else colors.primaryText) }, onClick = { galleryState.deviceFilter = filter; showFilterMenu = false })
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = when (filter) {
+                                                DeviceFilter.ALL -> "すべて"
+                                                DeviceFilter.SMARTPHONE -> "スマホ背景"
+                                                DeviceFilter.PC -> "PC背景"
+                                            },
+                                            color = if (galleryState.deviceFilter == filter) colors.accent else colors.primaryText
+                                        )
+                                    },
+                                    onClick = {
+                                        galleryState.deviceFilter = filter
+                                        showFilterMenu = false
+                                    }
+                                )
                             }
                         }
                     }
@@ -301,7 +342,23 @@ fun GalleryTopControlBar(
                     })
                     DropdownMenu(expanded = showAgeFilterMenu, onDismissRequest = { showAgeFilterMenu = false }, modifier = Modifier.background(colors.surfaceVariant)) {
                         AgeRatingFilter.entries.forEach { filter ->
-                            DropdownMenuItem(text = { Text(text = when (filter) { AgeRatingFilter.ALL -> "すべて"; AgeRatingFilter.SFW -> "健全"; AgeRatingFilter.R15 -> "R-15"; AgeRatingFilter.R18 -> "R-18" }, color = if(galleryState.ageRatingFilter == filter) colors.accent else colors.primaryText) }, onClick = { galleryState.ageRatingFilter = filter; showAgeFilterMenu = false })
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = when (filter) {
+                                            AgeRatingFilter.ALL -> "すべて"
+                                            AgeRatingFilter.SFW -> "安全"
+                                            AgeRatingFilter.R15 -> "R-15"
+                                            AgeRatingFilter.R18 -> "R-18"
+                                        },
+                                        color = if (galleryState.ageRatingFilter == filter) colors.accent else colors.primaryText
+                                    )
+                                },
+                                onClick = {
+                                    galleryState.ageRatingFilter = filter
+                                    showAgeFilterMenu = false
+                                }
+                            )
                         }
                     }
                 }
@@ -311,7 +368,6 @@ fun GalleryTopControlBar(
     }
 }
 
-// IconButton に longClick を追加した補助コンポーネント。
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun IconButton(
