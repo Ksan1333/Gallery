@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,7 +25,6 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.example.gallery.R
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.service.GlobalOperationService
-import com.example.gallery.ui.AppText
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.search.filterGallerySearchResults
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -82,7 +79,7 @@ fun HomeGalleryScreen(
     }.collectAsLazyPagingItems()
 
     var imageList by remember { mutableStateOf<List<MediaData>>(emptyList()) }
-    var selectedIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var selectedIndex by rememberSaveable { mutableStateOf<Int?>(galleryState.activeMediaViewerIndex) }
     var centerViewedMediaOnReturn by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var restoreScrollRequestKey by remember { mutableIntStateOf(0) }
@@ -97,9 +94,19 @@ fun HomeGalleryScreen(
     
     // インスタンス状態への保存を停止（TransactionTooLargeException対策）
     val flatListForViewerState = remember {
-        mutableStateOf(emptyList<MediaData>())
+        mutableStateOf(galleryState.activeMediaViewerList)
     }
     var flatListForViewer by flatListForViewerState
+    LaunchedEffect(flatListForViewer, selectedIndex) {
+        galleryState.activeMediaViewerList = flatListForViewer
+        galleryState.activeMediaViewerIndex = selectedIndex
+    }
+
+    LaunchedEffect(selectedIndex) {
+        if (selectedIndex != null) {
+            onShowViewer()
+        }
+    }
 
     val scope = rememberCoroutineScope()
 
@@ -117,6 +124,15 @@ fun HomeGalleryScreen(
     LaunchedEffect(imageList.size) {
         if (selectedIndex != null && flatListForViewer.isEmpty() && imageList.isNotEmpty()) {
             flatListForViewer = imageList
+        } else if (selectedIndex != null && flatListForViewer.size <= 1 && imageList.size > flatListForViewer.size) {
+            val currentUri = flatListForViewer.getOrNull(selectedIndex ?: 0)?.uri ?: galleryState.lastViewedUri
+            val nextIndex = currentUri?.let { uri -> imageList.indexOfFirst { it.uri == uri } } ?: -1
+            if (nextIndex >= 0) {
+                flatListForViewer = imageList
+                selectedIndex = nextIndex
+                galleryState.activeMediaViewerList = imageList
+                galleryState.activeMediaViewerIndex = nextIndex
+            }
         }
     }
 
@@ -140,18 +156,44 @@ fun HomeGalleryScreen(
     var clearSelectionSignal by remember { mutableIntStateOf(0) }
     var isSelectionModeActive by remember { mutableStateOf(false) }
 
+    fun closeViewer(source: String, restoreViewedMedia: Boolean = true) {
+        val viewerIndex = selectedIndex
+        val viewerUri = viewerIndex?.let { flatListForViewer.getOrNull(it)?.uri }
+            ?: galleryState.lastViewedUri
+        if (restoreViewedMedia && viewerUri != null) {
+            galleryState.lastViewedUri = viewerUri
+            centerViewedMediaOnReturn = true
+        } else {
+            galleryState.lastViewedUri = null
+            centerViewedMediaOnReturn = false
+        }
+        logScrollRestoreTrace(
+            "home_viewer_close source=$source restore=$restoreViewedMedia " +
+                "viewerIndex=$viewerIndex viewerUriHash=${viewerUri?.hashCode()} " +
+                "listSize=${flatListForViewer.size} center=$centerViewedMediaOnReturn " +
+                "sessionIndex=${galleryState.homeGalleryScrollIndex} " +
+                "sessionOffset=${galleryState.homeGalleryScrollOffset} " +
+                "sessionUriHash=${galleryState.homeGalleryScrollUri?.hashCode()}"
+        )
+        selectedIndex = null
+        flatListForViewer = emptyList()
+        galleryState.activeMediaViewerList = emptyList()
+        galleryState.activeMediaViewerIndex = null
+        onHideViewer()
+    }
+
     BackHandler(enabled = isSelectionModeActive || selectedIndex != null) {
         if (selectedIndex != null) {
-            selectedIndex = null
-            onHideViewer()
+            closeViewer("back")
         } else if (isSelectionModeActive) clearSelectionSignal++
     }
 
     fun requestSavedScrollRestore(reason: String) {
-        if (initialMediaUri != null || selectedIndex != null) {
+        if (initialMediaUri != null || selectedIndex != null || centerViewedMediaOnReturn || galleryState.lastViewedUri != null) {
             logScrollRestoreTrace(
                 "home_restore_skip reason=$reason skip=viewer_or_initial_media " +
                     "initialMedia=${initialMediaUri != null} selectedIndex=$selectedIndex " +
+                    "centerReturn=$centerViewedMediaOnReturn viewedUriHash=${galleryState.lastViewedUri?.hashCode()} " +
                     "sessionIndex=${galleryState.homeGalleryScrollIndex} " +
                     "sessionOffset=${galleryState.homeGalleryScrollOffset} " +
                     "sessionUriHash=${galleryState.homeGalleryScrollUri?.hashCode()} " +
@@ -345,20 +387,41 @@ fun HomeGalleryScreen(
                 imageList = displayedImages,
                 pagingItems = if (isSearchActive || isFavoriteFilterActive || isSearchFiltering) null else pagingItems,
                 onImageClick = { index, list ->
-                    centerViewedMediaOnReturn = true
+                    centerViewedMediaOnReturn = false
                     val clickedUri = list.getOrNull(index)?.uri
-                    val viewerList = list
-                    val viewerIndex = index.coerceIn(0, (viewerList.size - 1).coerceAtLeast(0))
                     galleryState.lastViewedUri = clickedUri
-                    flatListForViewer = viewerList
-                    selectedIndex = viewerIndex
-                    onShowViewer()
+                    fun openViewerWith(candidate: List<MediaData>) {
+                        val viewerList = candidate.ifEmpty { list }
+                        val viewerIndex = clickedUri?.let { uri ->
+                            viewerList.indexOfFirst { it.uri == uri }.takeIf { it >= 0 }
+                        } ?: index.coerceIn(0, (viewerList.size - 1).coerceAtLeast(0))
+                        flatListForViewer = viewerList
+                        selectedIndex = viewerIndex
+                        galleryState.activeMediaViewerList = viewerList
+                        galleryState.activeMediaViewerIndex = viewerIndex
+                        onShowViewer()
+                    }
+                    val localCandidate = when {
+                        clickedUri == null -> list
+                        displayedImages.size > list.size && displayedImages.any { it.uri == clickedUri } -> displayedImages
+                        imageList.size > list.size && imageList.any { it.uri == clickedUri } -> imageList
+                        else -> list
+                    }
+                    if (localCandidate.size > 1 || clickedUri == null) {
+                        openViewerWith(localCandidate)
+                    } else {
+                        scope.launch {
+                            val allMedia = galleryState.repository.getAllMedia()
+                            val allCandidate = if (allMedia.any { it.uri == clickedUri }) allMedia else localCandidate
+                            openViewerWith(allCandidate)
+                        }
+                    }
                 },
                 galleryState = galleryState,
                 isLoading = isLoading,
                 clearSelectionSignal = clearSelectionSignal,
                 onSelectionModeChanged = { isSelectionModeActive = it },
-                title = AppText.ALL_MEDIA,
+                title = stringResource(R.string.label_all_media),
                 scrollToUri = if (selectedIndex == null && centerViewedMediaOnReturn) galleryState.lastViewedUri else null,
                 centerScrollToUri = centerViewedMediaOnReturn,
                 isFilterEnabled = false,
@@ -417,15 +480,38 @@ fun HomeGalleryScreen(
                     }
                 },
                 onScrollConsumed = {
+                    logScrollRestoreTrace(
+                        "home_scroll_to_viewed_consumed uriHash=${galleryState.lastViewedUri?.hashCode()} " +
+                            "center=$centerViewedMediaOnReturn imageCount=${imageList.size}"
+                    )
                     galleryState.lastViewedUri = null
                     centerViewedMediaOnReturn = false
                 },
                 topBarActions = {
                     var showSortMenu by remember { mutableStateOf(false) }
+                    IconButton(
+                        onClick = onStartAnalysis,
+                        enabled = !isAiAnalysisRunning,
+                        modifier = Modifier.semantics { contentDescription = aiAnalysisContentDescription }
+                    ) {
+                        if (isAiAnalysisRunning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(ButtonDefaults.IconSize),
+                                strokeWidth = 2.dp,
+                                color = GalleryThemeTokens.colors.accent
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = stringResource(R.string.gallery_ai_analysis),
+                                tint = GalleryThemeTokens.colors.primaryText
+                            )
+                        }
+                    }
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(
                             Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = AppText.SORT,
+                            contentDescription = stringResource(R.string.label_sort),
                             tint = GalleryThemeTokens.colors.primaryText
                         )
                         DropdownMenu(
@@ -438,8 +524,15 @@ fun HomeGalleryScreen(
                                     val isSelected = galleryState.sortMode == mode && galleryState.isAscending == ascending
                                     DropdownMenuItem(
                                         text = {
+                                            val modeName = when (mode) {
+                                                SortMode.DATE_ADDED -> stringResource(R.string.label_date_added)
+                                                SortMode.SIZE -> stringResource(R.string.label_size)
+                                                SortMode.NAME -> stringResource(R.string.label_name)
+                                            }
+                                            val orderName = if (ascending) stringResource(R.string.label_ascending) else stringResource(R.string.label_descending)
                                             Text(
-                                                text = "${when (mode) { SortMode.DATE_ADDED -> AppText.DATE_ADDED; SortMode.SIZE -> AppText.SIZE; SortMode.NAME -> AppText.NAME }}・${if (ascending) AppText.ASCENDING else AppText.DESCENDING}",
+                                                text = stringResource(R.string.sort_format, modeName, orderName),
+                                                style = MaterialTheme.typography.bodyLarge,
                                                 color = if (isSelected) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
                                             )
                                         },
@@ -456,36 +549,8 @@ fun HomeGalleryScreen(
                     IconButton(onClick = onOpenSearch) {
                         Icon(
                             Icons.Default.Search,
-                            contentDescription = AppText.SEARCH,
+                            contentDescription = stringResource(R.string.label_search),
                             tint = if (isSearchActive) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
-                        )
-                    }
-                    IconButton(
-                        onClick = onStartAnalysis,
-                        enabled = !isAiAnalysisRunning,
-                        modifier = Modifier.semantics { contentDescription = aiAnalysisContentDescription }
-                    ) {
-                        if (isAiAnalysisRunning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(ButtonDefaults.IconSize),
-                                strokeWidth = 2.dp,
-                                color = GalleryThemeTokens.colors.accent
-                            )
-                        } else {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = AppText.ANALYSIS,
-                            tint = GalleryThemeTokens.colors.primaryText
-                        )
-                        }
-                    }
-                    IconButton(onClick = {
-                        galleryState.homeFavoritesOnly = !galleryState.homeFavoritesOnly
-                    }) {
-                        Icon(
-                            if (galleryState.homeFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = AppText.FAVORITES_ONLY,
-                            tint = if (galleryState.homeFavoritesOnly) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
                         )
                     }
                 }
@@ -506,20 +571,25 @@ fun HomeGalleryScreen(
             if (flatListForViewer.isNotEmpty()) {
                 MediaViewerScreen(
                     onClickedClose = {
-                        selectedIndex = null
-                        onHideViewer()
+                        closeViewer("button")
                     },
                     initialPage = initialPage,
                     imageList = flatListForViewer,
                     galleryState = galleryState,
                     onNavigateToTag = { tag ->
-                        selectedIndex = null
-                        onHideViewer()
+                        closeViewer("tag", restoreViewedMedia = false)
                         onNavigateToTag?.invoke(tag)
                     },
                     onPageSelected = {
                         selectedIndex = it
-                        flatListForViewer.getOrNull(it)?.uri?.let { uri -> galleryState.lastViewedUri = uri }
+                        galleryState.activeMediaViewerIndex = it
+                        flatListForViewer.getOrNull(it)?.uri?.let { uri ->
+                            galleryState.lastViewedUri = uri
+                            logScrollRestoreTrace(
+                                "home_viewer_page_selected index=$it uriHash=${uri.hashCode()} " +
+                                    "listSize=${flatListForViewer.size}"
+                            )
+                        }
                     },
                     onNavigateToMedia = { uri ->
                         centerViewedMediaOnReturn = true

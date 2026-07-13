@@ -26,10 +26,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.component.GalleryTopAppBar
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.launch
 
 @Composable
@@ -44,6 +44,8 @@ fun TrashScreen(
     val bookRepository = remember { BookRepository(context) }
     val trashMedia by galleryState.repository.getTrashMedia().collectAsState(initial = emptyList())
     var trashedBooks by remember { mutableStateOf<List<BookData>>(emptyList()) }
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
 
     var selectedImageIndex by remember { mutableStateOf<Int?>(null) }
     var selectedBook by remember { mutableStateOf<BookData?>(null) }
@@ -55,7 +57,7 @@ fun TrashScreen(
         trashedBooks = bookRepository.loadTrashedBooks()
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
+    Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             GalleryTopAppBar(
                 title = stringResource(R.string.trash_title),
@@ -74,7 +76,7 @@ fun TrashScreen(
                                     }
                                 }
                             ) {
-                                Text(stringResource(R.string.trash_permanent_delete), color = colorResource(R.color.red), fontSize = AppConstants.SmallFontSize)
+                                Text(stringResource(R.string.trash_permanent_delete), color = colors.danger, fontSize = textSizes.small)
                             }
                             Spacer(Modifier.width(8.dp))
                             Button(
@@ -85,7 +87,7 @@ fun TrashScreen(
                                         selectedUris.clear()
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
                             ) {
                                 Icon(Icons.Default.Restore, contentDescription = null)
                                 Spacer(Modifier.width(4.dp))
@@ -98,7 +100,7 @@ fun TrashScreen(
 
             if (trashMedia.isEmpty() && trashedBooks.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.trash_empty), color = colorResource(R.color.gray))
+                    Text(stringResource(R.string.trash_empty), color = colors.mutedText)
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
@@ -129,12 +131,12 @@ fun TrashScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(if (trashMedia.isEmpty()) 1f else 0.38f)
-                                .background(Color.Black.copy(alpha = 0.2f))
+                                .background(colors.background.copy(alpha = 0.2f))
                         ) {
                             Text(
                                 stringResource(R.string.nav_books),
-                                color = Color.White,
-                                fontSize = AppConstants.SubtitleFontSize,
+                                color = colors.primaryText,
+                                fontSize = textSizes.subtitle,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                             )
                             LazyVerticalGrid(
@@ -184,13 +186,15 @@ fun TrashScreen(
 
 @Composable
 private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.7f)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color.DarkGray)
+                .background(colors.surfaceVariant)
         ) {
             if (book.thumbnailPath != null) {
                 AsyncImage(
@@ -209,16 +213,16 @@ private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = colors.primaryText, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(3.dp))
-                    Text(stringResource(R.string.nav_books), color = Color.White, fontSize = AppConstants.TinyFontSize)
+                    Text(stringResource(R.string.nav_books), color = colors.primaryText, fontSize = textSizes.tiny)
                 }
             }
         }
         Text(
             book.title,
-            color = Color.White,
-            fontSize = AppConstants.SmallFontSize,
+            color = colors.primaryText,
+            fontSize = textSizes.small,
             maxLines = 2,
             modifier = Modifier.padding(top = 4.dp)
         )

@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.layout.*
@@ -27,8 +29,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -49,11 +53,10 @@ import coil.compose.rememberAsyncImagePainter
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.component.GalleryGridView
-import com.example.gallery.ui.component.GalleryTopControlBar
+import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.screen.MediaViewerScreen
 import kotlinx.coroutines.launch
@@ -66,7 +69,9 @@ data class CategoryData(
     val thumbnail: String?,
     val indicatorColor: Color? = null,
     val isPhysical: Boolean = false,
-    val subTitle: String? = null
+    val subTitle: String? = null,
+    val groupId: String? = null,
+    val groupMembers: List<CategoryData> = emptyList()
 )
 
 @Composable
@@ -81,12 +86,16 @@ fun CategoryScreen(
     onMenuClick: (() -> Unit)? = null,
     topBarActions: @Composable RowScope.() -> Unit = {},
     emptyContent: @Composable BoxScope.() -> Unit = {
+        val colors = GalleryThemeTokens.colors
         Text(
-            "データがありません",
-            color = Color.Gray
+            stringResource(R.string.label_no_data),
+            color = colors.mutedText
         )
     },
-    loadingContent: @Composable BoxScope.() -> Unit = { CircularProgressIndicator(color = Color.White) },
+    loadingContent: @Composable BoxScope.() -> Unit = {
+        val colors = GalleryThemeTokens.colors
+        CircularProgressIndicator(color = colors.primaryText)
+    },
     selectedCategoryTitle: String? = null,
     selectedCategoryMedia: List<MediaData> = emptyList(),
     onBackFromCategory: () -> Unit,
@@ -100,11 +109,15 @@ fun CategoryScreen(
     onNavigateToTag: ((String) -> Unit)? = null,
     onCategoryLongClick: (CategoryData) -> Unit = {},
     onReorder: (List<String>) -> Unit = {},
+    onCreateCategoryGroup: ((List<String>) -> Unit)? = null,
+    onUngroupCategory: ((String) -> Unit)? = null,
     showThumbnails: Boolean = true,
     initialColumnIndex: Int? = null,
     showCategoryTopBar: Boolean = true,
     showSelectedCategoryTopBar: Boolean = true,
-    onImageClickOverride: ((Int, List<MediaData>) -> Unit)? = null
+    gridExtraBottomPadding: androidx.compose.ui.unit.Dp = 100.dp,
+    onImageClickOverride: ((Int, List<MediaData>) -> Unit)? = null,
+    openInternalViewer: Boolean = true
 ) {
     val columnOptions = listOf(10, 7, 4, 3, 1)
     var currentColumnIndex by rememberSaveable {
@@ -116,6 +129,8 @@ fun CategoryScreen(
     }
     var currentMediaList by currentMediaListState
     val scope = rememberCoroutineScope()
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
 
     // 復元処理
     LaunchedEffect(selectedCategoryMedia) {
@@ -177,11 +192,12 @@ fun CategoryScreen(
     }
 
     var showSelectionMenu by remember { mutableStateOf(false) }
+    var expandedGroupId by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppConstants.BackgroundColor)
+            .background(colors.background)
             .onGloballyPositioned { screenLayoutCoordinates = it }) {
         if (selectedCategoryTitle == null) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -189,9 +205,9 @@ fun CategoryScreen(
                     Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black)
+                        .background(colors.topBar)
                         .windowInsetsPadding(WindowInsets.statusBars)
-                        .height(AppConstants.HeaderHeight)
+                        .height(dimensionResource(R.dimen.header_height))
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -203,13 +219,13 @@ fun CategoryScreen(
                             }) {
                                 Icon(
                                     Icons.Default.Close,
-                                    contentDescription = "解除",
-                                    tint = Color.White
+                                    contentDescription = stringResource(R.string.btn_deselect),
+                                    tint = colors.primaryText
                                 )
                             }
                             Text(
-                                "${selectedCategoryIds.size} 件選択中",
-                                color = Color.White,
+                                stringResource(R.string.trash_item_count, selectedCategoryIds.size),
+                                color = colors.primaryText,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                             )
                         }
@@ -217,22 +233,52 @@ fun CategoryScreen(
                             IconButton(onClick = { showSelectionMenu = true }) {
                                 Icon(
                                     Icons.Default.MoreVert,
-                                    contentDescription = "メニュー",
-                                    tint = Color.White
+                                    contentDescription = stringResource(R.string.btn_open),
+                                    tint = colors.primaryText
                                 )
                             }
                             DropdownMenu(
                                 expanded = showSelectionMenu,
                                 onDismissRequest = { showSelectionMenu = false },
-                                modifier = Modifier.background(Color.DarkGray)
+                                modifier = Modifier.background(colors.card)
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.edit_bulk), color = Color.White) },
+                                    text = { Text(stringResource(R.string.edit_bulk), color = colors.primaryText) },
                                     onClick = {
                                         showSelectionMenu = false
                                         showBulkEditDialog = true
                                     }
                                 )
+                                val selectedCategories = previewCategories.filter { it.id in selectedCategoryIds }
+                                if (
+                                    onCreateCategoryGroup != null &&
+                                    selectedCategories.size >= 2 &&
+                                    selectedCategories.all { it.groupId == null }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.folder_group_create), color = colors.primaryText) },
+                                        leadingIcon = { Icon(Icons.Default.CreateNewFolder, null, tint = colors.primaryText) },
+                                        onClick = {
+                                            showSelectionMenu = false
+                                            onCreateCategoryGroup(selectedCategories.map { it.id })
+                                            selectedCategoryIds.clear()
+                                            isCategorySelectionMode = false
+                                        }
+                                    )
+                                }
+                                val selectedGroup = selectedCategories.singleOrNull()?.groupId
+                                if (selectedGroup != null && onUngroupCategory != null) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.folder_group_ungroup), color = colors.primaryText) },
+                                        leadingIcon = { Icon(Icons.Default.CallSplit, null, tint = colors.primaryText) },
+                                        onClick = {
+                                            showSelectionMenu = false
+                                            onUngroupCategory(selectedGroup)
+                                            selectedCategoryIds.clear()
+                                            isCategorySelectionMode = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -241,13 +287,13 @@ fun CategoryScreen(
                                 IconButton(onClick = onMenuClick) {
                                     Icon(
                                         Icons.Default.Menu,
-                                        contentDescription = "メニュー",
-                                        tint = Color.White
+                                        contentDescription = stringResource(R.string.btn_open),
+                                        tint = colors.primaryText
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
                             }
-                            Text(title, color = Color.White, fontSize = AppConstants.HeaderFontSize)
+                            Text(title, color = colors.primaryText, fontSize = textSizes.header)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) { topBarActions() }
                     }
@@ -332,39 +378,37 @@ fun CategoryScreen(
                                                         if (foundTarget != null) {
                                                             val targetId = foundTarget.key
                                                             val targetBounds = foundTarget.value
-                                                            hoveredCategoryId = null
                                                             val fromIndex = previewCategories.indexOfFirst { it.id == category.id }
                                                             val toIndex = previewCategories.indexOfFirst { it.id == targetId }
-                                                            val swapThreshold = targetBounds.width * 0.15f
-                                                            val isNearEdges = currentCenter.x < targetBounds.left + swapThreshold ||
-                                                                            currentCenter.x > targetBounds.right - swapThreshold ||
-                                                                            currentCenter.y < targetBounds.top + swapThreshold ||
-                                                                            currentCenter.y > targetBounds.bottom - swapThreshold
-                                                            if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex && isNearEdges) {
+
+                                                            // Swap if near center of the target to avoid flickering
+                                                            val swapThreshold = targetBounds.width * 0.25f
+                                                            val isNearTargetCenter = (currentCenter - targetBounds.center).getDistance() < swapThreshold
+
+                                                            if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex && isNearTargetCenter) {
                                                                 val item = previewCategories.removeAt(fromIndex)
                                                                 previewCategories.add(toIndex, item)
+                                                                // Update center to new position to avoid immediate re-swap
+                                                                initialDragCenter = targetBounds.center
+                                                                dragOffset = currentCenter - initialDragCenter
                                                             }
-                                                        } else {
-                                                            hoveredCategoryId = null
                                                         }
                                                     }
                                                 },
                                                 onDragEnd = {
                                                     if (draggedCategoryId == category.id) {
                                                         currentOnReorder(previewCategories.map { it.id })
-                                                        draggedCategoryId = null
-                                                        hoveredCategoryId = null
-                                                        dragOffset = Offset.Zero
                                                     }
+                                                    draggedCategoryId = null
+                                                    hoveredCategoryId = null
+                                                    dragOffset = Offset.Zero
                                                 },
                                                 onDragCancel = {
-                                                    if (draggedCategoryId == category.id) {
-                                                        draggedCategoryId = null
-                                                        hoveredCategoryId = null
-                                                        dragOffset = Offset.Zero
-                                                        previewCategories.clear()
-                                                        previewCategories.addAll(categories)
-                                                    }
+                                                    draggedCategoryId = null
+                                                    hoveredCategoryId = null
+                                                    dragOffset = Offset.Zero
+                                                    previewCategories.clear()
+                                                    previewCategories.addAll(categories)
                                                 }
                                             )
                                         }
@@ -376,6 +420,13 @@ fun CategoryScreen(
                                         isDragTarget = false,
                                         alpha = if (isDragging) 0f else 1f,
                                         onClick = {
+                                            // Safety reset
+                                            if (draggedCategoryId != null) {
+                                                draggedCategoryId = null
+                                                dragOffset = Offset.Zero
+                                                return@CategoryCard
+                                            }
+
                                             if (isCategorySelectionMode) {
                                                 if (selectedCategoryIds.contains(category.id)) {
                                                     selectedCategoryIds.remove(category.id)
@@ -384,11 +435,40 @@ fun CategoryScreen(
                                                     selectedCategoryIds.add(category.id)
                                                 }
                                             } else {
-                                                onCategoryClick(category)
+                                                if (category.groupMembers.isNotEmpty()) {
+                                                    expandedGroupId = category.id
+                                                } else {
+                                                    onCategoryClick(category)
+                                                }
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (!isCategorySelectionMode) {
+                                                isCategorySelectionMode = true
+                                                selectedCategoryIds.add(category.id)
                                             }
                                         },
                                         showThumbnail = showThumbnails
                                     )
+                                    if (category.groupMembers.isNotEmpty()) {
+                                        FolderGroupPopup(
+                                            expanded = expandedGroupId == category.id,
+                                            category = category,
+                                            onDismiss = { expandedGroupId = null },
+                                            onFolderClick = { member ->
+                                                expandedGroupId = null
+                                                onCategoryClick(member)
+                                            },
+                                            onUngroup = category.groupId?.let { groupId ->
+                                                onUngroupCategory?.let { ungroup ->
+                                                    {
+                                                        expandedGroupId = null
+                                                        ungroup(groupId)
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -401,7 +481,7 @@ fun CategoryScreen(
                 onImageClick = { index, list ->
                     if (onImageClickOverride != null) {
                         onImageClickOverride(index, list)
-                    } else {
+                    } else if (openInternalViewer) {
                         currentMediaList = list
                         selectedImageIndex = index
                         onShowViewer()
@@ -420,7 +500,8 @@ fun CategoryScreen(
                 onBulkMove = onBulkMove,
                 onScrollConsumed = onScrollConsumed,
                 topBarActions = topBarActions,
-                showTopSection = showSelectedCategoryTopBar
+                showTopSection = showSelectedCategoryTopBar,
+                extraBottomPadding = gridExtraBottomPadding
             )
         }
 
@@ -452,7 +533,7 @@ fun CategoryScreen(
             }
         }
 
-        selectedImageIndex?.let { index ->
+        if (openInternalViewer) selectedImageIndex?.let { index ->
             if (currentMediaList.isNotEmpty()) {
                 MediaViewerScreen(
                     onClickedClose = { selectedImageIndex = null; onHideViewer() },
@@ -521,12 +602,131 @@ fun CategoryScreen(
 }
 
 @Composable
+private fun FolderGroupPopup(
+    expanded: Boolean,
+    category: CategoryData,
+    onDismiss: () -> Unit,
+    onFolderClick: (CategoryData) -> Unit,
+    onUngroup: (() -> Unit)?
+) {
+    val colors = GalleryThemeTokens.colors
+    val scrollState = rememberScrollState()
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .width(320.dp)
+            .background(colors.card)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(category.title, color = colors.primaryText, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text(
+                        stringResource(R.string.folder_group_count, category.groupMembers.size),
+                        color = colors.secondaryText,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+                if (onUngroup != null) {
+                    IconButton(onClick = onUngroup) {
+                        Icon(
+                            Icons.Default.CallSplit,
+                            contentDescription = stringResource(R.string.folder_group_ungroup),
+                            tint = colors.primaryText
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(color = colors.divider)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                category.groupMembers.chunked(2).forEach { rowMembers ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowMembers.forEach { member ->
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { onFolderClick(member) }
+                                    .padding(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(colors.surfaceVariant)
+                                ) {
+                                    GroupThumbnailItem(member.thumbnail)
+                                }
+                                Text(
+                                    member.title,
+                                    color = colors.primaryText,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                                Text(
+                                    stringResource(R.string.trash_media_item_format, member.count),
+                                    color = colors.mutedText,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                        repeat(2 - rowMembers.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderGroupThumbnail(members: List<CategoryData>) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        members.take(4).chunked(2).forEach { rowMembers ->
+            Row(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                rowMembers.forEach { member ->
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        GroupThumbnailItem(member.thumbnail)
+                    }
+                }
+                repeat(2 - rowMembers.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
 private fun GroupThumbnailItem(uri: String?) {
     val context = LocalContext.current
+    val colors = GalleryThemeTokens.colors
     if (uri == null) {
         Box(modifier = Modifier
             .fillMaxSize()
-            .background(Color.White.copy(alpha = 0.05f)))
+            .background(colors.primaryText.copy(alpha = 0.05f)))
     } else {
         Image(
             painter = rememberAsyncImagePainter(
@@ -560,6 +760,8 @@ fun CategoryCard(
     showThumbnail: Boolean = true
 ) {
     val context = LocalContext.current
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -570,13 +772,13 @@ fun CategoryCard(
             )
             .background(
                 when {
-                    isDragTarget -> Color.White.copy(alpha = 0.2f)
-                    isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    isDragTarget -> colors.primaryText.copy(alpha = 0.2f)
+                    isSelected -> colors.accentSoft.copy(alpha = 0.5f)
                     else -> Color.Transparent
                 }
             )
             .then(
-                if (isDragTarget) Modifier.border(2.dp, Color.White, RoundedCornerShape(12.dp))
+                if (isDragTarget) Modifier.border(2.dp, colors.primaryText, RoundedCornerShape(12.dp))
                 else Modifier
             )
             .graphicsLayer {
@@ -596,9 +798,23 @@ fun CategoryCard(
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color.DarkGray)
+                    .background(colors.surfaceVariant)
             ) {
-                if (data.thumbnail != null) {
+                if (data.groupMembers.isNotEmpty()) {
+                    FolderGroupThumbnail(data.groupMembers)
+                    Surface(
+                        color = colors.background.copy(alpha = 0.84f),
+                        contentColor = colors.primaryText,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                    ) {
+                        Text(
+                            stringResource(R.string.folder_group_count, data.groupMembers.size),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                } else if (data.thumbnail != null) {
                     Image(
                         painter = rememberAsyncImagePainter(
                             model = remember(data.thumbnail) {
@@ -614,24 +830,24 @@ fun CategoryCard(
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Image, null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
+                        Icon(Icons.Default.Image, null, tint = colors.primaryText.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
                     }
                 }
                 if (isSelected) {
-                    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(40.dp))
+                    Box(modifier = Modifier.fillMaxSize().background(colors.accent.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.CheckCircle, null, tint = colors.background, modifier = Modifier.size(40.dp))
                     }
                 }
                 if (data.indicatorColor != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).size(16.dp).clip(CircleShape).background(data.indicatorColor).border(1.5.dp, Color.White.copy(alpha = 0.8f), CircleShape))
+                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).size(16.dp).clip(CircleShape).background(data.indicatorColor).border(1.5.dp, colors.background.copy(alpha = 0.8f), CircleShape))
                 }
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = data.title, color = Color.White, fontSize = com.example.gallery.ui.AppConstants.ScrollbarLabelFontSize, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
-        Text(text = "${data.count} 枚", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.ExtraSmallFontSize, modifier = Modifier.padding(horizontal = 4.dp))
+        Text(text = data.title, color = colors.primaryText, fontSize = textSizes.scrollbarLabel, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
+        Text(text = stringResource(R.string.trash_media_item_format, data.count), color = colors.mutedText, fontSize = textSizes.extraSmall, modifier = Modifier.padding(horizontal = 4.dp))
         if (data.subTitle != null) {
-            Text(text = data.subTitle, color = Color.Yellow.copy(alpha = 0.8f), fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(horizontal = 4.dp))
+            Text(text = data.subTitle, color = colors.accent.copy(alpha = 0.8f), fontSize = textSizes.tiny, modifier = Modifier.padding(horizontal = 4.dp))
         }
     }
 }

@@ -2,6 +2,7 @@ package com.example.gallery.util
 
 import android.content.Context
 import android.util.Log
+import com.example.gallery.ui.AppDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionSpec
@@ -16,50 +17,99 @@ object ModelDownloader {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .connectionSpecs(listOf(
-            ConnectionSpec.MODERN_TLS,
-            ConnectionSpec.COMPATIBLE_TLS
-        ))
+        .connectionSpecs(
+            listOf(
+                ConnectionSpec.MODERN_TLS,
+                ConnectionSpec.COMPATIBLE_TLS
+            )
+        )
         .build()
-    
-    // 1. Vector Search Model (MobileNetV3)
+
     private const val VECTOR_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/latest/mobilenet_v3_small.tflite"
     private const val VECTOR_MODEL_FILENAME = "image_embedder.tflite"
 
-    // 2. SmilingWolf WD Tagger Model & Tags
-    // モバイル向けに最適化されたONNXモデル
-    private const val DANBOORU_MODEL_URL = "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/model.onnx"
-    private const val DANBOORU_MODEL_FILENAME = "tagger_fast_moat_v2.onnx"
-    private const val DANBOORU_TAGS_URL = "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/selected_tags.csv"
-    private const val DANBOORU_TAGS_FILENAME = "selected_tags_moat_v2.csv"
+    private val NORMAL_TAGGER_SPEC = TaggerModelSpec(
+        id = AppDefaults.AI_TAGGER_MODEL_NORMAL,
+        modelUrl = "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/model.onnx",
+        modelFilename = "tagger_fast_moat_v2.onnx",
+        tagsUrl = "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/selected_tags.csv",
+        tagsFilename = "selected_tags_moat_v2.csv",
+        minModelSize = 250_000_000L,
+        minTagsSize = 5_000L
+    )
+
+    private val HIGH_TAGGER_SPEC = TaggerModelSpec(
+        id = AppDefaults.AI_TAGGER_MODEL_HIGH,
+        modelUrl = "https://huggingface.co/SmilingWolf/wd-v1-4-swinv2-tagger-v2/resolve/main/model.onnx",
+        modelFilename = "tagger_high_swinv2_v2.onnx",
+        tagsUrl = "https://huggingface.co/SmilingWolf/wd-v1-4-swinv2-tagger-v2/resolve/main/selected_tags.csv",
+        tagsFilename = "selected_tags_high_swinv2_v2.csv",
+        minModelSize = 400_000_000L,
+        minTagsSize = 5_000L
+    )
+
+    data class TaggerModelSpec(
+        val id: String,
+        val modelUrl: String,
+        val modelFilename: String,
+        val tagsUrl: String,
+        val tagsFilename: String,
+        val minModelSize: Long,
+        val minTagsSize: Long
+    )
 
     fun getVectorModelFile(context: Context): File = File(context.filesDir, VECTOR_MODEL_FILENAME)
-    fun getDanbooruModelFile(context: Context): File = File(context.filesDir, DANBOORU_MODEL_FILENAME)
-    fun getDanbooruTagsFile(context: Context): File = File(context.filesDir, DANBOORU_TAGS_FILENAME)
+
+    fun currentTaggerModelId(context: Context): String {
+        val prefs = context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
+        return AppDefaults.normalizedAiTaggerModel(
+            prefs.getString(AppDefaults.AI_TAGGER_MODEL_KEY, AppDefaults.AI_TAGGER_MODEL_NORMAL)
+        )
+    }
+
+    fun taggerSpec(modelId: String?): TaggerModelSpec {
+        return when (AppDefaults.normalizedAiTaggerModel(modelId)) {
+            AppDefaults.AI_TAGGER_MODEL_HIGH -> HIGH_TAGGER_SPEC
+            else -> NORMAL_TAGGER_SPEC
+        }
+    }
+
+    fun getDanbooruModelFile(context: Context, modelId: String? = null): File {
+        return File(context.filesDir, taggerSpec(modelId).modelFilename)
+    }
+
+    fun getDanbooruTagsFile(context: Context, modelId: String? = null): File {
+        return File(context.filesDir, taggerSpec(modelId).tagsFilename)
+    }
 
     fun isVectorModelValid(context: Context): Boolean {
         return getVectorModelFile(context).let { it.exists() && it.length() > 500_000L }
     }
 
-    fun isTaggerModelValid(context: Context): Boolean {
-        return getDanbooruModelFile(context).let { it.exists() && it.length() > 250_000_000L } &&
-               getDanbooruTagsFile(context).let { it.exists() && it.length() > 5_000L }
+    fun isTaggerModelValid(context: Context, modelId: String = currentTaggerModelId(context)): Boolean {
+        val spec = taggerSpec(modelId)
+        return getDanbooruModelFile(context, spec.id).let { it.exists() && it.length() > spec.minModelSize } &&
+            getDanbooruTagsFile(context, spec.id).let { it.exists() && it.length() > spec.minTagsSize }
     }
 
     fun areModelsValid(context: Context): Boolean {
         return isVectorModelValid(context) && isTaggerModelValid(context)
     }
 
-    suspend fun downloadAllModels(context: Context, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
+    suspend fun downloadAllModels(
+        context: Context,
+        onProgress: (Float) -> Unit,
+        taggerModelId: String = currentTaggerModelId(context)
+    ): Boolean = withContext(Dispatchers.IO) {
+        val taggerSpec = taggerSpec(taggerModelId)
         val tasks = listOf(
-            DownloadTask(VECTOR_MODEL_URL, getVectorModelFile(context), 0.2f, 1_000_000L), // 小さいモデル
-            DownloadTask(DANBOORU_MODEL_URL, getDanbooruModelFile(context), 0.7f, 250_000_000L),
-            DownloadTask(DANBOORU_TAGS_URL, getDanbooruTagsFile(context), 0.1f, 10_000L) // CSV
+            DownloadTask(VECTOR_MODEL_URL, getVectorModelFile(context), 0.2f, 1_000_000L),
+            DownloadTask(taggerSpec.modelUrl, getDanbooruModelFile(context, taggerSpec.id), 0.7f, taggerSpec.minModelSize),
+            DownloadTask(taggerSpec.tagsUrl, getDanbooruTagsFile(context, taggerSpec.id), 0.1f, taggerSpec.minTagsSize)
         )
 
         var totalProgress = 0f
         for (task in tasks) {
-            // ファイルが存在し、かつサイズが妥当かチェック
             if (task.file.exists() && task.file.length() >= task.minExpectedSize) {
                 totalProgress += task.weight
                 onProgress(totalProgress)
@@ -72,7 +122,7 @@ object ModelDownloader {
             val success = downloadFile(task.url, task.file) { taskProgress ->
                 onProgress(totalProgress + (taskProgress * task.weight))
             }
-            
+
             if (!success) {
                 Log.e(TAG, "Failed to download model: ${task.file.name}")
                 return@withContext false
@@ -83,7 +133,12 @@ object ModelDownloader {
         true
     }
 
-    private data class DownloadTask(val url: String, val file: File, val weight: Float, val minExpectedSize: Long)
+    private data class DownloadTask(
+        val url: String,
+        val file: File,
+        val weight: Float,
+        val minExpectedSize: Long
+    )
 
     private suspend fun downloadFile(urlStr: String, file: File, onProgress: (Float) -> Unit): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -100,13 +155,13 @@ object ModelDownloader {
 
                 val body = response.body ?: return@withContext false
                 val totalSize = body.contentLength()
-                
+
                 body.byteStream().use { input ->
                     file.outputStream().use { output ->
                         val buffer = ByteArray(8192)
                         var bytesRead: Int
                         var totalRead = 0L
-                        
+
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
                             totalRead += bytesRead

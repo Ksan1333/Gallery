@@ -15,7 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.theme.GalleryThemeTokens
 
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -53,10 +53,11 @@ fun TapZoneGuideOverlay(
 
 @Composable
 private fun TapZoneLabel(label: String, background: Color) {
+    val textSizes = GalleryThemeTokens.textSizes
     Text(
         text = label,
         color = Color.White.copy(alpha = 0.9f),
-        fontSize = AppConstants.TinyFontSize,
+        fontSize = textSizes.tiny,
         modifier = Modifier
             .background(background, RoundedCornerShape(4.dp))
             .padding(horizontal = 5.dp, vertical = 3.dp)

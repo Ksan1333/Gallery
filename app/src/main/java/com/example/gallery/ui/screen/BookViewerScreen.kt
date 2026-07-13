@@ -27,10 +27,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,6 +44,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -80,20 +85,83 @@ import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.data.repository.BookType
 import com.example.gallery.ui.component.OperationProgressIndicator
+import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.component.GalleryVideoSeekBar
 import com.example.gallery.ui.component.TapZoneGuideOverlay
+import com.example.gallery.ui.component.isViewerOverflowActionName
 import com.example.gallery.ui.component.tapZoneCountForLayout
 import com.example.gallery.ui.component.tapZoneIndexAt
+import com.example.gallery.ui.component.resolveViewerAction
+import android.graphics.drawable.BitmapDrawable
+import androidx.lifecycle.lifecycleScope
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+
+private fun handleBookViewerAction(
+    function: String,
+    context: Context,
+    book: BookData,
+    pagerState: androidx.compose.foundation.pager.PagerState,
+    isTwoPageMode: Boolean,
+    currentAbsolutePage: Int,
+    isSlideshowRunning: Boolean,
+    onToggleSlideshow: () -> Unit,
+    onClose: () -> Unit,
+    onRotate: () -> Unit,
+    onSaveScreenshot: () -> Unit,
+    onOpenBookSettings: () -> Unit,
+    onBookmarksChanged: () -> Unit
+) {
+    val scope = (context as? androidx.activity.ComponentActivity)?.lifecycleScope ?: kotlinx.coroutines.MainScope()
+    val bookmarksPrefs = context.getSharedPreferences("book_bookmarks", Context.MODE_PRIVATE)
+
+    val actionClose = context.getString(R.string.label_action_close)
+    val actionSettings = context.getString(R.string.label_action_settings)
+    val actionRotate = context.getString(R.string.label_action_rotate)
+    val actionScreenshot = context.getString(R.string.label_action_screenshot)
+    val actionPrev = context.getString(R.string.label_action_prev)
+    val actionNext = context.getString(R.string.label_action_next)
+    val actionBookmark = context.getString(R.string.label_action_bookmark)
+    val actionSlideshow = context.getString(R.string.label_action_slideshow)
+    val actionSearch = context.getString(R.string.label_action_search)
+
+    when (function) {
+        actionClose -> onClose()
+        actionSettings -> onOpenBookSettings()
+        actionRotate -> onRotate()
+        actionScreenshot -> onSaveScreenshot()
+        actionPrev -> scope.launch {
+            pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
+        }
+        actionNext -> scope.launch {
+            pagerState.animateScrollToPage((pagerState.currentPage + 1).coerceAtMost(pagerState.pageCount - 1))
+        }
+        actionBookmark -> {
+            val exists = bookmarksPrefs.contains(book.id)
+            if (!exists) {
+                val data = JSONObject().put("title", book.title).put("page", currentAbsolutePage).toString()
+                bookmarksPrefs.edit().putString(book.id, data).apply()
+                Toast.makeText(context, context.getString(R.string.book_bookmark_added), Toast.LENGTH_SHORT).show()
+            } else {
+                bookmarksPrefs.edit().remove(book.id).apply()
+                Toast.makeText(context, context.getString(R.string.book_bookmark_removed), Toast.LENGTH_SHORT).show()
+            }
+            onBookmarksChanged()
+        }
+        actionSlideshow -> onToggleSlideshow()
+        actionSearch -> openBookTitleSearch(context, book.title)
+    }
+}
 
 private enum class BookPageLayout { AUTO, SINGLE, DOUBLE }
 private enum class BookReadingDirection { RIGHT_TO_LEFT, LEFT_TO_RIGHT }
@@ -145,7 +213,7 @@ private data class BookViewerSettings(
 
 private const val BOOK_VIEWER_PREFS = "book_viewer_settings"
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BookViewerScreen(
     book: BookData,
@@ -154,10 +222,13 @@ fun BookViewerScreen(
     onPreviousBook: (() -> Unit)? = null,
     onNextBook: (() -> Unit)? = null,
     onBookmarksChanged: () -> Unit = {},
+    onNavigateToBookmarks: () -> Unit = {},
     onOpenBookSettings: () -> Unit = {},
     initialPage: Int = 0
 ) {
     val context = LocalContext.current
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     val scope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
     val view = LocalView.current
@@ -178,10 +249,17 @@ fun BookViewerScreen(
     val bookmarksPrefs = remember {
         context.getSharedPreferences("book_bookmarks", Context.MODE_PRIVATE)
     }
+    val bookFavoritesPrefs = remember {
+        context.getSharedPreferences("book_favorites", Context.MODE_PRIVATE)
+    }
     var isBookmarked by remember {
         mutableStateOf(bookmarksPrefs.contains(book.id))
     }
-    var viewerSettings by remember { mutableStateOf(loadBookViewerSettings(preferences)) }
+    var isFavoriteBook by remember {
+        mutableStateOf(bookFavoritesPrefs.getBoolean(book.id, false))
+    }
+    var showBookTopMenu by remember { mutableStateOf(false) }
+    var viewerSettings by remember { mutableStateOf(loadBookViewerSettings(context, preferences)) }
     val imageFilterQuality = when (viewerSettings.smoothFilter) {
         BookSmoothFilter.NEAREST -> FilterQuality.None
         BookSmoothFilter.AVERAGING -> FilterQuality.Low
@@ -232,7 +310,7 @@ fun BookViewerScreen(
     }
     val viewerBackground = when (viewerSettings.background) {
         BookBackground.BLACK -> Color.Black
-        BookBackground.GRAY -> GalleryThemeTokens.colors.surfaceVariant
+        BookBackground.GRAY -> Color.DarkGray
         BookBackground.WHITE -> Color.White
     }
 
@@ -267,6 +345,7 @@ fun BookViewerScreen(
     var isBookMagnifierActive by remember { mutableStateOf(false) }
     var bookMagnifierBaseScale by remember { mutableFloatStateOf(1f) }
     var bookMagnifierBaseOffset by remember { mutableStateOf(Offset.Zero) }
+    var bookMagnifierFocusOffset by remember { mutableStateOf(Offset.Zero) }
     var bookMagnifierStartPosition by remember { mutableStateOf(Offset.Zero) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     var touchIndicatorPoint by remember { mutableStateOf<Offset?>(null) }
@@ -465,7 +544,7 @@ fun BookViewerScreen(
 
     fun moveSpread(forward: Boolean) {
         val delta = if (forward) 1 else -1
-        val target = if (isRightToLeft) pagerState.currentPage - delta else pagerState.currentPage + delta
+        val target = pagerState.currentPage + delta
         if (target in 0 until pagerState.pageCount) {
             scope.launch { pagerState.animateScrollToPage(target, animationSpec = tween(viewerSettings.transitionSpeedMs)) }
         }
@@ -477,7 +556,7 @@ fun BookViewerScreen(
         if (bitmap != null) {
             saveBitmapToGallery(context, bitmap)
         } else {
-            Toast.makeText(context, "保存に失敗しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.msg_save_failed, ""), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -598,7 +677,7 @@ fun BookViewerScreen(
                             )
                         } else {
                             Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
+                                CircularProgressIndicator(color = if (viewerBackground == Color.White) colors.mutedText else colors.primaryText)
                             }
                         }
                     }
@@ -681,7 +760,7 @@ fun BookViewerScreen(
                                 if (bmp != null) {
                                     Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = pageContentScale, alignment = Alignment.CenterEnd, filterQuality = imageFilterQuality)
                                 } else {
-                                    CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
+                                    CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) colors.mutedText else colors.primaryText)
                                 }
                             }
                         }
@@ -698,7 +777,7 @@ fun BookViewerScreen(
                                 if (bmp != null) {
                                     Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = pageContentScale, alignment = Alignment.CenterStart, filterQuality = imageFilterQuality)
                                 } else {
-                                    CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
+                                    CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) colors.mutedText else colors.primaryText)
                                 }
                             }
                         }
@@ -721,7 +800,7 @@ fun BookViewerScreen(
                             filterQuality = imageFilterQuality
                         )
                     } else {
-                        CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) Color.DarkGray else Color.White)
+                        CircularProgressIndicator(Modifier.align(Alignment.Center), color = if (viewerBackground == Color.White) colors.mutedText else colors.primaryText)
                     }
                 }
 
@@ -730,20 +809,66 @@ fun BookViewerScreen(
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .pointerInput(isBookMagnifierActive, viewerSettings.magnifierScalePercent) {
-                                awaitPointerEventScope {
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        if (isBookMagnifierActive) {
-                                            val change = event.changes.firstOrNull()
-                                            if (change != null && change.pressed) {
-                                                val drag = change.position - bookMagnifierStartPosition
-                                                val targetScale = (bookMagnifierBaseScale * (viewerSettings.magnifierScalePercent / 100f)).coerceIn(1f, 3f)
-                                                scale = targetScale
-                                                offset = bookMagnifierBaseOffset + drag * targetScale
-                                                change.consume()
+                            .pointerInput(viewerSettings.longPressMagnifier, viewerSettings.magnifierScalePercent, viewSize) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    if (!viewerSettings.longPressMagnifier) return@awaitEachGesture
+
+                                    val longPressReached = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            if (event.changes.count { it.pressed } > 1) {
+                                                return@withTimeoutOrNull false
+                                            }
+
+                                            val change = event.changes.firstOrNull { it.id == down.id }
+                                                ?: return@withTimeoutOrNull false
+                                            if (!change.pressed) {
+                                                return@withTimeoutOrNull false
+                                            }
+
+                                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                                return@withTimeoutOrNull false
                                             }
                                         }
+                                    } == null
+
+                                    if (!longPressReached) return@awaitEachGesture
+
+                                    showBookTouchIndicator(down.position)
+                                    bookMagnifierBaseScale = scale
+                                    bookMagnifierBaseOffset = offset
+                                    bookMagnifierStartPosition = down.position
+                                    suppressTapAfterMagnifier = true
+                                    isBookMagnifierActive = true
+
+                                    val targetScale = (bookMagnifierBaseScale * (viewerSettings.magnifierScalePercent / 100f)).coerceIn(1f, 3f)
+                                    fun focusBookMagnifierAt(position: Offset) {
+                                        val scaleRatio = targetScale / bookMagnifierBaseScale.coerceAtLeast(0.01f)
+                                        val center = Offset(viewSize.width / 2f, viewSize.height / 2f)
+                                        val touchFromCenter = position - center
+                                        bookMagnifierFocusOffset = Offset(
+                                            x = touchFromCenter.x * (1f - scaleRatio) + bookMagnifierBaseOffset.x * scaleRatio,
+                                            y = touchFromCenter.y * (1f - scaleRatio) + bookMagnifierBaseOffset.y * scaleRatio
+                                        )
+                                        scale = targetScale
+                                        offset = bookMagnifierFocusOffset
+                                    }
+
+                                    try {
+                                        focusBookMagnifierAt(down.position)
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id }
+                                                ?: break
+                                            if (!change.pressed) break
+                                            focusBookMagnifierAt(change.position)
+                                            change.consume()
+                                        }
+                                    } finally {
+                                        isBookMagnifierActive = false
+                                        scale = bookMagnifierBaseScale
+                                        offset = bookMagnifierBaseOffset
                                     }
                                 }
                             }
@@ -751,26 +876,7 @@ fun BookViewerScreen(
                                 detectTapGestures(
                                     onPress = {
                                         showBookTouchIndicator(it)
-                                        var magnifierShown = false
-                                        bookMagnifierBaseScale = scale
-                                        bookMagnifierBaseOffset = offset
-                                        bookMagnifierStartPosition = it
-                                        val job = scope.launch {
-                                            delay(450)
-                                            if (viewerSettings.longPressMagnifier) {
-                                                magnifierShown = true
-                                                suppressTapAfterMagnifier = true
-                                                isBookMagnifierActive = true
-                                                scale = (bookMagnifierBaseScale * (viewerSettings.magnifierScalePercent / 100f)).coerceIn(1f, 3f)
-                                            }
-                                        }
                                         tryAwaitRelease()
-                                        job.cancel()
-                                        if (magnifierShown) {
-                                            isBookMagnifierActive = false
-                                            scale = bookMagnifierBaseScale
-                                            offset = bookMagnifierBaseOffset
-                                        }
                                     },
                                     onTap = { position ->
                                         showBookTouchIndicator(position)
@@ -803,6 +909,19 @@ fun BookViewerScreen(
                             .fillMaxSize()
                             .pointerInput(Unit) { detectTapGestures { showBookTouchIndicator(it); isUiVisible = !isUiVisible } }
                     )
+                } else {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(scale) {
+                                detectTapGestures(onTap = {
+                                    showBookTouchIndicator(it)
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                    isBookMagnifierActive = false
+                                })
+                            }
+                    )
                 }
             }
         }
@@ -820,130 +939,240 @@ fun BookViewerScreen(
         if (isUiVisible) {
             val menuAlpha = (1f - viewerSettings.menuOpacityPercent / 100f).coerceIn(0f, 1f)
             Surface(color = Color.Black, modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().graphicsLayer { alpha = menuAlpha }) {
-                Box(modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars).height(60.dp).padding(horizontal = 8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal))
+                        .height(60.dp)
+                        .padding(horizontal = 8.dp)
+                ) {
                     IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart)) { Icon(Icons.Default.Close, null, tint = Color.White) }
                     Text(
                         book.title,
                         color = Color.White,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 56.dp, end = 240.dp),
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 56.dp, end = 104.dp),
                         maxLines = 1,
-                        fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize
+                        fontSize = textSizes.subtitle
                     )
-                    Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                        IconButton(onClick = {
-                            isBookmarked = !isBookmarked
-                            if (isBookmarked) {
-                                // ページ番号を含めて保存する形式に変更
-                                val bookmarkData = JSONObject()
-                                    .put("title", book.title)
-                                    .put("page", currentAbsolutePage)
-                                    .toString()
-                                bookmarksPrefs.edit().putString(book.id, bookmarkData).apply()
-                                Toast.makeText(context, "ブックマークしました", Toast.LENGTH_SHORT).show()
-                            } else {
-                                bookmarksPrefs.edit().remove(book.id).apply()
-                                Toast.makeText(context, "ブックマークを解除しました", Toast.LENGTH_SHORT).show()
-                            }
-                            onBookmarksChanged()
-                        }) {
-                            Icon(
-                                if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                contentDescription = "ブックマーク",
-                                tint = if (isBookmarked) Color.Cyan else Color.White
+                    Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                        IconButton(onClick = { showBookTopMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.book_menu), tint = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = showBookTopMenu,
+                            onDismissRequest = { showBookTopMenu = false },
+                            containerColor = GalleryThemeTokens.colors.card
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.label_action_favorite), color = Color.White) },
+                                leadingIcon = {
+                                    Icon(
+                                        if (isFavoriteBook) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        null,
+                                        tint = if (isFavoriteBook) GalleryThemeTokens.colors.danger else Color.White
+                                    )
+                                },
+                                onClick = {
+                                    isFavoriteBook = !isFavoriteBook
+                                    bookFavoritesPrefs.edit().putBoolean(book.id, isFavoriteBook).apply()
+                                    showBookTopMenu = false
+                                }
                             )
-                        }
-
-                        IconButton(onClick = onOpenBookSettings) {
-                            Icon(Icons.Default.Settings, contentDescription = "設定", tint = Color.White)
-                        }
-
-                        var showMoreMenu by remember { mutableStateOf(false) }
-                        Box {
-                            IconButton(onClick = { showMoreMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "メニュー", tint = Color.White)
-                            }
-                            DropdownMenu(
-                                expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false },
-                                containerColor = GalleryThemeTokens.colors.card
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(if (isSlideshowRunning) "スライドショー停止" else "スライドショー開始", color = if (viewerSettings.slideshowSeconds > 0) Color.White else Color.Gray) },
-                                    leadingIcon = { Icon(if (isSlideshowRunning) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if (viewerSettings.slideshowSeconds > 0) Color.White else Color.Gray) },
-                                    enabled = viewerSettings.slideshowSeconds > 0,
-                                    onClick = {
-                                        showMoreMenu = false
-                                        isSlideshowRunning = !isSlideshowRunning
-                                        isUiVisible = !isSlideshowRunning
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.label_action_settings), color = Color.White) },
+                                leadingIcon = { Icon(Icons.Default.Settings, null, tint = Color.White) },
+                                onClick = { showBookTopMenu = false; onOpenBookSettings() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.label_action_rotate), color = Color.White) },
+                                leadingIcon = { Icon(Icons.Default.ScreenRotation, null, tint = Color.White) },
+                                onClick = {
+                                    screenOrientationOverride =
+                                        if (isLandscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                    showBookTopMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    val label = if (isSlideshowRunning) stringResource(R.string.viewer_slideshow_stop) else stringResource(R.string.viewer_slideshow_start)
+                                    Text(label, color = Color.White)
+                                },
+                                leadingIcon = { Icon(if (isSlideshowRunning) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.White) },
+                                onClick = {
+                                    isSlideshowRunning = !isSlideshowRunning
+                                    isUiVisible = !isSlideshowRunning
+                                    showBookTopMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.nav_book_bookmarks), color = Color.White) },
+                                leadingIcon = { Icon(Icons.Default.Bookmark, null, tint = Color.White) },
+                                onClick = {
+                                    showBookTopMenu = false
+                                    onNavigateToBookmarks()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.label_action_prev_book), color = Color.White) },
+                                leadingIcon = { Icon(Icons.Default.SkipPrevious, null, tint = Color.White) },
+                                enabled = onPreviousBook != null,
+                                onClick = { showBookTopMenu = false; onPreviousBook?.invoke() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.label_action_next_book), color = Color.White) },
+                                leadingIcon = { Icon(Icons.Default.SkipNext, null, tint = Color.White) },
+                                enabled = onNextBook != null,
+                                onClick = { showBookTopMenu = false; onNextBook?.invoke() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (isBookmarked) stringResource(R.string.book_bookmark_removed) else stringResource(R.string.label_action_bookmark), color = Color.White) },
+                                leadingIcon = { Icon(if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, null, tint = Color.White) },
+                                onClick = {
+                                    if (isBookmarked) {
+                                        bookmarksPrefs.edit().remove(book.id).apply()
+                                        isBookmarked = false
+                                        Toast.makeText(context, context.getString(R.string.book_bookmark_removed), Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val data = JSONObject().put("title", book.title).put("page", currentAbsolutePage).toString()
+                                        bookmarksPrefs.edit().putString(book.id, data).apply()
+                                        isBookmarked = true
+                                        Toast.makeText(context, context.getString(R.string.book_bookmark_added), Toast.LENGTH_SHORT).show()
                                     }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_search_this), color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.White) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        openBookTitleSearch(context, book.title)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_screenshot), color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Screenshot, null, tint = Color.White) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        saveCurrentScreenshot()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.book_rotate), color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.ScreenRotation, null, tint = Color.White) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        screenOrientationOverride = if (isLandscape) {
-                                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                        } else {
-                                            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                        }
-                                    }
-                                )
-                            }
+                                    onBookmarksChanged()
+                                    showBookTopMenu = false
+                                }
+                            )
                         }
                     }
                 }
             }
             Surface(color = Color.Black, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().graphicsLayer { alpha = menuAlpha }) {
-                Column(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp)) {
+                Column(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${currentAbsolutePage + 1} / ${book.pageCount}", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
-                        Slider(
-                            value = seekValue,
-                            onValueChange = {
-                                seekValue = it
-                                isSeeking = true
+                        Text("${currentAbsolutePage + 1} / ${book.pageCount}", color = Color.White, fontSize = textSizes.small)
+                        GalleryVideoSeekBar(
+                            positionMs = seekValue.roundToInt().toLong(),
+                            durationMs = (book.pageCount - 1).coerceAtLeast(1).toLong(),
+                            onSeekStart = { isSeeking = true },
+                            onSeek = {
+                                seekValue = it.toFloat().coerceIn(0f, (book.pageCount - 1).toFloat())
                             },
-                            onValueChangeFinished = {
+                            onSeekEnd = {
                                 isSeeking = false
                                 val target = seekValueToPage(seekValue)
                                 scope.launch { pagerState.scrollToPage(if (isTwoPageMode) target / 2 else target) }
                             },
-                            valueRange = 0f..(book.pageCount - 1).toFloat(),
-                            modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                            colors = SliderDefaults.colors(activeTrackColor = Color.White.copy(alpha = 0.3f), inactiveTrackColor = Color.White.copy(alpha = 0.3f), thumbColor = Color.White)
+                            modifier = Modifier.weight(1f).height(18.dp).padding(horizontal = 12.dp),
+                            trackColor = Color.White.copy(alpha = 0.10f),
+                            progressColor = Color.White.copy(alpha = 0.24f),
+                            thumbColor = Color.White.copy(alpha = 0.72f),
+                            trackHeight = 1.dp,
+                            thumbSize = 8.dp
                         )
                     }
+
+                    val barSlots = listOf("ボトム左", "ボトム中央左", "ボトム中央", "ボトム中央右", "ボトム右")
+                    val legacyBarSlots = listOf("位置 1", "位置 2", "位置 3", "位置 4", "位置 5")
+                    val actionClose = stringResource(R.string.label_action_close)
+                    val actionSettings = stringResource(R.string.label_action_settings)
+                    val actionRotate = stringResource(R.string.label_action_rotate)
+                    val actionScreenshot = stringResource(R.string.label_action_screenshot)
+                    val actionBookmark = stringResource(R.string.label_action_bookmark)
+                    val actionSlideshow = stringResource(R.string.label_action_slideshow)
+                    val actionPrev = stringResource(R.string.label_action_prev)
+                    val actionNext = stringResource(R.string.label_action_next)
+
+                    val bookActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionBookmark, actionSlideshow, actionPrev, actionNext) {
+                        listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionBookmark, actionSlideshow, actionPrev, actionNext)
+                    }
+                    val defaultBarAssignments = remember(actionClose, actionPrev, actionBookmark, actionNext) {
+                        listOf(actionClose, actionPrev, actionBookmark, actionNext, "3点ボタン")
+                    }
+                    val barAssignments = remember(preferences) {
+                        val saved = barSlots.mapIndexed { index, slot ->
+                            preferences.getString("book_bar.$slot", null)
+                                ?: preferences.getString("book_bar.${legacyBarSlots[index]}", null)
+                                ?: "なし"
+                        }.filter { it != "なし" }
+                        saved.ifEmpty { defaultBarAssignments }
+                    }
+                    val menuAssignments = remember(barAssignments) {
+                        bookActionCatalog.filterNot { action -> barAssignments.contains(action) }
+                    }
+
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(onClick = { onPreviousBook?.invoke() }, enabled = onPreviousBook != null) {
-                            Icon(Icons.Default.SkipPrevious, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text(stringResource(R.string.book_prev))
+                        barAssignments.forEach { function ->
+                            if (isViewerOverflowActionName(function) || function !in bookActionCatalog) {
+                                return@forEach
+                            }
+                            val action = resolveViewerAction(function, isBookmarked = isBookmarked, isSlideshowRunning = isSlideshowRunning)
+                            if (action != null) {
+                                IconButton(onClick = {
+                                    handleBookViewerAction(
+                                        function = function,
+                                        context = context,
+                                        book = book,
+                                        pagerState = pagerState,
+                                        isTwoPageMode = isTwoPageMode,
+                                        currentAbsolutePage = currentAbsolutePage,
+                                        isSlideshowRunning = isSlideshowRunning,
+                                        onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
+                                        onClose = onClose,
+                                        onRotate = { screenOrientationOverride = if (isLandscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE },
+                                        onSaveScreenshot = { saveCurrentScreenshot() },
+                                        onOpenBookSettings = onOpenBookSettings,
+                                        onBookmarksChanged = { isBookmarked = bookmarksPrefs.contains(book.id); onBookmarksChanged() }
+                                    )
+                                }) {
+                                    Icon(action.icon, contentDescription = action.label, tint = action.color ?: Color.White)
+                                }
+                            }
                         }
-                        TextButton(onClick = { onNextBook?.invoke() }, enabled = onNextBook != null) {
-                            Text(stringResource(R.string.book_next))
-                            Spacer(Modifier.width(4.dp))
-                            Icon(Icons.Default.SkipNext, contentDescription = null)
+
+                        if (menuAssignments.isNotEmpty() && barAssignments.any(::isViewerOverflowActionName)) {
+                            var showMoreMenu by remember { mutableStateOf(false) }
+                            Box {
+                                IconButton(onClick = { showMoreMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.book_menu), tint = Color.White)
+                                }
+                                DropdownMenu(
+                                    expanded = showMoreMenu,
+                                    onDismissRequest = { showMoreMenu = false },
+                                    containerColor = GalleryThemeTokens.colors.card
+                                ) {
+                                    menuAssignments.forEach { function ->
+                                        val action = resolveViewerAction(function, isBookmarked = isBookmarked, isSlideshowRunning = isSlideshowRunning)
+                                        if (action != null) {
+                                            DropdownMenuItem(
+                                                text = { Text(action.label, color = Color.White) },
+                                                leadingIcon = { Icon(action.icon, null, tint = action.color ?: Color.White) },
+                                                onClick = {
+                                                    showMoreMenu = false
+                                                    handleBookViewerAction(
+                                                        function = function,
+                                                        context = context,
+                                                        book = book,
+                                                        pagerState = pagerState,
+                                                        isTwoPageMode = isTwoPageMode,
+                                                        currentAbsolutePage = currentAbsolutePage,
+                                                        isSlideshowRunning = isSlideshowRunning,
+                                                        onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
+                                                        onClose = onClose,
+                                                        onRotate = { screenOrientationOverride = if (isLandscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE },
+                                                        onSaveScreenshot = { saveCurrentScreenshot() },
+                                                        onOpenBookSettings = onOpenBookSettings,
+                                                        onBookmarksChanged = { isBookmarked = bookmarksPrefs.contains(book.id); onBookmarksChanged() }
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -966,10 +1195,10 @@ fun BookViewerScreen(
                 (pageLoadElapsedMs.toFloat() / it.toFloat()).coerceIn(0f, 0.95f)
             }
             val progressLabel = if (estimateMs == null) {
-                "ページを読み込み中 ${formatBookLoadTime(pageLoadElapsedMs)}経過"
+                stringResource(R.string.book_loading_page, formatBookLoadTime(pageLoadElapsedMs))
             } else {
                 val remainingMs = (estimateMs - pageLoadElapsedMs).coerceAtLeast(0L)
-                "ページを読み込み中 残り約${formatBookLoadTime(remainingMs)}"
+                stringResource(R.string.book_loading_page_remaining, formatBookLoadTime(remainingMs))
             }
             OperationProgressIndicator(
                 label = progressLabel,
@@ -990,22 +1219,22 @@ fun BookViewerScreen(
         if (!isUiVisible && viewerSettings.readMark != "NONE") {
             when (viewerSettings.readMark) {
                 "ICON" -> Text(
-                    text = "既読",
+                    text = stringResource(R.string.book_read_mark),
                     color = Color.White,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                    fontSize = textSizes.tiny
                 )
                 "PAGE" -> Text(
                     text = "${currentAbsolutePage + 1}/${book.pageCount}",
                     color = Color.White,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                    fontSize = textSizes.tiny
                 )
                 "PERCENT" -> Text(
                     text = "${(readProgress * 100).toInt()}%",
                     color = Color.White,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                    fontSize = textSizes.tiny
                 )
                 "PROGRESS_BAR" -> LinearProgressIndicator(
                     progress = { readProgress },
@@ -1027,7 +1256,7 @@ fun BookViewerScreen(
                     text = "x${"%.1f".format(Locale.US, scale)}",
                     color = Color.White,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                    fontSize = textSizes.tiny
                 )
             }
         }
@@ -1056,20 +1285,12 @@ fun BookViewerScreen(
                     text = clockText,
                     color = Color.White,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize
+                    fontSize = textSizes.tiny
                 )
             }
         }
 
-        touchIndicatorPoint?.let { point ->
-            Box(
-                modifier = Modifier
-                    .offset { IntOffset((point.x - 22f).roundToInt(), (point.y - 22f).roundToInt()) }
-                    .size(44.dp)
-                    .border(2.dp, Color.White.copy(alpha = 0.75f), RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
-            )
-        }
+        // Removed touch circle indicator as per request
     }
 
 }
@@ -1082,54 +1303,78 @@ private fun openBookTitleSearch(context: Context, title: String) {
         Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
     )
     runCatching { context.startActivity(intent) }
-        .onFailure { Toast.makeText(context, "ブラウザを開けませんでした", Toast.LENGTH_SHORT).show() }
+        .onFailure { Toast.makeText(context, context.getString(R.string.book_error_browser), Toast.LENGTH_SHORT).show() }
 }
 
 private fun bookTapZoneLabels(zoneCount: Int): List<String> {
+    val prevBook = AppConstants.ACTION_PREV_BOOK
+    val prevPage = AppConstants.ACTION_PREV_PAGE
+    val zoom = AppConstants.ACTION_ZOOM
+    val screenshot = AppConstants.ACTION_SCREENSHOT
+    val menu = AppConstants.ACTION_MENU
+    val settings = AppConstants.ACTION_SETTINGS
+    val slide = AppConstants.ACTION_SLIDESHOW
+    val nextPage = AppConstants.ACTION_NEXT_PAGE
+    val nextBook = AppConstants.ACTION_NEXT_BOOK
+
     return when (zoneCount) {
         11 -> listOf(
-            "前の本",
-            "前ページ",
-            "前ページ",
-            "ズーム",
-            "スクショ",
-            "メニュー",
-            "設定",
-            "スライド",
-            "ズーム",
-            "次ページ",
-            "次の本"
+            prevBook,
+            prevPage,
+            prevPage,
+            zoom,
+            screenshot,
+            menu,
+            settings,
+            slide,
+            zoom,
+            nextPage,
+            nextBook
         )
-        4 -> listOf("前ページ", "ズーム", "設定", "次ページ")
-        else -> listOf("前ページ", "メニュー", "次ページ")
+        4 -> listOf(prevPage, zoom, settings, nextPage)
+        else -> listOf(prevPage, menu, nextPage)
     }
 }
 
+@Composable
 private fun bookTapZoneGuideLabels(zoneCount: Int): List<String> {
+    val prevBook = stringResource(R.string.book_prev_book)
+    val nextBook = stringResource(R.string.book_next_book)
+    val prevPage = stringResource(R.string.book_prev_page)
+    val nextPage = stringResource(R.string.book_next_page)
+    val zoom = stringResource(R.string.book_zoom)
+    val screenshot = stringResource(R.string.book_screenshot_label)
+    val menu = stringResource(R.string.book_menu)
+    val settings = stringResource(R.string.book_settings)
+    val slide = stringResource(R.string.book_slide_label)
+    val slideshow = stringResource(R.string.label_tap_slideshow)
+
     return when (zoneCount) {
         11 -> listOf(
-            "前の本",
-            "前ページ",
-            "前ページ",
-            "ズーム",
-            "スクリーンショット",
-            "メニュー",
-            "設定",
-            "スライドショー",
-            "ズーム",
-            "次ページ",
-            "次の本"
+            prevBook,
+            prevPage,
+            prevPage,
+            zoom,
+            screenshot,
+            menu,
+            settings,
+            slide,
+            zoom,
+            nextPage,
+            nextBook
         )
-        7 -> listOf("前の本", "次の本", "前ページ", "メニュー", "次ページ", "ズーム", "スライドショー")
-        5 -> listOf("前ページ", "前の本", "メニュー", "次の本", "次ページ")
-        4 -> listOf("前ページ", "ズーム", "設定", "次ページ")
-        else -> listOf("前ページ", "メニュー", "次ページ")
+        7 -> listOf(prevBook, nextBook, prevPage, menu, nextPage, zoom, slideshow)
+        5 -> listOf(prevPage, prevBook, menu, nextBook, nextPage)
+        4 -> listOf(prevPage, zoom, settings, nextPage)
+        else -> listOf(prevPage, menu, nextPage)
     }
 }
 
-private fun loadBookViewerSettings(preferences: android.content.SharedPreferences): BookViewerSettings {
-    fun <T : Enum<T>> enumValue(key: String, default: T, values: Array<T>): T {
-        val stored = preferences.getString(key, default.name)
+private fun loadBookViewerSettings(context: Context, preferences: android.content.SharedPreferences): BookViewerSettings {
+    val globalPrefs = context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
+
+    fun <T : Enum<T>> enumValue(key: String, default: T, values: Array<T>, prefs: android.content.SharedPreferences = preferences): T {
+        val stored = prefs.getString(key, default.name)
         return values.firstOrNull { it.name == stored } ?: default
     }
     fun scrollModeValue(): BookScrollMode {
@@ -1141,8 +1386,8 @@ private fun loadBookViewerSettings(preferences: android.content.SharedPreference
         }
     }
     fun slideshowSecondsValue(): Int {
-        val intervalMs = preferences.getInt("slideshowIntervalMs", -1)
-        return if (intervalMs > 0) (intervalMs / 1000).coerceIn(1, 30) else preferences.getInt("slideshowSeconds", 0).coerceIn(0, 30)
+        val intervalMs = globalPrefs.getInt("slideshowIntervalMs", preferences.getInt("slideshowIntervalMs", -1))
+        return if (intervalMs > 0) (intervalMs / 1000).coerceIn(1, 30) else preferences.getInt("slideshowSeconds", 5).coerceIn(1, 30)
     }
     val bindingDirection = preferences.getString("bindingDirection", null)
     val readingDirection = when (bindingDirection) {
@@ -1157,7 +1402,7 @@ private fun loadBookViewerSettings(preferences: android.content.SharedPreference
         background = enumValue("background", BookBackground.BLACK, BookBackground.entries.toTypedArray()),
         renderQuality = enumValue("renderQuality", BookRenderQuality.STANDARD, BookRenderQuality.entries.toTypedArray()),
         scrollMode = scrollModeValue(),
-        smoothFilter = enumValue("smoothFilter", BookSmoothFilter.BILINEAR, BookSmoothFilter.entries.toTypedArray()),
+        smoothFilter = enumValue("smoothing", BookSmoothFilter.BILINEAR, BookSmoothFilter.entries.toTypedArray(), globalPrefs),
         colorMode = enumValue("colorMode", BookColorMode.NORMAL, BookColorMode.entries.toTypedArray()),
         pageGapDp = preferences.getInt("pageGapDp", 0).coerceIn(0, 24),
         preloadPages = preferences.getInt("preloadPages", 1).coerceIn(0, 5),
@@ -1166,27 +1411,27 @@ private fun loadBookViewerSettings(preferences: android.content.SharedPreference
         contrast = preferences.getInt("contrast", 0).coerceIn(-50, 50),
         gamma = preferences.getInt("gamma", 100).coerceIn(50, 200),
         tapZoneCount = tapZoneCountForLayout(
-            preferences.getString("tapZoneLayout", ""),
+            preferences.getString("tapZoneLayout", globalPrefs.getString("tapZoneLayout", "THREE")),
             preferences.getInt("tapZoneCount", 3)
         ),
         slideshowSeconds = slideshowSecondsValue(),
         autoTrimWhiteBorder = preferences.getBoolean("autoTrimWhiteBorder", false),
         cacheAroundPages = preferences.getBoolean("imageCache", preferences.getBoolean("cacheAroundPages", true)),
-        balloonMagnifier = preferences.getBoolean("longPressMagnifier", preferences.getBoolean("balloonMagnifier", false)),
+        balloonMagnifier = globalPrefs.getBoolean("longPressMagnifier", preferences.getBoolean("balloonMagnifier", false)),
         tapNavigation = preferences.getBoolean("tapNavigation", true),
         keepScreenOn = preferences.getBoolean("keepScreenOn", true),
-        fullscreenMode = enumValue("fullscreenMode", BookFullscreenMode.FULLSCREEN, BookFullscreenMode.entries.toTypedArray()),
-        orientationMode = enumValue("orientation", BookOrientationMode.AUTO, BookOrientationMode.entries.toTypedArray()),
+        fullscreenMode = enumValue("fullscreenMode", BookFullscreenMode.FULLSCREEN, BookFullscreenMode.entries.toTypedArray(), globalPrefs),
+        orientationMode = enumValue("orientation", BookOrientationMode.AUTO, BookOrientationMode.entries.toTypedArray(), globalPrefs),
         transitionEffect = enumValue("transitionEffect", BookTransitionEffect.SLIDE_HORIZONTAL, BookTransitionEffect.entries.toTypedArray()),
-        transitionSpeedMs = preferences.getInt("transitionSpeedMs", 250).coerceIn(0, 2000),
-        slideshowSpeedMs = preferences.getInt("slideshowSpeedMs", 250).coerceIn(0, 2000),
-        menuOpacityPercent = preferences.getInt("menuOpacityPercent", 0).coerceIn(0, 100),
-        longPressMagnifier = preferences.getBoolean("longPressMagnifier", false),
-        doubleTapFastZoom = preferences.getBoolean("doubleTapFastZoom", true),
-        magnifierScalePercent = preferences.getInt("magnifierScalePercent", 200).coerceIn(100, 300),
+        transitionSpeedMs = globalPrefs.getInt("transitionSpeedMs", preferences.getInt("transitionSpeedMs", 250)).coerceIn(0, 2000),
+        slideshowSpeedMs = globalPrefs.getInt("slideshowSpeedMs", preferences.getInt("slideshowSpeedMs", 250)).coerceIn(0, 2000),
+        menuOpacityPercent = globalPrefs.getInt("menuOpacityPercent", preferences.getInt("menuOpacityPercent", 0)).coerceIn(0, 100),
+        longPressMagnifier = globalPrefs.getBoolean("longPressMagnifier", false),
+        doubleTapFastZoom = globalPrefs.getBoolean("doubleTapFastZoom", true),
+        magnifierScalePercent = globalPrefs.getInt("magnifierScalePercent", preferences.getInt("magnifierScalePercent", 200)).coerceIn(100, 300),
         readMark = preferences.getString("readMark", "NONE") ?: "NONE",
-        touchIndicator = preferences.getBoolean("touchIndicator", false),
-        showClockBattery = preferences.getBoolean("showClockBattery", false)
+        touchIndicator = preferences.getBoolean("touchIndicator", globalPrefs.getBoolean("touchIndicator", false)),
+        showClockBattery = globalPrefs.getBoolean("showClockBattery", preferences.getBoolean("showClockBattery", false))
     )
 }
 
@@ -1232,9 +1477,10 @@ private fun saveBookViewerSettings(
         .apply()
 }
 
+@Composable
 private fun formatBookLoadTime(durationMs: Long): String {
     val seconds = durationMs.coerceAtLeast(0L) / 1000f
-    return if (seconds < 10f) "%.1f秒".format(Locale.JAPAN, seconds) else "${seconds.toInt()}秒"
+    return if (seconds < 10f) stringResource(R.string.unit_seconds_float, seconds) else stringResource(R.string.unit_seconds, seconds.toInt())
 }
 
 private fun captureViewToBitmap(context: Context, isTwoPageMode: Boolean, pageCount: Int, spreadIdx: Int, cache: Map<Int, Bitmap?>, viewSize: IntSize): Bitmap? {
@@ -1289,7 +1535,7 @@ private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
                 contentValues.clear(); contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 resolver.update(uri, contentValues, null, null)
             }
-            Toast.makeText(context, "保存しました", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.book_saved), Toast.LENGTH_SHORT).show()
         }
-    } catch (e: Exception) { Toast.makeText(context, "保存に失敗しました", Toast.LENGTH_SHORT).show() }
+    } catch (e: Exception) { Toast.makeText(context, context.getString(R.string.msg_save_failed), Toast.LENGTH_SHORT).show() }
 }

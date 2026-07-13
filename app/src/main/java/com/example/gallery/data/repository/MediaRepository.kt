@@ -3,6 +3,7 @@ package com.example.gallery.data.repository
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -10,6 +11,8 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import java.io.File
+import com.example.gallery.R
+import com.example.gallery.util.buildAdjacentSimilarityGroups
 import com.example.gallery.data.local.dao.MediaDao
 import com.example.gallery.data.local.Converters
 import com.example.gallery.data.local.entity.MediaMetadataEntity
@@ -25,6 +28,7 @@ import androidx.paging.insertSeparators
 import com.example.gallery.ui.state.*
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.data.service.VectorSearchService
+import com.example.gallery.ui.AppDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -35,11 +39,36 @@ import kotlinx.coroutines.sync.withLock
 import java.text.SimpleDateFormat
 import java.util.*
 
+private const val FOLDER_MOVE_TRACE = "FOLDER_MOVE_TRACE"
+private const val SIMILAR_GROUP_TRACE = "GALLERY_SIMILAR_GROUP_TRACE"
+
 class MediaRepository(
     private val context: Context,
     val mediaDao: MediaDao,
     val galleryState: GalleryState? = null
 ) {
+    sealed interface MoveMediaResult {
+        data class Completed(
+            val movedCount: Int,
+            val failedCount: Int,
+            val failedUris: List<String> = emptyList()
+        ) : MoveMediaResult
+
+        data class PermissionRequired(
+            val intentSender: IntentSender,
+            val pendingUris: List<String>,
+            val targetFolder: String,
+            val movedCount: Int,
+            val failedCount: Int,
+            val failedUris: List<String>
+        ) : MoveMediaResult
+    }
+
+    data class SimilarMediaGroup(
+        val items: List<MediaData>,
+        val minimumSimilarity: Float
+    )
+
     private var cachedMediaList: List<MediaData>? = null
     private var lastCacheTime: Long = 0
     private val cacheMutex = Mutex()
@@ -102,9 +131,9 @@ class MediaRepository(
                 mediaPaging.map { it as GridItem }
             } else {
                 val sdf = when (groupingMode) {
-                    GroupingMode.DAY -> SimpleDateFormat("yyyy年M月d日", Locale.JAPAN)
-                        GroupingMode.MONTH -> SimpleDateFormat("yyyy年M月", Locale.JAPAN)
-                    GroupingMode.YEAR -> SimpleDateFormat("yyyy年", Locale.JAPAN)
+                    GroupingMode.DAY -> SimpleDateFormat(context.getString(R.string.format_date_day), Locale.JAPAN)
+                        GroupingMode.MONTH -> SimpleDateFormat(context.getString(R.string.format_date_month), Locale.JAPAN)
+                    GroupingMode.YEAR -> SimpleDateFormat(context.getString(R.string.format_date_year), Locale.JAPAN)
                     else -> null
                 }
                 
@@ -197,9 +226,9 @@ class MediaRepository(
         var opId: String? = null
         fun ensureSyncOperation(): String {
             opId?.let { return it }
-            val newOpId = GlobalOperationService.startOperation("ライブラリを同期中...", tag = "SYNC_MEDIA_STORE")
+            val newOpId = GlobalOperationService.startOperation(context.getString(R.string.msg_syncing_library), tag = "SYNC_MEDIA_STORE")
             opId = newOpId
-            GlobalOperationService.updateProgress(0f, "差分を反映中...", id = newOpId)
+            GlobalOperationService.updateProgress(0f, context.getString(R.string.msg_applying_changes), id = newOpId)
             return newOpId
         }
         
@@ -218,6 +247,7 @@ class MediaRepository(
                     isFavorite = entity.isFavorite,
                     ageRating = entity.ageRating,
                     isAiAnalyzed = entity.isAiAnalyzed,
+                    aiAnalysisModel = entity.aiAnalysisModel,
                     folderName = entity.folderName,
                     isDeleted = entity.isDeleted,
                     deletedDate = entity.deletedDate,
@@ -241,6 +271,9 @@ class MediaRepository(
                 add(MediaStore.MediaColumns.HEIGHT)
                 add(MediaStore.MediaColumns.SIZE)
                 add(MediaStore.MediaColumns.DISPLAY_NAME)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    add(MediaStore.MediaColumns.RELATIVE_PATH)
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     add(MediaStore.MediaColumns.IS_TRASHED)
                 }
@@ -284,6 +317,11 @@ class MediaRepository(
                             val heightColumn = cursor.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
                             val sizeColumn = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
                             val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                            val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                cursor.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+                            } else {
+                                -1
+                            }
                             val trashedColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                 cursor.getColumnIndex(MediaStore.MediaColumns.IS_TRASHED)
                             } else {
@@ -319,9 +357,12 @@ class MediaRepository(
                                 val size = if (sizeColumn != -1) cursor.getLong(sizeColumn) else 0L
                                 val name = if (nameColumn != -1) cursor.getString(nameColumn) ?: "" else ""
                                 val path = if (dataColumn != -1) cursor.getString(dataColumn) else null
+                                val relativePath = if (relativePathColumn != -1) cursor.getString(relativePathColumn) else null
                                 val isMediaStoreTrashed = trashedColumn != -1 && cursor.getInt(trashedColumn) == 1
                                 
-                                val folderName = if (path != null) {
+                                val folderName = if (!relativePath.isNullOrBlank()) {
+                                    relativePath.replace('\\', '/').trim('/').substringAfterLast('/').ifBlank { "Unknown" }
+                                } else if (path != null) {
                                     val lastSeparator = path.lastIndexOf(File.separator)
                                     if (lastSeparator > 0) {
                                         val prevSeparator = path.lastIndexOf(File.separator, lastSeparator - 1)
@@ -334,6 +375,7 @@ class MediaRepository(
                                 if (existing == null ||
                                     existing.dateAdded != date ||
                                     existing.fileSize != size ||
+                                    existing.folderName != folderName ||
                                     existing.isDeleted != nextIsDeleted
                                 ) {
                                     ensureSyncOperation()
@@ -350,6 +392,7 @@ class MediaRepository(
                                         isFavorite = existing?.isFavorite ?: false,
                                         ageRating = existing?.ageRating ?: "SFW",
                                         isAiAnalyzed = existing?.isAiAnalyzed ?: false,
+                                        aiAnalysisModel = existing?.aiAnalysisModel ?: "",
                                         featureVector = existingEntity?.featureVector,
                                         isDeleted = nextIsDeleted,
                                         deletedDate = existing?.deletedDate ?: if (isMediaStoreTrashed) System.currentTimeMillis() else null,
@@ -368,7 +411,7 @@ class MediaRepository(
 
             if (newEntities.isNotEmpty()) {
                 val activeOpId = ensureSyncOperation()
-                GlobalOperationService.updateProgress(0.9f, "データベースを更新中...", id = activeOpId)
+                GlobalOperationService.updateProgress(0.9f, context.getString(R.string.msg_updating_db), id = activeOpId)
                 newEntities.chunked(100).forEach { chunk ->
                     mediaDao.bulkInsertMetadata(chunk)
                 }
@@ -380,7 +423,7 @@ class MediaRepository(
             }
             if (dbUrisToDelete.isNotEmpty()) {
                 val activeOpId = ensureSyncOperation()
-                GlobalOperationService.updateProgress(0.95f, "不要なデータを削除中...", id = activeOpId)
+                GlobalOperationService.updateProgress(0.95f, context.getString(R.string.msg_deleting_obsolete), id = activeOpId)
                 dbUrisToDelete.chunked(100).forEach { chunk ->
                     mediaDao.bulkDeleteMetadata(chunk)
                     mediaDao.bulkDeleteTags(chunk)
@@ -388,7 +431,7 @@ class MediaRepository(
             }
             
             opId?.let { activeOpId ->
-                GlobalOperationService.updateProgress(1.0f, "同期完了", id = activeOpId)
+                GlobalOperationService.updateProgress(1.0f, context.getString(R.string.msg_sync_complete), id = activeOpId)
             }
             cachedMediaList = null
         } finally {
@@ -465,7 +508,8 @@ class MediaRepository(
     }
 
     suspend fun moveToTrash(uris: List<String>) {
-        val opId = GlobalOperationService.startOperation("ゴミ箱へ移動中...")
+        val opId = GlobalOperationService.startOperation(context.getString(R.string.msg_moving_to_trash))
+        updateMediaStoreTrashState(uris, true)
         mediaDao.bulkSetDeleted(uris, true, System.currentTimeMillis())
         GlobalOperationService.updateProgress(1.0f, id = opId)
         cachedMediaList = null
@@ -474,7 +518,8 @@ class MediaRepository(
     }
 
     suspend fun restoreFromTrash(uris: List<String>) {
-        val opId = GlobalOperationService.startOperation("元に戻しています...")
+        val opId = GlobalOperationService.startOperation(context.getString(R.string.msg_restoring))
+        updateMediaStoreTrashState(uris, false)
         mediaDao.bulkSetDeleted(uris, false, null)
         GlobalOperationService.updateProgress(1.0f, id = opId)
         cachedMediaList = null
@@ -482,8 +527,22 @@ class MediaRepository(
         GlobalOperationService.finishOperation(opId)
     }
 
+    private suspend fun updateMediaStoreTrashState(uris: List<String>, isTrashed: Boolean) = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.IS_TRASHED, if (isTrashed) 1 else 0)
+        }
+        uris.forEach { uriString ->
+            runCatching {
+                context.contentResolver.update(Uri.parse(uriString), values, null, null)
+            }.onFailure { e ->
+                Log.w("MediaRepository", "Failed to update MediaStore trash state: $uriString", e)
+            }
+        }
+    }
+
     suspend fun permanentlyDelete(uris: List<String>) {
-        val opId = GlobalOperationService.startOperation("ファイルを完全に削除中...")
+        val opId = GlobalOperationService.startOperation(context.getString(R.string.msg_permanently_deleting))
         uris.forEachIndexed { index, uriString ->
             try {
                 val uri = Uri.parse(uriString)
@@ -531,13 +590,27 @@ class MediaRepository(
         }
     }
 
-    suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean, folderName: String? = null) {
+    suspend fun updateAiAnalysisResult(
+        uri: String,
+        ageRating: String,
+        isAiAnalyzed: Boolean,
+        folderName: String? = null,
+        aiAnalysisModel: String = if (isAiAnalyzed) AppDefaults.AI_TAGGER_MODEL_NORMAL else ""
+    ) {
         val current = mediaDao.getMetadata(uri)
         if (current == null) {
             val finalFolder = folderName ?: getAllMedia().find { it.uri == uri }?.folderName ?: ""
-            mediaDao.insertMetadata(MediaMetadataEntity(uri, ageRating = ageRating, isAiAnalyzed = isAiAnalyzed, folderName = finalFolder))
+            mediaDao.insertMetadata(
+                MediaMetadataEntity(
+                    uri,
+                    ageRating = ageRating,
+                    isAiAnalyzed = isAiAnalyzed,
+                    aiAnalysisModel = aiAnalysisModel,
+                    folderName = finalFolder
+                )
+            )
         } else {
-            mediaDao.updateAiAnalysisResult(uri, ageRating, isAiAnalyzed)
+            mediaDao.updateAiAnalysisResult(uri, ageRating, isAiAnalyzed, aiAnalysisModel)
         }
     }
 
@@ -566,75 +639,211 @@ class MediaRepository(
         ageRating: String,
         isAiAnalyzed: Boolean,
         folderName: String?,
+        aiAnalysisModel: String,
         tags: List<TagEntity>
     ) {
         val finalFolder = folderName ?: getAllMedia().find { it.uri == uri }?.folderName ?: ""
-        mediaDao.saveAiAnalysisResult(uri, ageRating, isAiAnalyzed, finalFolder, tags)
+        mediaDao.saveAiAnalysisResult(uri, ageRating, isAiAnalyzed, aiAnalysisModel, finalFolder, tags)
     }
 
-    suspend fun moveMediaToFolder(uris: List<String>, targetFolder: String): Boolean {
+    suspend fun moveMediaToFolder(uris: List<String>, targetFolder: String): MoveMediaResult {
         return withContext(Dispatchers.IO) {
-            val opId = GlobalOperationService.startOperation("フォルダへ移動中: $targetFolder")
+            if (uris.isEmpty()) return@withContext MoveMediaResult.Completed(0, 0)
+            val targetRelativePath = resolveMoveTargetRelativePath(targetFolder)
+            val targetFolderName = targetRelativePath.trimEnd('/').substringAfterLast('/').ifBlank { "DCIM" }
+            val opId = GlobalOperationService.startOperation(context.getString(R.string.msg_moving_to_folder, targetFolderName))
             var totalSuccess = 0
+            var totalFailed = 0
+            val failedUris = mutableListOf<String>()
             val movedPaths = mutableListOf<String>()
 
-            uris.forEachIndexed { index, uriString ->
-                try {
+            Log.d(
+                FOLDER_MOVE_TRACE,
+                "start count=${uris.size} requested=${targetFolder.take(80)} target=$targetRelativePath sdk=${Build.VERSION.SDK_INT}"
+            )
+            try {
+                uris.forEachIndexed { index, uriString ->
                     val uri = Uri.parse(uriString)
-                    var success = false
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val relativePath = if (targetFolder.equals("DCIM", ignoreCase = true)) "DCIM/" else "DCIM/$targetFolder/"
-                        val pendingValues = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 1) }
-                        context.contentResolver.update(uri, pendingValues, null, null)
-
-                        val moveValues = ContentValues().apply {
-                            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                            put(MediaStore.MediaColumns.IS_PENDING, 0)
-                        }
-
-                        val rows = context.contentResolver.update(uri, moveValues, null, null)
-                        if (rows > 0) success = true
-                    } else {
-                        val cursor = context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
-                        cursor?.use {
-                            if (it.moveToFirst()) {
-                                val oldPath = it.getString(0)
-                                val oldFile = File(oldPath)
-                                val dcim = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM)
-                                val targetDir = File(dcim, targetFolder)
-                                if (!targetDir.exists()) targetDir.mkdirs()
-                                val newFile = File(targetDir, oldFile.name)
-
-                                if (oldFile.renameTo(newFile)) {
-                                    val values = ContentValues().apply { put(MediaStore.MediaColumns.DATA, newFile.absolutePath) }
-                                    context.contentResolver.update(uri, values, null, null)
-                                    success = true
-                                    movedPaths.add(newFile.absolutePath)
-                                }
+                    try {
+                        val beforePath = queryMediaRelativePath(uri)
+                        val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val moveValues = ContentValues().apply {
+                                put(MediaStore.MediaColumns.RELATIVE_PATH, targetRelativePath)
+                            }
+                            val rows = context.contentResolver.update(uri, moveValues, null, null)
+                            val afterPath = queryMediaRelativePath(uri)
+                            val verified = sameRelativePath(afterPath, targetRelativePath)
+                            Log.d(
+                                FOLDER_MOVE_TRACE,
+                                "item index=$index uriHash=${uriString.hashCode()} before=$beforePath target=$targetRelativePath " +
+                                    "rows=$rows after=$afterPath verified=$verified"
+                            )
+                            verified
+                        } else {
+                            moveLegacyMedia(uri, targetRelativePath, movedPaths).also { moved ->
+                                Log.d(
+                                    FOLDER_MOVE_TRACE,
+                                    "item_legacy index=$index uriHash=${uriString.hashCode()} before=$beforePath " +
+                                        "target=$targetRelativePath verified=$moved"
+                                )
                             }
                         }
-                    }
 
-                    if (success) {
-                        totalSuccess++
-                        mediaDao.bulkUpdateFolderName(listOf(uriString), targetFolder)
-                        context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
-                            if (cursor.moveToFirst()) movedPaths.add(cursor.getString(0))
+                        if (success) {
+                            totalSuccess++
+                            mediaDao.bulkUpdateFolderName(listOf(uriString), targetFolderName)
+                        } else {
+                            totalFailed++
+                            failedUris.add(uriString)
                         }
+                    } catch (securityException: SecurityException) {
+                        val pendingUris = uris.drop(index)
+                        val intentSender = createMovePermissionIntentSender(
+                            securityException = securityException,
+                            uris = pendingUris.map(Uri::parse)
+                        )
+                        Log.w(
+                            FOLDER_MOVE_TRACE,
+                            "permission_required index=$index uriHash=${uriString.hashCode()} pending=${pendingUris.size} " +
+                                "target=$targetRelativePath sender=${intentSender != null}",
+                            securityException
+                        )
+                        if (intentSender != null) {
+                            return@withContext MoveMediaResult.PermissionRequired(
+                                intentSender = intentSender,
+                                pendingUris = pendingUris,
+                                targetFolder = targetRelativePath,
+                                movedCount = totalSuccess,
+                                failedCount = totalFailed,
+                                failedUris = failedUris.toList()
+                            )
+                        }
+                        totalFailed++
+                        failedUris.add(uriString)
+                    } catch (e: Exception) {
+                        totalFailed++
+                        failedUris.add(uriString)
+                        Log.e(
+                            FOLDER_MOVE_TRACE,
+                            "item_failed index=$index uriHash=${uriString.hashCode()} target=$targetRelativePath",
+                            e
+                        )
+                    } finally {
+                        GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size, id = opId)
                     }
-                    GlobalOperationService.updateProgress((index + 1).toFloat() / uris.size, id = opId)
-                } catch (e: Exception) {
-                    Log.e("MediaRepository", "Error moving media: $uriString", e)
+                }
+
+                if (movedPaths.isNotEmpty()) {
+                    MediaScannerConnection.scanFile(context, movedPaths.distinct().toTypedArray(), null, null)
+                }
+                cachedMediaList = null
+                Log.d(
+                    FOLDER_MOVE_TRACE,
+                    "complete requested=${uris.size} moved=$totalSuccess failed=$totalFailed target=$targetRelativePath"
+                )
+                MoveMediaResult.Completed(totalSuccess, totalFailed, failedUris.toList())
+            } finally {
+                cachedMediaList = null
+                GlobalOperationService.finishOperation(opId)
+            }
+        }
+    }
+
+    private suspend fun resolveMoveTargetRelativePath(targetFolder: String): String {
+        val normalizedInput = normalizeRelativePath(targetFolder)
+        if (targetFolder.replace('\\', '/').contains('/')) return normalizedInput
+
+        val folderName = targetFolder.trim().ifBlank { "DCIM" }
+        val representativeUri = mediaDao.getAllMetadataSummary()
+            .firstOrNull { it.folderName.equals(folderName, ignoreCase = true) }
+            ?.uri
+            ?.let(Uri::parse)
+        val existingPath = representativeUri?.let(::queryMediaRelativePath)
+        if (!existingPath.isNullOrBlank()) {
+            Log.d(FOLDER_MOVE_TRACE, "target_resolved folder=$folderName relativePath=$existingPath")
+            return normalizeRelativePath(existingPath)
+        }
+
+        val rootFolder = listOf("DCIM", "Pictures", "Movies", "Download")
+            .firstOrNull { it.equals(folderName, ignoreCase = true) }
+        return if (rootFolder != null) "$rootFolder/" else "DCIM/$folderName/"
+    }
+
+    private fun normalizeRelativePath(path: String): String {
+        val normalized = path.trim().replace('\\', '/').trim('/')
+        return if (normalized.isBlank()) "DCIM/" else "$normalized/"
+    }
+
+    private fun sameRelativePath(first: String?, second: String): Boolean {
+        if (first == null) return false
+        return normalizeRelativePath(first).equals(normalizeRelativePath(second), ignoreCase = true)
+    }
+
+    private fun queryMediaRelativePath(uri: Uri): String? {
+        val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            arrayOf(MediaStore.MediaColumns.RELATIVE_PATH)
+        } else {
+            arrayOf(MediaStore.MediaColumns.DATA)
+        }
+        return runCatching {
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val rawPath = cursor.getString(0) ?: return@use null
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    normalizeRelativePath(rawPath)
+                } else {
+                    val parent = File(rawPath).parentFile ?: return@use null
+                    val storageRoot = android.os.Environment.getExternalStorageDirectory()
+                    parent.relativeToOrNull(storageRoot)?.path?.let(::normalizeRelativePath)
                 }
             }
+        }.onFailure { error ->
+            Log.w(FOLDER_MOVE_TRACE, "location_query_failed uriHash=${uri.toString().hashCode()}", error)
+        }.getOrNull()
+    }
 
-            if (movedPaths.isNotEmpty()) {
-                MediaScannerConnection.scanFile(context, movedPaths.toTypedArray(), null, null)
+    private fun moveLegacyMedia(uri: Uri, targetRelativePath: String, movedPaths: MutableList<String>): Boolean {
+        val oldPath = context.contentResolver.query(
+            uri,
+            arrayOf(MediaStore.MediaColumns.DATA),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: return false
+        val oldFile = File(oldPath)
+        val storageRoot = android.os.Environment.getExternalStorageDirectory()
+        val targetDir = File(storageRoot, targetRelativePath.trim('/'))
+        if (!targetDir.exists() && !targetDir.mkdirs()) return false
+        val targetFile = File(targetDir, oldFile.name)
+        if (oldFile.absolutePath.equals(targetFile.absolutePath, ignoreCase = true)) return true
+        if (targetFile.exists()) return false
+        if (!oldFile.renameTo(targetFile)) return false
+
+        val values = ContentValues().apply { put(MediaStore.MediaColumns.DATA, targetFile.absolutePath) }
+        context.contentResolver.update(uri, values, null, null)
+        movedPaths.add(targetFile.absolutePath)
+        return true
+    }
+
+    private fun createMovePermissionIntentSender(
+        securityException: SecurityException,
+        uris: List<Uri>
+    ): IntentSender? {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> runCatching {
+                MediaStore.createWriteRequest(context.contentResolver, uris).intentSender
+            }.onFailure { error ->
+                Log.e(FOLDER_MOVE_TRACE, "permission_request_create_failed count=${uris.size}", error)
+            }.getOrNull()
+            Build.VERSION.SDK_INT == Build.VERSION_CODES.Q -> {
+                (securityException as? android.app.RecoverableSecurityException)
+                    ?.userAction
+                    ?.actionIntent
+                    ?.intentSender
             }
-            cachedMediaList = null
-            GlobalOperationService.finishOperation(opId)
-            totalSuccess > 0
+            else -> null
         }
     }
 
@@ -697,10 +906,17 @@ class MediaRepository(
 
     fun getUnanalyzedAiCount(filter: AgeRatingFilter): Flow<Int> = getAllMetadataSummaryFlow().map { metadata ->
         val metaMap = metadata.associateBy { it.uri }
-        val analyzedUris = metadata.filter { it.isAiAnalyzed }.map { it.uri }.toSet()
+        val selectedTaggerModel = currentAiTaggerModel()
         getAllMedia().count { item ->
-            if (item.isVideo || item.uri in analyzedUris) return@count false
-            val rating = metaMap[item.uri]?.ageRating ?: "SFW"
+            if (item.isVideo) return@count false
+            val itemMetadata = metaMap[item.uri]
+            if (
+                itemMetadata?.isAiAnalyzed == true &&
+                AppDefaults.aiTaggerModelRank(itemMetadata.aiAnalysisModel) >= AppDefaults.aiTaggerModelRank(selectedTaggerModel)
+            ) {
+                return@count false
+            }
+            val rating = itemMetadata?.ageRating ?: "SFW"
             when (filter) {
                 AgeRatingFilter.ALL -> true
                 AgeRatingFilter.SFW -> rating == "SFW"
@@ -708,6 +924,13 @@ class MediaRepository(
                 AgeRatingFilter.R18 -> rating == "R18"
             }
         }
+    }
+
+    private fun currentAiTaggerModel(): String {
+        val prefs = context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
+        return AppDefaults.normalizedAiTaggerModel(
+            prefs.getString(AppDefaults.AI_TAGGER_MODEL_KEY, AppDefaults.AI_TAGGER_MODEL_NORMAL)
+        )
     }
 
     suspend fun getMetadata(uri: String): MediaMetadataEntity? = mediaDao.getMetadata(uri)
@@ -792,7 +1015,8 @@ class MediaRepository(
     fun getManualTaggedUrisFlow(): Flow<List<String>> = mediaDao.getManualTaggedUrisFlow()
 
     suspend fun findMediaByTagSimilarity(uri: String): List<MediaSimilarity> = withContext(Dispatchers.Default) {
-        val targetTags = getTagsForMedia(uri).first().filter { !it.tag.endsWith("系") && it.confidence >= 0.6f }.map { it.tag }.toSet()
+        val tagSuffixGroup = context.getString(R.string.label_tag_suffix_group)
+        val targetTags = getTagsForMedia(uri).first().filter { !it.tag.endsWith(tagSuffixGroup) && it.confidence >= 0.6f }.map { it.tag }.toSet()
         if (targetTags.isEmpty()) return@withContext emptyList()
         val allTags = mediaDao.getAllTagsWithUris().first().filter { it.uri != uri && it.tag in targetTags }.groupBy { it.uri }
         val allMediaMap = getAllMedia().associateBy { it.uri }
@@ -805,6 +1029,50 @@ class MediaRepository(
     }
 
     data class MediaSimilarity(val media: MediaData, val similarityScore: Float)
+
+    suspend fun findAdjacentSimilarMediaGroups(
+        mediaItems: List<MediaData>,
+        threshold: Float = 0.6f
+    ): List<SimilarMediaGroup> = withContext(Dispatchers.Default) {
+        if (mediaItems.size < 2) return@withContext emptyList()
+        val startedAt = System.currentTimeMillis()
+        val safeThreshold = threshold.coerceIn(-1f, 1f)
+        val mediaUriSet = mediaItems.asSequence().map { it.uri }.toHashSet()
+        val vectorsByUri = mediaDao.getAllVectors()
+            .asSequence()
+            .filter { vector -> vector.uri in mediaUriSet }
+            .associate { it.uri to it.featureVector }
+        if (vectorsByUri.size < 2) return@withContext emptyList()
+
+        val chronological = mediaItems
+            .distinctBy { it.uri }
+            .sortedWith(compareBy<MediaData> { it.dateAdded }.thenBy { it.uri })
+        val groups = buildAdjacentSimilarityGroups(
+            items = chronological,
+            threshold = safeThreshold
+        ) { previous, media ->
+            val previousVector = vectorsByUri[previous.uri]
+            val candidateVector = vectorsByUri[media.uri]
+            if (
+                !previous.isVideo && !media.isVideo && previousVector != null && candidateVector != null
+            ) {
+                VectorSearchService.cosineSimilarity(previousVector, candidateVector)
+            } else {
+                null
+            }
+        }.map { group ->
+            SimilarMediaGroup(group.items, group.minimumSimilarity)
+        }
+
+        Log.d(
+            SIMILAR_GROUP_TRACE,
+            "built media=${mediaItems.size} vectors=${vectorsByUri.size} groups=${groups.size} " +
+                "grouped=${groups.sumOf { it.items.size }} largest=${groups.maxOfOrNull { it.items.size } ?: 0} " +
+                "threshold=$safeThreshold adjacentChain=true " +
+                "elapsedMs=${System.currentTimeMillis() - startedAt}"
+        )
+        groups
+    }
 
     suspend fun findSimilarVisualMedia(uri: String): List<MediaSimilarity> = withContext(Dispatchers.Default) {
         val targetMetadata = getMetadata(uri) ?: return@withContext emptyList()

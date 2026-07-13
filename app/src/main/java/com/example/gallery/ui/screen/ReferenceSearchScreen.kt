@@ -21,15 +21,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.gallery.data.repository.ReferenceRepository
-import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,6 +42,7 @@ fun ReferenceSearchScreen(
 ) {
     val context = LocalContext.current
     val repository = remember { ReferenceRepository(context) }
+    val colors = GalleryThemeTokens.colors
     val scope = rememberCoroutineScope()
     var searchQuery by remember { mutableStateOf("") }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -71,52 +70,52 @@ fun ReferenceSearchScreen(
         if (url != null) {
             val success = repository.addReferenceFromUrl(projectId, url, "Web Image")
             withContext(Dispatchers.Main) {
-        Toast.makeText(context, if (success) "資料に追加しました" else "追加に失敗しました", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, if (success) context.getString(R.string.ref_msg_added) else context.getString(R.string.ref_msg_add_failed), Toast.LENGTH_SHORT).show()
             }
             directAddUrl = null
         }
     }
 
     Scaffold(
-        containerColor = AppConstants.BackgroundColor
+        containerColor = colors.background
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             // シンプルな検索ヘッダー。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black)
+                    .background(colors.topBar)
                     .statusBarsPadding()
                     .height(56.dp)
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.btn_back), tint = colors.primaryText)
                 }
                 Spacer(Modifier.width(4.dp))
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-            placeholder = { Text(stringResource(R.string.ref_search_placeholder), color = colorResource(R.color.gray)) },
+            placeholder = { Text(stringResource(R.string.ref_search_placeholder), color = colors.mutedText) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray)
+                        Icon(Icons.Default.Search, contentDescription = null, tint = colors.mutedText)
                     },
                     trailingIcon = {
                         IconButton(onClick = {
                             val url = "https://www.google.com/search?q=${Uri.encode(searchQuery)}&tbm=isch"
                             webView?.loadUrl(url)
                         }) {
-                            Icon(Icons.Default.Search, contentDescription = "検索", tint = Color.White)
+                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.label_search), tint = colors.primaryText)
                         }
                     },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color.Cyan,
-                        unfocusedBorderColor = Color.DarkGray
+                        focusedTextColor = colors.primaryText,
+                        unfocusedTextColor = colors.primaryText,
+                        focusedBorderColor = colors.accent,
+                        unfocusedBorderColor = colors.divider
                     )
                 )
                 Spacer(Modifier.width(4.dp))
@@ -142,16 +141,16 @@ fun ReferenceSearchScreen(
                                         bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                                     }
                                     scope.launch {
-                                val success = repository.addLocalItemForProject(projectId, file.absolutePath, wv.url ?: "", "検索画面スクショ")
+                                        val success = repository.addLocalItemForProject(projectId, file.absolutePath, wv.url ?: "", context.getString(R.string.ref_screenshot_tag))
                                         withContext(Dispatchers.Main) {
-                                Toast.makeText(context, if (success) "スクショを資料に追加しました" else "追加に失敗しました", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, if (success) context.getString(R.string.ref_msg_screenshot_added) else context.getString(R.string.ref_msg_add_failed), Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     scope.launch {
                                         withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "スクショに失敗しました", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, context.getString(R.string.ref_msg_screenshot_failed), Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 }
@@ -159,7 +158,7 @@ fun ReferenceSearchScreen(
                         }
                     }
                 }) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = "スクリーンショットを追加")
+                    Icon(Icons.Default.PhotoCamera, contentDescription = stringResource(R.string.book_screenshot), tint = colors.primaryText)
                 }
             }
 
@@ -202,18 +201,17 @@ fun ReferenceSearchScreen(
     if (showTutorial) {
         AlertDialog(
             onDismissRequest = { markTutorialShown() },
-            title = { Text("画像検索の使い方") },
+            containerColor = colors.card,
+            title = { Text(stringResource(R.string.ref_search_guide), color = colors.primaryText) },
             text = {
                 Text(
-                    "・キーワードを入力して画像検索\n" +
-                    "・画像を長押しして資料に追加\n" +
-                    "・右上のカメラボタンで現在の画面のスクショを資料に保存\n" +
-                    "検索ページを操作して参考画像を探してください。"
+                    stringResource(R.string.ref_search_guide_text),
+                    color = colors.primaryText
                 )
             },
             confirmButton = {
                 Button(onClick = { markTutorialShown() }) {
-                    Text("OK")
+                    Text(stringResource(R.string.btn_ok))
                 }
             }
         )

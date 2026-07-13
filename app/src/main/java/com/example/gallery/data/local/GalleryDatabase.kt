@@ -10,6 +10,7 @@ import com.example.gallery.data.local.entity.MediaMetadataEntity
 import com.example.gallery.data.local.entity.TagEntity
 import com.example.gallery.data.local.migrations.Migration15To16
 import com.example.gallery.data.local.migrations.Migration16To17
+import com.example.gallery.data.local.migrations.Migration18To19
 
 @Database(
     entities = [
@@ -23,7 +24,7 @@ import com.example.gallery.data.local.migrations.Migration16To17
         com.example.gallery.data.local.entity.ReferenceProjectEntity::class,
         com.example.gallery.data.local.entity.ReferenceItemEntity::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -42,7 +43,7 @@ abstract class GalleryDatabase : RoomDatabase() {
                     GalleryDatabase::class.java,
                     "gallery_database",
                 )
-                    .addMigrations(Migration15To16, Migration16To17)
+                    .addMigrations(Migration15To16, Migration16To17, Migration18To19)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance

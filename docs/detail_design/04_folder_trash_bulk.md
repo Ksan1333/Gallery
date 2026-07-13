@@ -10,7 +10,7 @@
 
 ## 3. 開発者向け技術説明
 
-フォルダ情報は MediaStore の `RELATIVE_PATH` と Room の `folderName` / `managed_folders` を組み合わせる。通常削除は `media_metadata.isDeleted` の論理削除、完全削除は ContentResolver delete と Room cleanup を行う。一括操作中の進捗は `GlobalOperationService` が持つ。
+フォルダ情報は MediaStore の `RELATIVE_PATH` と Room の `folderName` / `managed_folders` を組み合わせる。表示用フォルダグループは実フォルダを変更せず、`FolderGroupStore`が`global_settings.folderGroupsData`へ保存する。通常削除は `media_metadata.isDeleted` の論理削除、完全削除は ContentResolver delete と Room cleanup を行う。一括操作中の進捗は `GlobalOperationService` が持つ。
 
 ## 4. 画面設計
 
@@ -29,6 +29,18 @@
 | `UnifiedMediaEditDialog` | タグ、年齢制限などの一括編集 |
 | `TrashScreen` | ゴミ箱一覧、復元、完全削除 |
 | `GalleryGridView` | 選択モード、範囲選択、一括操作起点 |
+| `CategoryScreen` | フォルダ複数選択、グループタイル、吹き出し表示 |
+| `FolderGroupStore` | 表示グループのエンコード、読み込み、保存 |
+
+### 4.2.1 フォルダグループ
+
+- 長押しで2件以上の未グループフォルダを選び、「選択したフォルダをグループ化」を実行する。
+- グループ名を入力して確定すると、選択フォルダを1タイルへ置換する。
+- タイルは最大4件のサムネイルを2x2で表示する。
+- タップ時はアンカー付き吹き出しを開き、2列で全構成フォルダを表示する。超過分は吹き出し内スクロールとする。
+- 構成フォルダをタップすると従来のフォルダ内ギャラリーを開く。
+- グループ解除は表示定義だけを削除し、MediaStore、Room、ファイル本体を変更しない。
+- 同一フォルダは複数グループに所属させない。再グループ化時は旧グループから対象を除く。
 
 ### 4.3. UIモック
 
@@ -96,6 +108,7 @@ flowchart TD
 | `media_tags` | 一括タグ追加・削除 |
 | `managed_folders` | 管理対象フォルダ、カスタムサムネイル |
 | `folder_order` | フォルダ表示順 |
+| SharedPreferences `folderGroupsData` | 名前付きフォルダ表示グループ。Room外のUI設定として保存 |
 
 ## 6. ER 図
 
@@ -169,6 +182,26 @@ sequenceDiagram
     end
     Repo-->>Global: 完了
     Dialog-->>Grid: refresh
+```
+
+### 8.1 フォルダグループ作成シーケンス
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Folder as FolderGalleryScreen
+    participant Category as CategoryScreen
+    participant Store as FolderGroupStore
+    participant Prefs as global_settings
+
+    User->>Category: 複数フォルダを長押し選択
+    Category->>Folder: onCreateCategoryGroup(folderIds)
+    User->>Folder: グループ名を入力
+    Folder->>Store: save(definitions)
+    Store->>Prefs: folderGroupsData更新
+    Folder-->>Category: グループタイル再構成
+    User->>Category: グループタップ
+    Category-->>User: 吹き出し内に構成フォルダ表示
 ```
 
 ## 9. 補足

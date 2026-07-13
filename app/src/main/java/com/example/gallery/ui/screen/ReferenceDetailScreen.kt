@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import com.example.gallery.data.local.entity.ReferenceProjectEntity
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.repository.ReferenceRepository
@@ -61,12 +63,13 @@ fun ReferenceDetailScreen(
     var showFinishConfirm by remember { mutableStateOf(false) }
     var showAddChoices by remember { mutableStateOf(false) }
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
-    val mediaList = remember(items) {
+    val defaultRefTitle = stringResource(R.string.ref_default_item_name)
+    val mediaList = remember(items, defaultRefTitle) {
         items.map { refItem ->
             MediaData(
                 uri = refItem.localUri ?: refItem.remoteUrl,
                 dateAdded = refItem.addedAt,
-                fileName = refItem.title.ifBlank { "資料" }
+                fileName = refItem.title.ifBlank { defaultRefTitle }
             )
         }
     }
@@ -74,46 +77,46 @@ fun ReferenceDetailScreen(
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = project?.title ?: "詳細",
+                title = project?.title ?: stringResource(R.string.ref_detail_title),
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                navigationContentDescription = "戻る",
+                navigationContentDescription = stringResource(R.string.btn_back),
                 onNavigationClick = onBack,
                 centered = true,
                 actions = {
-                    if (project?.status == "ACTIVE") {
+                    if (project?.status == AppConstants.STATUS_ACTIVE) {
                         IconButton(onClick = { showFinishConfirm = true }) {
-                            Icon(Icons.Default.Check, contentDescription = "完了にする", tint = colors.primaryText)
+                            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.ref_mark_complete), tint = colors.primaryText)
                         }
-                    } else if (project?.status == "FINISHED") {
+                    } else if (project?.status == AppConstants.STATUS_FINISHED) {
                         IconButton(
                             onClick = {
                                 scope.launch {
                                     project?.let {
-                                        val updated = it.copy(status = "ACTIVE")
+                                        val updated = it.copy(status = AppConstants.STATUS_ACTIVE)
                                         repository.updateProject(updated)
                                         project = updated
                                     }
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.Brush, contentDescription = "進行中に戻す", tint = colors.accent)
+                            Icon(Icons.Default.Brush, contentDescription = stringResource(R.string.ref_resume_project), tint = colors.accent)
                         }
                     }
                 }
             )
         },
         floatingActionButton = {
-            if (project?.status == "ACTIVE") {
+            if (project?.status == AppConstants.STATUS_ACTIVE) {
                 FloatingActionButton(
                     onClick = { showAddChoices = true },
                     containerColor = colors.accent,
                     contentColor = colors.background
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "資料を追加")
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.ref_add_reference))
                 }
             }
         },
-        containerColor = AppConstants.BackgroundColor
+        containerColor = colors.background
     ) { padding ->
         if (mediaList.isEmpty()) {
             Box(
@@ -122,7 +125,7 @@ fun ReferenceDetailScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("資料が登録されていません", color = colors.mutedText)
+                Text(stringResource(R.string.ref_no_references), color = colors.mutedText)
             }
         } else {
             GalleryGridView(
@@ -141,14 +144,14 @@ fun ReferenceDetailScreen(
     if (showFinishConfirm) {
         AlertDialog(
             onDismissRequest = { showFinishConfirm = false },
-            title = { Text("プロジェクトを完了しますか？") },
-            text = { Text("プロジェクトを完了にします。ギャラリー参照の画像は削除せず保持します。") },
+            title = { Text(stringResource(R.string.ref_complete_project_title)) },
+            text = { Text(stringResource(R.string.ref_complete_project_text)) },
             confirmButton = {
                 Button(
                     onClick = {
                         scope.launch {
                             project?.let { repository.finishProject(it) }
-                            project = project?.copy(status = "FINISHED")
+                            project = project?.copy(status = AppConstants.STATUS_FINISHED)
                             showFinishConfirm = false
                         }
                     },
@@ -157,12 +160,12 @@ fun ReferenceDetailScreen(
                         contentColor = colors.background
                     )
                 ) {
-                    Text("完了する")
+                    Text(stringResource(R.string.btn_complete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showFinishConfirm = false }) {
-                    Text("キャンセル", color = colors.mutedText)
+                    Text(stringResource(R.string.btn_cancel), color = colors.mutedText)
                 }
             }
         )
@@ -171,8 +174,8 @@ fun ReferenceDetailScreen(
     if (showAddChoices) {
         AlertDialog(
             onDismissRequest = { showAddChoices = false },
-            title = { Text("資料を追加") },
-            text = { Text("追加方法を選択してください") },
+            title = { Text(stringResource(R.string.ref_add_reference)) },
+            text = { Text(stringResource(R.string.ref_add_method_desc)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -184,7 +187,7 @@ fun ReferenceDetailScreen(
                         contentColor = colors.background
                     )
                 ) {
-                    Text("ギャラリーから選択")
+                    Text(stringResource(R.string.ref_from_gallery))
                 }
             },
             dismissButton = {
@@ -194,7 +197,7 @@ fun ReferenceDetailScreen(
                         onAddClick()
                     }
                 ) {
-                    Text("Webで検索", color = colors.mutedText)
+                    Text(stringResource(R.string.ref_from_web), color = colors.mutedText)
                 }
             }
         )

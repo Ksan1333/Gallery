@@ -84,6 +84,7 @@ import java.net.URLEncoder
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryColorTokens
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.util.GalleryBackupManager
 
 private const val CREATOR_PREFS = "favorite_artists"
 private const val CREATOR_LIST_KEY = "artists"
@@ -106,11 +107,13 @@ private data class CreatorLink(
 fun FavoriteArtistsScreen(
     onMenuClick: () -> Unit = {}
 ) {
-    val creatorBackground = GalleryColorTokens.Dark.background
-    val creatorCard = GalleryColorTokens.Dark.card
-    val creatorInk = GalleryColorTokens.Dark.primaryText
-    val creatorMuted = GalleryColorTokens.Dark.secondaryText
-    val creatorAccent = GalleryColorTokens.Dark.accent
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
+    val creatorBackground = colors.background
+    val creatorCard = colors.card
+    val creatorInk = colors.primaryText
+    val creatorMuted = colors.secondaryText
+    val creatorAccent = colors.accent
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -261,11 +264,41 @@ fun FavoriteArtistsScreen(
                 containerColor = creatorBackground,
                 contentColor = creatorInk,
                 actions = {
-                    IconButton(onClick = { exportData() }) {
-                        Icon(Icons.Default.Download, contentDescription = stringResource(R.string.btn_save), tint = creatorInk)
+                    IconButton(onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { GalleryBackupManager.exportAllToFile(context) }
+                                .onSuccess { file ->
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, context.getString(R.string.msg_saved_to, file.absolutePath), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                                .onFailure { error ->
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, context.getString(R.string.msg_save_failed, error.message), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                        }
+                    }) {
+                        Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.btn_save), tint = creatorInk)
                     }
-                    IconButton(onClick = { importData() }) {
-                        Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.btn_load), tint = creatorInk)
+                    IconButton(onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { GalleryBackupManager.importFavoriteArtistsFromFile(context) }
+                                .onSuccess {
+                                    withContext(Dispatchers.Main) {
+                                        creators = loadCreators(prefs)
+                                        customSites = loadCustomSites(prefs)
+                                        Toast.makeText(context, context.getString(R.string.msg_loaded), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .onFailure { error ->
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, context.getString(R.string.msg_load_failed, error.message), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                        }
+                    }) {
+                        Icon(Icons.Default.Download, contentDescription = stringResource(R.string.btn_load), tint = creatorInk)
                     }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit_tags), tint = if (isEditMode) creatorAccent else creatorInk)
@@ -328,6 +361,30 @@ fun FavoriteArtistsScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(stringResource(R.string.fav_user_sites), color = creatorInk, fontWeight = FontWeight.Bold)
+                            customSites.forEach { site ->
+                                Surface(
+                                    color = colors.field,
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(1.dp, colors.divider),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = site,
+                                            color = creatorInk,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(onClick = { persistCustomSites(customSites - site) }) {
+                                            Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.btn_delete), tint = creatorMuted)
+                                        }
+                                    }
+                                }
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 OutlinedTextField(
                                     value = customSiteInput,
@@ -425,19 +482,29 @@ private fun CreatorDisplayScreen(
     creators: List<FavoriteCreator>,
     modifier: Modifier = Modifier
 ) {
-    val creatorCard = GalleryColorTokens.Dark.card
-    val creatorInk = GalleryColorTokens.Dark.primaryText
-    val creatorAccent = GalleryColorTokens.Dark.accent
-    val creatorField = GalleryColorTokens.Dark.field
-    val creatorMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
+    val creatorCard = colors.card
+    val creatorInk = colors.primaryText
+    val creatorAccent = colors.accent
+    val creatorField = colors.field
+    val creatorMuted = colors.secondaryText
 
     val context = LocalContext.current
+    val visibleCreators = creators.filter { it.name.isNotBlank() || it.links.any { link -> link.url.isNotBlank() } }
+    if (visibleCreators.isEmpty()) {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Text(stringResource(R.string.fav_no_creators), color = creatorMuted)
+        }
+        return
+    }
+
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        itemsIndexed(creators.filter { it.name.isNotBlank() || it.links.any { link -> link.url.isNotBlank() } }) { _, creator ->
+        itemsIndexed(visibleCreators) { _, creator ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = creatorCard),
                 shape = RoundedCornerShape(8.dp)
@@ -452,7 +519,7 @@ private fun CreatorDisplayScreen(
                         text = creator.name.ifBlank { stringResource(R.string.fav_untitled_creator) },
                         color = creatorInk,
                         fontWeight = FontWeight.Bold,
-                        fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
+                        fontSize = textSizes.header,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -502,9 +569,11 @@ private fun CreatorEditCard(
     onDeleteCreator: () -> Unit,
     onSearchRequested: (Int, SearchTarget) -> Unit
 ) {
-    val creatorCard = GalleryColorTokens.Dark.card
-    val creatorInk = GalleryColorTokens.Dark.primaryText
-    val creatorMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
+    val creatorCard = colors.card
+    val creatorInk = colors.primaryText
+    val creatorMuted = colors.secondaryText
 
     val context = LocalContext.current
     var pendingDeleteLinkIndex by remember { mutableStateOf<Int?>(null) }
@@ -593,8 +662,9 @@ private fun CreatorLinkEditor(
     onDelete: () -> Unit,
     onAccess: () -> Unit
 ) {
-    val creatorAccent = GalleryColorTokens.Dark.accent
-    val creatorMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val creatorAccent = colors.accent
+    val creatorMuted = colors.secondaryText
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         PlatformDropdown(
@@ -628,9 +698,11 @@ private fun PlatformDropdown(
     onPlatformSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val creatorField = GalleryColorTokens.Dark.field
-    val creatorInk = GalleryColorTokens.Dark.primaryText
-    val creatorAccent = GalleryColorTokens.Dark.accent
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
+    val creatorField = colors.field
+    val creatorInk = colors.primaryText
+    val creatorAccent = colors.accent
 
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = modifier) {
@@ -640,7 +712,7 @@ private fun PlatformDropdown(
                 .clickable { expanded = true },
             color = creatorField,
             shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, Color.Gray)
+            border = BorderStroke(1.dp, colors.divider)
         ) {
             Row(
                 modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 16.dp, bottom = 16.dp),
@@ -652,7 +724,7 @@ private fun PlatformDropdown(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
-                    fontSize = com.example.gallery.ui.AppConstants.ScrollbarLabelFontSize
+                    fontSize = textSizes.scrollbarLabel
                 )
                 Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = creatorAccent)
             }
@@ -673,10 +745,11 @@ private fun PlatformDropdown(
 
 @Composable
 private fun creatorTextFieldColors(): TextFieldColors {
-    val creatorInk = GalleryColorTokens.Dark.primaryText
-    val creatorAccent = GalleryColorTokens.Dark.accent
-    val creatorMuted = GalleryColorTokens.Dark.secondaryText
-    val creatorField = GalleryColorTokens.Dark.field
+    val colors = GalleryThemeTokens.colors
+    val creatorInk = colors.primaryText
+    val creatorAccent = colors.accent
+    val creatorMuted = colors.secondaryText
+    val creatorField = colors.field
 
     return OutlinedTextFieldDefaults.colors(
         focusedTextColor = creatorInk,
@@ -685,7 +758,7 @@ private fun creatorTextFieldColors(): TextFieldColors {
         unfocusedLabelColor = creatorMuted,
         cursorColor = creatorAccent,
         focusedBorderColor = creatorAccent,
-        unfocusedBorderColor = GalleryThemeTokens.colors.divider,
+        unfocusedBorderColor = colors.divider,
         focusedContainerColor = creatorField,
         unfocusedContainerColor = creatorField
     )
@@ -698,9 +771,10 @@ private fun ConfirmDeleteDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val creatorCard = GalleryColorTokens.Dark.card
-    val creatorInk = GalleryColorTokens.Dark.primaryText
-    val creatorMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val creatorCard = colors.card
+    val creatorInk = colors.primaryText
+    val creatorMuted = colors.secondaryText
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -710,7 +784,7 @@ private fun ConfirmDeleteDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = GalleryThemeTokens.colors.danger)
+                colors = ButtonDefaults.buttonColors(containerColor = colors.danger)
             ) { Text(stringResource(R.string.btn_delete)) }
         },
         dismissButton = {
@@ -725,9 +799,12 @@ private fun CreatorSearchDialog(
     onDismiss: () -> Unit,
     onUrlPicked: (String) -> Unit
 ) {
-    val creatorCard = GalleryColorTokens.Dark.card
-    val creatorInk = GalleryColorTokens.Dark.primaryText
-    val creatorMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val creatorCard = colors.card
+    val creatorInk = colors.primaryText
+    val creatorMuted = colors.secondaryText
+    var currentUrl by remember(request.initialUrl) { mutableStateOf(request.initialUrl) }
+    val pickableUrl = extractCreatorPickedUrl(currentUrl)
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -743,12 +820,18 @@ private fun CreatorSearchDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "${request.platform} search",
+                        stringResource(R.string.fav_creator_search_title, request.platform),
                         color = creatorInk,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_close), color = creatorMuted) }
+                    TextButton(
+                        enabled = pickableUrl != null,
+                        onClick = { pickableUrl?.let(onUrlPicked) }
+                    ) {
+                        Text(stringResource(R.string.fav_use_this_url), color = if (pickableUrl != null) creatorInk else creatorMuted)
+                    }
                 }
                 AndroidView(
                     modifier = Modifier
@@ -763,30 +846,17 @@ private fun CreatorSearchDialog(
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             webViewClient = object : WebViewClient() {
-                                var initialPageLoaded = false
-
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    if (url == request.initialUrl) {
-                                        initialPageLoaded = true
-                                    }
+                                    if (!url.isNullOrBlank()) currentUrl = url
                                 }
 
                                 override fun shouldOverrideUrlLoading(
                                     view: WebView?,
                                     webRequest: WebResourceRequest?
                                 ): Boolean {
-                                    val targetUrl = webRequest?.url?.toString().orEmpty()
-                                    // Google検索結果から別URLへ遷移したら、そのURLを採用する。
-                                    if (
-                                        initialPageLoaded &&
-                                        webRequest?.isForMainFrame == true &&
-                                        targetUrl.isNotBlank() &&
-                                        targetUrl != request.initialUrl
-                                    ) {
-                                        onUrlPicked(targetUrl)
-                                        return true
-                                    }
+                                    if (webRequest?.isForMainFrame != true) return false
+                                    currentUrl = webRequest.url.toString()
                                     return false
                                 }
                             }
@@ -817,10 +887,27 @@ private fun buildPlatformSearchUrl(platform: String, creatorName: String): Strin
     return "https://www.google.com/search?q=$encodedName+$encodedPlatform"
 }
 
+private fun extractCreatorPickedUrl(rawUrl: String): String? {
+    val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return null
+    val host = uri.host.orEmpty().lowercase()
+    if (host.contains("google.")) {
+        if (uri.path == "/url") {
+            val actualUrl = uri.getQueryParameter("url") ?: uri.getQueryParameter("q")
+            return actualUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.let(::normalizeFavoriteUrl)
+        }
+        return null
+    }
+    return rawUrl.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.let(::normalizeFavoriteUrl)
+}
+
 private fun openUrl(context: Context, url: String) {
-    if (url.isBlank()) return
-    val normalized = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalized)))
+    val normalized = normalizeFavoriteUrl(url)
+    if (normalized.isBlank()) return
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalized)))
+    }.onFailure {
+        Toast.makeText(context, context.getString(R.string.msg_invalid_url, normalized), Toast.LENGTH_SHORT).show()
+    }
 }
 
 private fun loadCreators(prefs: android.content.SharedPreferences): List<FavoriteCreator> {
@@ -833,14 +920,14 @@ private fun loadCreators(prefs: android.content.SharedPreferences): List<Favorit
                 List(linkArray.length()) { linkIndex ->
                     val link = linkArray.getJSONObject(linkIndex)
                     CreatorLink(
-                        platform = link.optString("platform"),
-                        url = link.optString("url")
+                        platform = link.optString("platform").trim(),
+                        url = normalizeFavoriteUrl(link.optString("url"))
                     )
                 }
             } ?: listOf(
-                CreatorLink("Support", item.optString("supportUrl")),
-                CreatorLink("pixiv", item.optString("pixivUrl")),
-                CreatorLink("X", item.optString("xUrl"))
+                CreatorLink("Support", normalizeFavoriteUrl(item.optString("supportUrl"))),
+                CreatorLink("pixiv", normalizeFavoriteUrl(item.optString("pixivUrl"))),
+                CreatorLink("X", normalizeFavoriteUrl(item.optString("xUrl")))
             )
 
             FavoriteCreator(
@@ -854,9 +941,13 @@ private fun loadCreators(prefs: android.content.SharedPreferences): List<Favorit
 private fun saveCreators(prefs: android.content.SharedPreferences, creators: List<FavoriteCreator>) {
     val array = JSONArray()
     creators.forEach { creator ->
+        val creatorName = creator.name.trim()
         val links = JSONArray()
+        val seenLinks = mutableSetOf<String>()
         creator.links
+            .map { it.copy(platform = it.platform.trim(), url = normalizeFavoriteUrl(it.url)) }
             .filter { it.platform.isNotBlank() && it.url.isNotBlank() }
+            .filter { seenLinks.add("${it.platform.normalizedFavoriteKey()}|${it.url.normalizedFavoriteUrlKey()}") }
             .forEach { link ->
                 links.put(
                     JSONObject()
@@ -864,15 +955,37 @@ private fun saveCreators(prefs: android.content.SharedPreferences, creators: Lis
                         .put("url", link.url)
                 )
             }
-        if (creator.name.isNotBlank() || links.length() > 0) {
+        if (creatorName.isNotBlank() || links.length() > 0) {
             array.put(
                 JSONObject()
-                    .put("name", creator.name)
+                    .put("name", creatorName)
                     .put("links", links)
             )
         }
     }
     prefs.edit().putString(CREATOR_LIST_KEY, array.toString()).apply()
+}
+
+private fun normalizeFavoriteUrl(rawUrl: String): String {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isBlank()) return ""
+    return when {
+        trimmed.startsWith("http://", ignoreCase = true) -> trimmed
+        trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+        trimmed.startsWith("//") -> "https:$trimmed"
+        "://" in trimmed -> trimmed
+        else -> "https://$trimmed"
+    }
+}
+
+private fun String.normalizedFavoriteKey(): String = trim().lowercase()
+
+private fun String.normalizedFavoriteUrlKey(): String {
+    return normalizeFavoriteUrl(this)
+        .lowercase()
+        .removePrefix("https://")
+        .removePrefix("http://")
+        .trimEnd('/')
 }
 
 private fun loadCustomSites(prefs: android.content.SharedPreferences): List<String> {

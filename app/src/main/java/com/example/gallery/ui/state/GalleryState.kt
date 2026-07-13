@@ -59,8 +59,11 @@ class GalleryState(context: Context) {
 
     // 操作状態
     var isZooming by mutableStateOf(false)
+    var isMediaViewerOpen by mutableStateOf(false)
     var isSelectionMode by mutableStateOf(false)
     var lastViewedUri by mutableStateOf<String?>(null)
+    var activeMediaViewerList by mutableStateOf<List<MediaData>>(emptyList())
+    var activeMediaViewerIndex by mutableStateOf<Int?>(null)
     var hasHomeGalleryScrollPosition by mutableStateOf(false)
     var homeGalleryScrollIndex by mutableIntStateOf(0)
     var homeGalleryScrollOffset by mutableIntStateOf(0)

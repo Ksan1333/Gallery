@@ -1,6 +1,7 @@
 package com.example.gallery.ui.screen
 
 import android.Manifest
+import android.content.Context
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -22,13 +23,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.example.gallery.R
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.state.*
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.util.FolderGroupDefinition
+import com.example.gallery.util.FolderGroupStore
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.util.UUID
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
@@ -41,11 +47,18 @@ fun FolderGalleryScreen(
     onStartAnalysis: () -> Unit = {},
     isSelectionMode: Boolean = false,
     onFolderSelected: (String) -> Unit = {},
+    onFolderStateChanged: (Boolean) -> Unit = {},
     onBulkEdit: ((List<String>) -> Unit)? = null,
     onBulkMove: ((List<String>) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
+    val globalPrefs = remember { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
+    var folderGroups by remember { mutableStateOf(FolderGroupStore.load(globalPrefs)) }
+    var pendingGroupFolderIds by remember { mutableStateOf<List<String>?>(null) }
+    var pendingGroupTitle by remember { mutableStateOf("") }
     val folderData = remember { mutableStateMapOf<String, MutableList<MediaData>>() }
     var selectedFolderName by rememberSaveable { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -57,6 +70,8 @@ fun FolderGalleryScreen(
     val orderMap = remember(folderOrders) { folderOrders.associate { it.id to it.position } }
 
     val metadataMap = remember { mutableStateMapOf<String, com.example.gallery.data.local.entity.MediaMetadataSummary>() }
+    var metadataVersion by remember { mutableIntStateOf(0) }
+    var folderDataVersion by remember { mutableIntStateOf(0) }
     LaunchedEffect(galleryState.repository) {
         galleryState.repository.getAllMetadataSummaryFlow()
             .debounce(1000)
@@ -67,6 +82,7 @@ fun FolderGalleryScreen(
                     val uris = list.map { it.uri }.toSet()
                     metadataMap.keys.retainAll(uris)
                 }
+                metadataVersion++
             }
     }
 
@@ -91,6 +107,7 @@ fun FolderGalleryScreen(
             newMap.values.forEach { it.sortByDescending { m -> m.dateAdded } }
             withContext(Dispatchers.Main) {
                 folderData.clear(); folderData.putAll(newMap)
+                folderDataVersion++
                 isLoading = false
             }
         }
@@ -118,30 +135,74 @@ fun FolderGalleryScreen(
             isSubCategorySelected = false
         }
     }
+    LaunchedEffect(selectedFolderName) {
+        onFolderStateChanged(selectedFolderName != null)
+    }
 
-    val categories by remember(folderData, metadataMap, galleryState.ageRatingFilter, folderThumbnails, folderOrders) {
-        derivedStateOf {
-            folderData.map { (name, images) ->
+    var categories by remember { mutableStateOf<List<CategoryData>>(emptyList()) }
+    var selectedCategoryMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
+
+    LaunchedEffect(folderDataVersion, metadataVersion, galleryState.ageRatingFilter, folderThumbnails, orderMap, managedFolderNames) {
+        val folderSnapshot = folderData.mapValues { it.value.toList() }
+        val metadataSnapshot = metadataMap.toMap()
+        val thumbnailSnapshot = folderThumbnails.toMap()
+        val orderSnapshot = orderMap.toMap()
+        val managedSnapshot = managedFolderNames.toSet()
+        val ageFilter = galleryState.ageRatingFilter
+
+        categories = withContext(Dispatchers.Default) {
+            folderSnapshot.map { (name, images) ->
                 val filtered = images.filter { m ->
-                    val rating = metadataMap[m.uri]?.ageRating ?: "SFW"
-                    galleryState.ageRatingFilter == AgeRatingFilter.ALL || (galleryState.ageRatingFilter == AgeRatingFilter.SFW && rating == "SFW") || (galleryState.ageRatingFilter == AgeRatingFilter.R15 && rating == "R15") || (galleryState.ageRatingFilter == AgeRatingFilter.R18 && rating == "R18")
+                    val rating = metadataSnapshot[m.uri]?.ageRating ?: "SFW"
+                    ageFilter == AgeRatingFilter.ALL ||
+                        (ageFilter == AgeRatingFilter.SFW && rating == "SFW") ||
+                        (ageFilter == AgeRatingFilter.R15 && rating == "R15") ||
+                        (ageFilter == AgeRatingFilter.R18 && rating == "R18")
                 }
                 CategoryData(
                     id = name,
                     title = name,
                     count = filtered.size,
-                    thumbnail = folderThumbnails[name] ?: filtered.firstOrNull()?.uri ?: images.firstOrNull()?.uri,
-                    isPhysical = managedFolderNames.contains(name)
+                    thumbnail = thumbnailSnapshot[name] ?: filtered.firstOrNull()?.uri ?: images.firstOrNull()?.uri,
+                    isPhysical = managedSnapshot.contains(name)
                 )
-            }.sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.title }))
-            .filter { it.isPhysical || (folderData[it.id]?.size ?: 0) > 0 || folderThumbnails[it.id] != null }
+            }
+                .sortedWith(compareBy({ orderSnapshot[it.id] ?: Int.MAX_VALUE }, { it.title }))
+                .filter { it.isPhysical || (folderSnapshot[it.id]?.size ?: 0) > 0 || thumbnailSnapshot[it.id] != null }
         }
+    }
+
+    LaunchedEffect(selectedFolderName, folderDataVersion, metadataVersion, galleryState.ageRatingFilter) {
+        val folderName = selectedFolderName
+        val mediaSnapshot = folderName?.let { folderData[it]?.toList() }.orEmpty()
+        val metadataSnapshot = metadataMap.toMap()
+        val ageFilter = galleryState.ageRatingFilter
+        selectedCategoryMedia = withContext(Dispatchers.Default) {
+            mediaSnapshot.filter { m ->
+                val rating = metadataSnapshot[m.uri]?.ageRating ?: "SFW"
+                when (ageFilter) {
+                    AgeRatingFilter.ALL -> true
+                    AgeRatingFilter.SFW -> rating == "SFW"
+                    AgeRatingFilter.R15 -> rating == "R15"
+                    AgeRatingFilter.R18 -> rating == "R18"
+                }
+            }
+        }
+    }
+
+    val displayedCategories = remember(categories, folderGroups) {
+        buildFolderGroupCategories(categories, folderGroups)
+    }
+
+    fun persistFolderGroups(next: List<FolderGroupDefinition>) {
+        folderGroups = next
+        FolderGroupStore.save(globalPrefs, next)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         CategoryScreen(
-            title = if (isSelectionMode) "移動先フォルダを選択" else "フォルダ",
-            categories = categories, isLoading = isLoading, galleryState = galleryState,
+            title = if (isSelectionMode) stringResource(R.string.folder_picker_title) else stringResource(R.string.nav_folders),
+            categories = displayedCategories, isLoading = isLoading, galleryState = galleryState,
             onNavigateToTag = { tag ->
                 onBackToFolders() // まずフォルダリストへ戻る。
                 onFolderSelected("TAG_NAVIGATION:$tag") // 特別なプレフィックスで MainActivity へ通知する。
@@ -149,25 +210,32 @@ fun FolderGalleryScreen(
             onMenuClick = if (!isSelectionMode) onMenuClick else null,
             topBarActions = {
                 var showSortMenu by remember { mutableStateOf(false) }
+                if (selectedFolderName != null) {
                 IconButton(onClick = { showSortMenu = true }) {
                     Icon(
                         Icons.AutoMirrored.Filled.Sort,
-                        contentDescription = "並び替え",
-                        tint = Color.White
+                        contentDescription = stringResource(R.string.label_sort),
+                        tint = colors.primaryText
                     )
                     DropdownMenu(
                         expanded = showSortMenu,
                         onDismissRequest = { showSortMenu = false },
-                        modifier = Modifier.background(GalleryThemeTokens.colors.surfaceVariant)
+                        modifier = Modifier.background(colors.surfaceVariant)
                     ) {
                         SortMode.entries.forEach { mode ->
                             listOf(true, false).forEach { ascending ->
                                 val isSelected = galleryState.sortMode == mode && galleryState.isAscending == ascending
                                 DropdownMenuItem(
                                     text = {
+                                        val modeName = when (mode) {
+                                            SortMode.DATE_ADDED -> stringResource(R.string.label_date_added)
+                                            SortMode.SIZE -> stringResource(R.string.label_size)
+                                            SortMode.NAME -> stringResource(R.string.label_name)
+                                        }
+                                        val orderName = if (ascending) stringResource(R.string.label_ascending) else stringResource(R.string.label_descending)
                                         Text(
-                                            text = "${when (mode) { SortMode.DATE_ADDED -> "追加日"; SortMode.SIZE -> "サイズ"; SortMode.NAME -> "名前" }}・${if (ascending) "昇順" else "降順"}",
-                                            color = if (isSelected) GalleryThemeTokens.colors.accent else GalleryThemeTokens.colors.primaryText
+                                            text = stringResource(R.string.sort_format, modeName, orderName),
+                                            color = if (isSelected) colors.accent else colors.primaryText
                                         )
                                     },
                                     onClick = {
@@ -180,26 +248,41 @@ fun FolderGalleryScreen(
                         }
                     }
                 }
+                }
                 if (selectedFolderName == null && !isSelectionMode) {
                     IconButton(onClick = { showCreateFolderDialog = true }) {
-                Icon(androidx.compose.material.icons.Icons.Default.Add, "フォルダ作成", tint = Color.White)
+                Icon(Icons.Default.Add, stringResource(R.string.folder_create), tint = colors.primaryText)
                     }
                 }
             },
             onCategoryClick = { if (isSelectionMode) onFolderSelected(it.id) else { selectedFolderName = it.id; isSubCategorySelected = true } },
             onCategoryLongClick = { showFolderMenu = it },
-            onReorder = { ids -> scope.launch { galleryState.repository.updateFolderOrders(ids.mapIndexed { i, id -> com.example.gallery.data.local.entity.FolderOrderEntity(id, i) }) } },
+            onReorder = { ids ->
+                val categoriesById = displayedCategories.associateBy { it.id }
+                val folderIds = ids.flatMap { id ->
+                    categoriesById[id]?.groupMembers?.map { it.id }.orEmpty().ifEmpty { listOf(id) }
+                }
+                scope.launch {
+                    galleryState.repository.updateFolderOrders(
+                        folderIds.distinct().mapIndexed { i, id ->
+                            com.example.gallery.data.local.entity.FolderOrderEntity(id, i)
+                        }
+                    )
+                }
+            },
+            onCreateCategoryGroup = { folderIds ->
+                pendingGroupFolderIds = folderIds.distinct()
+                pendingGroupTitle = context.getString(
+                    R.string.folder_group_default_name,
+                    folderGroups.size + 1
+                )
+            },
+            onUngroupCategory = { groupId ->
+                persistFolderGroups(folderGroups.filterNot { it.id == groupId })
+            },
             onShowViewer = onShowViewer, onHideViewer = onHideViewer,
             selectedCategoryTitle = selectedFolderName,
-            selectedCategoryMedia = folderData[selectedFolderName]?.filter { m ->
-                val rating = metadataMap[m.uri]?.ageRating ?: "SFW"
-                when (galleryState.ageRatingFilter) {
-                    AgeRatingFilter.ALL -> true
-                    AgeRatingFilter.SFW -> rating == "SFW"
-                    AgeRatingFilter.R15 -> rating == "R15"
-                    AgeRatingFilter.R18 -> rating == "R18"
-                }
-            } ?: emptyList(),
+            selectedCategoryMedia = selectedCategoryMedia,
             onBackFromCategory = { if (selectedFolderName != null) { selectedFolderName = null; isSubCategorySelected = false } else onBackToFolders() },
             onTabIconClick = { selectedFolderName = null; isSubCategorySelected = false; onBackToFolders() },
             lastViewedUri = galleryState.lastViewedUri,
@@ -213,15 +296,15 @@ fun FolderGalleryScreen(
     if (showCreateFolderDialog) {
         AlertDialog(
             onDismissRequest = { showCreateFolderDialog = false },
-            title = { Text("フォルダ作成") },
+            title = { Text(stringResource(R.string.folder_create)) },
             text = {
                 Column {
-                    Text("DCIM直下に作成されます", fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, color = Color.Gray)
+                    Text(stringResource(R.string.folder_dcim_desc), fontSize = textSizes.small, color = colors.mutedText)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newFolderName,
                         onValueChange = { newFolderName = it },
-                        label = { Text("フォルダ名") },
+                        label = { Text(stringResource(R.string.folder_name)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -239,10 +322,52 @@ fun FolderGalleryScreen(
                             newFolderName = ""
                         }
                     }
-                }) { Text("作成") }
+                }) { Text(stringResource(R.string.btn_create)) }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateFolderDialog = false }) { Text("キャンセル") }
+                TextButton(onClick = { showCreateFolderDialog = false }) { Text(stringResource(R.string.btn_cancel)) }
+            }
+        )
+    }
+
+    pendingGroupFolderIds?.let { folderIds ->
+        AlertDialog(
+            onDismissRequest = { pendingGroupFolderIds = null },
+            containerColor = colors.surface,
+            title = { Text(stringResource(R.string.folder_group_dialog_title), color = colors.primaryText) },
+            text = {
+                OutlinedTextField(
+                    value = pendingGroupTitle,
+                    onValueChange = { pendingGroupTitle = it },
+                    label = { Text(stringResource(R.string.folder_group_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = pendingGroupTitle.isNotBlank() && folderIds.size >= 2,
+                    onClick = {
+                        val selected = folderIds.toSet()
+                        val remainingGroups = folderGroups.mapNotNull { group ->
+                            val remainingIds = group.folderIds.filterNot { it in selected }
+                            group.copy(folderIds = remainingIds).takeIf { remainingIds.size >= 2 }
+                        }
+                        persistFolderGroups(
+                            remainingGroups + FolderGroupDefinition(
+                                id = UUID.randomUUID().toString(),
+                                title = pendingGroupTitle.trim(),
+                                folderIds = folderIds
+                            )
+                        )
+                        pendingGroupFolderIds = null
+                    }
+                ) { Text(stringResource(R.string.btn_create)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingGroupFolderIds = null }) {
+                    Text(stringResource(R.string.btn_cancel), color = colors.secondaryText)
+                }
             }
         )
     }
@@ -255,20 +380,67 @@ fun FolderGalleryScreen(
             text = {
                 Column {
                     ListItem(
-                        headlineContent = { Text("サムネイルをリセット") },
+                        headlineContent = { Text(stringResource(R.string.folder_reset_thumbnail)) },
                         leadingContent = { Icon(Icons.Default.Refresh, null) },
                         modifier = Modifier.clickable {
                             scope.launch {
                                 galleryState.repository.updateFolderThumbnail(folder.id, null)
                                 showFolderMenu = null
-                                Toast.makeText(context, "サムネイルをリセットしました", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.msg_cache_cleared), Toast.LENGTH_SHORT).show() // TODO: check string
                             }
                         }
                     )
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { showFolderMenu = null }) { Text("閉じる") } }
+            dismissButton = { TextButton(onClick = { showFolderMenu = null }) { Text(stringResource(R.string.btn_close)) } }
         )
+    }
+}
+
+internal fun buildFolderGroupCategories(
+    categories: List<CategoryData>,
+    definitions: List<FolderGroupDefinition>
+): List<CategoryData> {
+    val categoriesById = categories.associateBy { it.id }
+    val groupedFolderIds = hashSetOf<String>()
+    val validGroups = definitions.mapNotNull { definition ->
+        val members = definition.folderIds
+            .mapNotNull(categoriesById::get)
+            .distinctBy { it.id }
+            .filterNot { it.id in groupedFolderIds }
+        if (members.size >= 2) {
+            groupedFolderIds += members.map { it.id }
+            definition to members
+        } else {
+            null
+        }
+    }
+    val groupByFolderId = linkedMapOf<String, Pair<FolderGroupDefinition, List<CategoryData>>>()
+    validGroups.forEach { group ->
+        group.second.forEach { member -> groupByFolderId.putIfAbsent(member.id, group) }
+    }
+    val emittedGroups = hashSetOf<String>()
+    return buildList {
+        categories.forEach { category ->
+            val grouped = groupByFolderId[category.id]
+            if (grouped == null) {
+                add(category)
+            } else if (emittedGroups.add(grouped.first.id)) {
+                val definition = grouped.first
+                val members = grouped.second
+                add(
+                    CategoryData(
+                        id = "folder-group:${definition.id}",
+                        title = definition.title,
+                        count = members.sumOf { it.count },
+                        thumbnail = members.firstNotNullOfOrNull { it.thumbnail },
+                        isPhysical = members.all { it.isPhysical },
+                        groupId = definition.id,
+                        groupMembers = members
+                    )
+                )
+            }
+        }
     }
 }

@@ -14,11 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.component.GalleryTopAppBar
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,6 +28,8 @@ fun FolderPickerScreen(
     onFolderSelected: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     val scope = rememberCoroutineScope()
     var folderData by remember { mutableStateOf<List<CategoryData>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -61,23 +62,23 @@ fun FolderPickerScreen(
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = "フォルダを選択",
+                title = stringResource(R.string.folder_picker_title),
                 navigationIcon = Icons.Default.ArrowBack,
-                navigationContentDescription = "戻る",
+                navigationContentDescription = stringResource(R.string.btn_back),
                 onNavigationClick = onBack,
                 centered = true,
                 actions = {
                     IconButton(onClick = { showCreateFolderDialog = true }) {
-                        Icon(Icons.Default.CreateNewFolder, contentDescription = "新規フォルダ", tint = Color.White)
+                        Icon(Icons.Default.CreateNewFolder, contentDescription = stringResource(R.string.folder_create_new), tint = colors.primaryText)
                     }
                 }
             )
         },
-        containerColor = AppConstants.BackgroundColor
+        containerColor = colors.background
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = colors.primaryText)
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(4),
@@ -99,7 +100,7 @@ fun FolderPickerScreen(
             title = { Text(stringResource(R.string.folder_create_new)) },
             text = {
                 Column {
-                    Text(stringResource(R.string.folder_dcim_desc), fontSize = AppConstants.SmallFontSize, color = Color.Gray)
+                    Text(stringResource(R.string.folder_dcim_desc), fontSize = textSizes.small, color = colors.mutedText)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newFolderName,

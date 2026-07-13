@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,13 +40,14 @@ fun ReferenceProjectScreen(
     val scope = rememberCoroutineScope()
     var showCreateDialog by remember { mutableStateOf(false) }
     var newProjectTitle by remember { mutableStateOf("") }
+    val colors = GalleryThemeTokens.colors
 
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = "お絵描き資料",
+                title = stringResource(R.string.nav_references),
                 navigationIcon = Icons.Default.Menu,
-                navigationContentDescription = "メニュー",
+                navigationContentDescription = stringResource(R.string.btn_open),
                 onNavigationClick = onMenuClick,
                 centered = true
             )
@@ -55,17 +55,17 @@ fun ReferenceProjectScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showCreateDialog = true },
-                containerColor = GalleryThemeTokens.colors.accent,
-                contentColor = GalleryThemeTokens.colors.background
+                containerColor = colors.accent,
+                contentColor = colors.background
             ) {
-                Icon(Icons.Default.Add, contentDescription = "プロジェクトを追加")
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.ref_create_project))
             }
         },
-        containerColor = AppConstants.BackgroundColor
+        containerColor = colors.background
     ) { padding ->
         if (projects.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(stringResource(R.string.ref_no_projects), color = colorResource(R.color.gray))
+                Text(stringResource(R.string.ref_no_projects), color = colors.mutedText)
             }
         } else {
             LazyColumn(
@@ -87,12 +87,12 @@ fun ReferenceProjectScreen(
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("プロジェクトを作成") },
+            title = { Text(stringResource(R.string.ref_create_title)) },
             text = {
                 OutlinedTextField(
                     value = newProjectTitle,
                     onValueChange = { newProjectTitle = it },
-                    label = { Text("プロジェクト名（例: エルフの描き方）") },
+                    label = { Text(stringResource(R.string.ref_project_name_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -110,12 +110,12 @@ fun ReferenceProjectScreen(
                     },
                     enabled = newProjectTitle.isNotBlank()
                 ) {
-                Text("作成")
+                Text(stringResource(R.string.btn_create))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                Text("キャンセル")
+                Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -128,11 +128,13 @@ private fun ReferenceProjectCard(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = GalleryThemeTokens.colors.card),
+        colors = CardDefaults.cardColors(containerColor = colors.card),
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(
@@ -140,27 +142,27 @@ private fun ReferenceProjectCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (project.status == "FINISHED") Icons.Default.Check else Icons.Default.Brush,
+                imageVector = if (project.status == AppConstants.STATUS_FINISHED) Icons.Default.Check else Icons.Default.Brush,
                 contentDescription = null,
-                tint = if (project.status == "FINISHED") Color.Gray else Color.Cyan,
+                tint = if (project.status == AppConstants.STATUS_FINISHED) colors.mutedText else colors.accent,
                 modifier = Modifier.size(32.dp)
             )
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = project.title,
-                    color = Color.White,
-                    fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
+                    color = colors.primaryText,
+                    fontSize = textSizes.header,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = if (project.status == "FINISHED") "完了" else "進行中",
-                    color = if (project.status == "FINISHED") Color.Gray else Color.Green,
-                    fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
+                    text = if (project.status == AppConstants.STATUS_FINISHED) stringResource(R.string.ref_status_done) else stringResource(R.string.ref_status_active),
+                    color = if (project.status == AppConstants.STATUS_FINISHED) colors.mutedText else colors.success,
+                    fontSize = textSizes.small
                 )
             }
             IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color.Gray)
+                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.btn_delete), tint = colors.mutedText)
             }
         }
     }

@@ -2,6 +2,7 @@ package com.example.gallery.data.repository
 
 import android.content.Context
 import android.os.Environment
+import com.example.gallery.R
 import com.example.gallery.data.local.GalleryDatabase
 import com.example.gallery.data.local.entity.ReferenceItemEntity
 import com.example.gallery.data.local.entity.ReferenceProjectEntity
@@ -79,10 +80,11 @@ class ReferenceRepository(private val context: Context) {
 
     suspend fun finishProject(project: ReferenceProjectEntity) = withContext(Dispatchers.IO) {
         val items = dao.getItemsForProject(project.id)
+        val screenshotKeyword = context.getString(R.string.book_screenshot_label)
         for (item in items) {
             val localPath = item.localUri
             val isScreenshot = localPath?.contains("screenshot_", ignoreCase = true) == true ||
-                item.title.contains("スクショ", ignoreCase = true) ||
+                item.title.contains(screenshotKeyword, ignoreCase = true) ||
                 item.title.contains("Screenshot", ignoreCase = true)
             val shouldDeleteManagedFile =
                 !isScreenshot && isManagedReferenceLocalPath(project.id, localPath)

@@ -6,17 +6,12 @@ import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
@@ -35,12 +30,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -62,6 +56,13 @@ fun VideoMiniPlayer(
     val context = LocalContext.current
     val exoPlayer = remember(uri) {
         ExoPlayer.Builder(context).build().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true
+            )
             setMediaItem(MediaItem.fromUri(Uri.parse(uri)))
             prepare()
             playWhenReady = true
@@ -73,7 +74,6 @@ fun VideoMiniPlayer(
     var videoPosition by remember { mutableLongStateOf(0L) }
     var videoDuration by remember { mutableLongStateOf(0L) }
     var isSeeking by remember { mutableStateOf(false) }
-    var seekBarWidth by remember { mutableIntStateOf(0) }
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
@@ -114,7 +114,6 @@ fun VideoMiniPlayer(
         modifier = modifier
             .fillMaxWidth()
             .background(Color.Black)
-            .aspectRatio(16 / 9f)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -181,67 +180,24 @@ fun VideoMiniPlayer(
         }
 
         if (videoDuration > 0) {
-            Box(
+            GalleryVideoSeekBar(
+                positionMs = videoPosition,
+                durationMs = videoDuration,
+                onSeekStart = { isSeeking = true },
+                onSeek = { target ->
+                    videoPosition = target
+                    exoPlayer.seekTo(target)
+                    interactionToken++
+                },
+                onSeekEnd = { isSeeking = false },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(8.dp)
-                    .onGloballyPositioned { seekBarWidth = it.size.width }
-                        .pointerInput(videoDuration, seekBarWidth) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-
-                            fun seekToX(x: Float) {
-                                val width = seekBarWidth.coerceAtLeast(1)
-                                val ratio = (x / width).coerceIn(0f, 1f)
-                                val target = (videoDuration * ratio).toLong()
-                                isSeeking = true
-                                videoPosition = target
-                                exoPlayer.seekTo(target)
-                                interactionToken++
-                            }
-
-                            seekToX(down.position.x)
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed) break
-                                seekToX(change.position.x)
-                                change.consume()
-                            }
-                            isSeeking = false
-                        }
-                    },
-                    contentAlignment = Alignment.BottomStart
-            ) {
-                val progress = (videoPosition.toFloat() / videoDuration.toFloat()).coerceIn(0f, 1f)
-                val thumbProgress = progress.coerceIn(0.001f, 1f)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .background(Color.White.copy(alpha = 0.26f))
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress)
-                        .height(2.dp)
-                        .background(Color.White)
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(thumbProgress)
-                        .height(2.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                    )
-                }
-            }
+                    .height(18.dp),
+                trackColor = Color.White.copy(alpha = 0.26f),
+                progressColor = Color.White,
+                thumbColor = Color.White
+            )
         }
     }
 }

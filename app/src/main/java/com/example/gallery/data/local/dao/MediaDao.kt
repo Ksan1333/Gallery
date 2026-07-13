@@ -16,7 +16,7 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata WHERE uri = :uri")
     fun getMetadataFlow(uri: String): Flow<MediaMetadataEntity?>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata WHERE uri = :uri")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, aiAnalysisModel, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata WHERE uri = :uri")
     fun getMetadataSummaryFlow(uri: String): Flow<MediaMetadataSummary?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -46,11 +46,15 @@ interface MediaDao {
     @Query("DELETE FROM media_tags WHERE uri = :uri")
     suspend fun deleteTagsForMedia(uri: String)
 
+    @Query("DELETE FROM media_tags WHERE uri = :uri AND confidence < 1.0")
+    suspend fun deleteAiTagsForMedia(uri: String)
+
     @Transaction
     suspend fun saveAiAnalysisResult(
         uri: String,
         ageRating: String,
         isAiAnalyzed: Boolean,
+        aiAnalysisModel: String,
         folderName: String,
         tags: List<TagEntity>
     ) {
@@ -61,12 +65,14 @@ interface MediaDao {
                     uri = uri,
                     ageRating = ageRating,
                     isAiAnalyzed = isAiAnalyzed,
+                    aiAnalysisModel = aiAnalysisModel,
                     folderName = folderName
                 )
             )
         } else {
-            updateAiAnalysisResult(uri, ageRating, isAiAnalyzed)
+            updateAiAnalysisResult(uri, ageRating, isAiAnalyzed, aiAnalysisModel)
         }
+        deleteAiTagsForMedia(uri)
         if (tags.isNotEmpty()) {
             insertTags(tags)
         }
@@ -114,16 +120,16 @@ interface MediaDao {
     @Query("SELECT * FROM media_metadata")
     fun getAllMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata ORDER BY dateAdded DESC")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, aiAnalysisModel, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata ORDER BY dateAdded DESC")
     suspend fun getAllMetadataSummary(): List<MediaMetadataSummary>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata ORDER BY dateAdded DESC")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, aiAnalysisModel, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata ORDER BY dateAdded DESC")
     fun getAllMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
 
     @Query("SELECT * FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
     fun getDeletedMetadataFlow(): Flow<List<MediaMetadataEntity>>
 
-    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
+    @Query("SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, aiAnalysisModel, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted FROM media_metadata WHERE isDeleted = 1 ORDER BY deletedDate DESC")
     fun getDeletedMetadataSummaryFlow(): Flow<List<MediaMetadataSummary>>
 
     @Query("SELECT * FROM media_metadata WHERE ageRating = :ageRating AND featureVector IS NOT NULL")
@@ -153,8 +159,8 @@ interface MediaDao {
     @Query("UPDATE media_metadata SET folderName = :folderName WHERE uri IN (:uris)")
     suspend fun bulkUpdateFolderName(uris: List<String>, folderName: String)
 
-    @Query("UPDATE media_metadata SET ageRating = :ageRating, isAiAnalyzed = :isAiAnalyzed WHERE uri = :uri")
-    suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean)
+    @Query("UPDATE media_metadata SET ageRating = :ageRating, isAiAnalyzed = :isAiAnalyzed, aiAnalysisModel = :aiAnalysisModel WHERE uri = :uri")
+    suspend fun updateAiAnalysisResult(uri: String, ageRating: String, isAiAnalyzed: Boolean, aiAnalysisModel: String)
 
     @Query("UPDATE media_metadata SET featureVector = :featureVector WHERE uri = :uri")
     suspend fun updateFeatureVector(uri: String, featureVector: ByteArray?)
@@ -221,15 +227,18 @@ interface MediaDao {
     @Query("SELECT * FROM video_downloads ORDER BY downloadDate DESC")
     fun getAllVideoDownloads(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.VideoDownloadEntity>>
 
-    @Query("SELECT EXISTS(SELECT 1 FROM video_downloads WHERE url = :url)")
+    @Query("SELECT EXISTS(SELECT 1 FROM video_downloads WHERE url = :url OR url LIKE :url || '#gallery-media=%')")
     suspend fun isVideoDownloaded(url: String): Boolean
 
     @Query("DELETE FROM video_downloads")
     suspend fun clearVideoDownloadHistory()
 
+    @Delete
+    suspend fun deleteVideoDownload(download: com.example.gallery.data.local.entity.VideoDownloadEntity)
+
     // Paging Support with Filtering
     @Query("""
-        SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted 
+        SELECT uri, dateAdded, mimeType, duration, width, height, fileSize, fileName, isFavorite, ageRating, isAiAnalyzed, aiAnalysisModel, folderName, isDeleted, deletedDate, (featureVector IS NOT NULL) as hasFeatureVector, hasThumbnail, startupThumbnailAttempted, startupVectorAttempted
         FROM media_metadata 
         WHERE isDeleted = 0 
         AND (:mediaType = 'ALL' 

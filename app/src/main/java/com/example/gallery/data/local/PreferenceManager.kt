@@ -23,13 +23,33 @@ class PreferenceManager(context: Context) {
         const val CUSTOM_PALETTE_ENABLED = "custom_palette_enabled"
         const val CUSTOM_PALETTE_PREFIX = "custom_palette_"
         const val TUTORIAL_SETUP_DONE = "tutorial_setup_done"
+
+        // Global Settings Keys
+        const val SEARCH_HISTORY = "homeSearchHistory"
+        const val SEARCH_HISTORY_LIMIT = "searchHistoryLimit"
+        const val LOW_MEMORY_MODE = "lowMemoryMode"
+        const val CONTROL_PANEL_AUTO_HIDE = "controlPanelAutoHideMs"
+        const val TOUCH_INDICATOR = "touchIndicator"
+        const val TAP_ZONE_LAYOUT = "tapZoneLayout"
+        const val SHOW_CLOCK_BATTERY = "showClockBattery"
+        const val SIMILAR_IMAGE_GROUPING = "similarImageGroupingEnabled"
+        const val FOLDER_GROUPS_DATA = "folderGroupsData"
     }
 
     // App Prefs
     fun getString(key: String, defaultValue: String? = null): String? = appPrefs.getString(key, defaultValue)
     fun setString(key: String, value: String) = appPrefs.edit { putString(key, value) }
 
-    fun getFloat(key: String, defaultValue: Float = 1f): Float = appPrefs.getFloat(key, defaultValue)
+    fun getFloat(key: String, defaultValue: Float = 1f): Float {
+        return when (val value = appPrefs.all[key]) {
+            is Float -> value
+            is Int -> value.toFloat()
+            is Long -> value.toFloat()
+            is Double -> value.toFloat()
+            is String -> value.toFloatOrNull() ?: defaultValue
+            else -> defaultValue
+        }
+    }
     fun setFloat(key: String, value: Float) = appPrefs.edit { putFloat(key, value) }
 
     fun getBoolean(key: String, defaultValue: Boolean = false): Boolean = appPrefs.getBoolean(key, defaultValue)

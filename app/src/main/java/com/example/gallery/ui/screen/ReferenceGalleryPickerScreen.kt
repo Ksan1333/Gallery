@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.repository.ReferenceRepository
 import com.example.gallery.ui.component.GalleryGridView
@@ -59,7 +61,7 @@ fun ReferenceGalleryPickerScreen(
                 onImageClick = { _, _ -> },
                 galleryState = galleryState,
                 modifier = Modifier.fillMaxSize(),
-                title = "ギャラリーから選択",
+                title = stringResource(R.string.ref_picker_title),
                 onBackClick = onBack,
                 isFilterEnabled = false,
                 showTopSection = true,
@@ -70,7 +72,7 @@ fun ReferenceGalleryPickerScreen(
                 },
                 topBarActions = {
                     if (selectedUris.isNotEmpty()) {
-                        Text("${selectedUris.size}件選択中", color = colors.primaryText)
+                        Text(stringResource(R.string.ref_items_selected, selectedUris.size), color = colors.primaryText)
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             enabled = !isSaving,
@@ -85,13 +87,13 @@ fun ReferenceGalleryPickerScreen(
                                             projectId = projectId,
                                             localPath = selected.uri,
                                             remoteUrl = "gallery://${selected.uri}",
-                                            title = selected.fileName.ifBlank { "ギャラリー画像" }
+                                            title = selected.fileName.ifBlank { context.getString(R.string.ref_default_title) }
                                         )
                                         if (success) successCount++
                                     }
                                     Toast.makeText(
                                         context,
-                                        if (successCount > 0) "${successCount}件追加しました" else "追加に失敗しました",
+                                        if (successCount > 0) context.getString(R.string.ref_msg_added_format, successCount) else context.getString(R.string.ref_msg_add_failed),
                                         Toast.LENGTH_SHORT
                                     ).show()
                                     isSaving = false
@@ -99,7 +101,7 @@ fun ReferenceGalleryPickerScreen(
                                 }
                             }
                         ) {
-                            Text("決定")
+                            Text(stringResource(R.string.ref_btn_decide))
                         }
                     }
                 }

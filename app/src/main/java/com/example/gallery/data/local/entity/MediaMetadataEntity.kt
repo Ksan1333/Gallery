@@ -17,6 +17,7 @@ data class MediaMetadataEntity(
     val isFavorite: Boolean = false,
     val ageRating: String = "SFW",
     val isAiAnalyzed: Boolean = false,
+    val aiAnalysisModel: String = "",
     val featureVector: FloatArray? = null,
     val isDeleted: Boolean = false,
     val deletedDate: Long? = null,
@@ -39,6 +40,7 @@ data class MediaMetadataEntity(
         if (isFavorite != other.isFavorite) return false
         if (ageRating != other.ageRating) return false
         if (isAiAnalyzed != other.isAiAnalyzed) return false
+        if (aiAnalysisModel != other.aiAnalysisModel) return false
         if (featureVector != null) {
             if (other.featureVector == null) return false
             if (!featureVector.contentEquals(other.featureVector)) return false
@@ -64,6 +66,7 @@ data class MediaMetadataEntity(
         result = 31 * result + isFavorite.hashCode()
         result = 31 * result + ageRating.hashCode()
         result = 31 * result + isAiAnalyzed.hashCode()
+        result = 31 * result + aiAnalysisModel.hashCode()
         result = 31 * result + (featureVector?.contentHashCode() ?: 0)
         result = 31 * result + folderName.hashCode()
         result = 31 * result + isDeleted.hashCode()
@@ -87,6 +90,7 @@ data class MediaMetadataSummary(
     val isFavorite: Boolean,
     val ageRating: String,
     val isAiAnalyzed: Boolean,
+    val aiAnalysisModel: String = "",
     val folderName: String,
     val isDeleted: Boolean,
     val deletedDate: Long?,

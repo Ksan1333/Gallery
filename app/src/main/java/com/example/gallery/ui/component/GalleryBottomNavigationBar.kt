@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import com.example.gallery.ui.AppRoutes
-import com.example.gallery.ui.AppText
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.GalleryViewMode
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -36,19 +36,21 @@ fun GalleryBottomNavigationBar(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
 
     val items = listOf(
-        BottomNavItem(AppRoutes.HOME, AppText.ALL_MEDIA, Icons.Default.Home),
-        BottomNavItem(AppRoutes.FOLDERS, AppText.FOLDERS, Icons.AutoMirrored.Filled.List),
-        BottomNavItem(AppRoutes.VIDEOS, AppText.VIDEOS, Icons.Default.PlayCircle),
-        BottomNavItem(AppRoutes.BOOKS, AppText.BOOKS, Icons.AutoMirrored.Filled.MenuBook),
-        BottomNavItem(AppRoutes.TRASH, AppText.TRASH, Icons.Default.Delete)
+        BottomNavItem(AppRoutes.HOME, stringResource(R.string.label_all_media), Icons.Default.Home),
+        BottomNavItem(AppRoutes.FOLDERS, stringResource(R.string.nav_folders), Icons.AutoMirrored.Filled.List),
+        BottomNavItem(AppRoutes.VIDEOS, stringResource(R.string.nav_videos), Icons.Default.PlayCircle),
+        BottomNavItem(AppRoutes.BOOKS, stringResource(R.string.nav_books), Icons.AutoMirrored.Filled.MenuBook),
+        BottomNavItem(AppRoutes.TRASH, stringResource(R.string.nav_trash), Icons.Default.Delete)
     )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .navigationBarsPadding()
+            .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 8.dp)
     ) {
         Surface(
             color = colors.surface.copy(alpha = 0.96f),
@@ -120,7 +122,7 @@ fun GalleryBottomNavigationBar(
                             Text(
                                 text = item.title,
                                 color = if (isSelected) colors.accent else colors.mutedText,
-                                fontSize = AppConstants.BottomNavFontSize,
+                                fontSize = textSizes.bottomNav,
                                 maxLines = 1,
                                 fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null
                             )

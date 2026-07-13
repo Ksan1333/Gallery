@@ -10,7 +10,7 @@
 
 ## 3. 開発者向け技術説明
 
-`MediaRepository` が MediaStore と Room を突き合わせ、`MediaData` と `MediaMetadataSummary` を UI に渡す。`GalleryGridView` は `LazyVerticalGrid` で通常リストと Paging の両方を扱う。フィルタとソートは `GalleryState` の enum と `MediaDao.getFilteredMediaPagingSource()` に集約する。
+`MediaRepository` が MediaStore と Room を突き合わせ、`MediaData` と `MediaMetadataSummary` を UI に渡す。`GalleryGridView` は `LazyVerticalStaggeredGrid` で通常リストと Paging の両方を扱う。2列では画像比率をセル比率に使用し、3列以上では1:1へ戻す。フィルタとソートは `GalleryState` の enum と `MediaDao.getFilteredMediaPagingSource()` に集約する。
 
 ## 4. 画面設計
 
@@ -28,7 +28,23 @@
 | 一覧部品 | `GalleryGridView` |
 | 表示単位 | メディアセル、日/月/年/ストレージヘッダー |
 | 操作 | タップでビューア、長押しで選択、ドラッグで範囲選択、一括編集、一括移動 |
-| 表示切替 | 列数 1 / 3 / 4 / 7 / 28、グルーピング、メディア種別、年齢制限、端末向け比率、ソート |
+| 表示切替 | 列数 2 / 3 / 4 / 7 / 28、日付見出し、類似画像グループ、メディア種別、年齢制限、端末向け比率、ソート |
+
+### 4.2.1 類似画像グループ
+
+1. `MediaRepository.findAdjacentSimilarMediaGroups()`は対象画像を日時昇順に並べる。
+2. 隣接ペアのコサイン類似度が0.6以上なら同じグループへ追加する。
+3. 判定は直前画像との比較だけで連鎖し、件数上限を設けない。動画または特徴ベクトル未生成画像で連鎖を切る。
+4. `global_settings.similarImageGroupingEnabled=false`の場合は比較処理とグループ表示を行わない。
+5. グループタイルと吹き出し内は現在のギャラリー表示順に並べる。
+6. 吹き出し内は4列・最大2段、超過分は内部スクロールとする。
+7. 吹き出しから画像を開く場合、`MediaViewerScreen`にはグループ内画像だけを吹き出し順で渡す。
+
+### 4.2.2 列数変更
+
+- 2列は画像ごとの縦横比を使用する。
+- 2列から3・4列へ戻る場合はスタッガードレーンを再生成し、表示位置を維持したまま均一高へ戻す。
+- 4列から7列、7列から28列は高負荷なセル移動アニメーションを使用しない。
 
 ### 4.3. UIモック
 
@@ -145,6 +161,7 @@ erDiagram
 | Repository | `MediaRepository.getAllMedia()` | MediaStore 走査と `MediaData` 変換 |
 | Repository | `MediaRepository.getAllMetadataSummary()` | UI 側の metadata map 作成 |
 | UI | `GalleryGridView` | グリッド表示、選択、スクロール、密度別描画 |
+| Utility | `buildAdjacentSimilarityGroups()` | 60%境界を含む隣接連鎖と最小類似度の算出 |
 
 ## 8. シーケンス図
 
@@ -164,7 +181,12 @@ sequenceDiagram
     DB-->>Repo: metadata summary / tags
     Repo-->>UI: MediaData list
     UI->>Grid: imageList と GalleryState を渡す
-    Grid->>Grid: グルーピング・セル描画
+    alt 類似グループON
+        Grid->>Repo: findAdjacentSimilarMediaGroups(0.6)
+        Repo->>DB: 特徴ベクトル取得
+        Repo-->>Grid: 古い順の隣接グループ
+    end
+    Grid->>Grid: 日付/類似グルーピング・セル描画
     Grid-->>UI: タップ/選択/一括操作イベント
 ```
 

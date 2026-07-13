@@ -10,11 +10,11 @@ data class TapZoneSpec(
 
 fun tapZoneCountForLayout(layout: String?, fallback: Int = 3): Int {
     return when (layout) {
-        "ELEVEN" -> 11
-        "SEVEN" -> 7
-        "FIVE" -> 5
-        "FOUR" -> 4
-        "THREE" -> 3
+        "ELEVEN", "ELEVEN_SPLIT" -> 11
+        "SEVEN", "SEVEN_SPLIT" -> 7
+        "FIVE", "FIVE_SPLIT" -> 5
+        "FOUR", "FOUR_SPLIT" -> 4
+        "THREE", "THREE_SPLIT" -> 3
         else -> normalizeTapZoneCount(fallback)
     }
 }

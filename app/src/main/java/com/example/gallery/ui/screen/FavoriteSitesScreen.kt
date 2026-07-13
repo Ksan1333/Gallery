@@ -79,6 +79,7 @@ import org.json.JSONObject
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryColorTokens
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.util.GalleryBackupManager
 
 private const val FAVORITE_SITES_PREFS = "favorite_sites_prefs"
 private const val FAVORITE_SITES_KEY = "favorite_sites"
@@ -94,11 +95,13 @@ private data class FavoriteSite(
 fun FavoriteSitesScreen(
     onMenuClick: () -> Unit
 ) {
-    val siteBackground = GalleryColorTokens.Dark.background
-    val siteInk = GalleryColorTokens.Dark.primaryText
-    val siteAccent = GalleryColorTokens.Dark.accent
-    val siteCard = GalleryColorTokens.Dark.card
-    val siteMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
+    val siteBackground = colors.background
+    val siteInk = colors.primaryText
+    val siteAccent = colors.accent
+    val siteCard = colors.card
+    val siteMuted = colors.secondaryText
 
     val context = LocalContext.current
     val preferences = remember {
@@ -224,11 +227,40 @@ fun FavoriteSitesScreen(
                 containerColor = siteBackground,
                 contentColor = siteInk,
                 actions = {
-                    IconButton(onClick = { exportData() }) {
-                        Icon(Icons.Default.Download, contentDescription = stringResource(R.string.btn_save), tint = siteInk)
+                    IconButton(onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { GalleryBackupManager.exportAllToFile(context) }
+                                .onSuccess { file ->
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, context.getString(R.string.msg_saved_to, file.absolutePath), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                                .onFailure { error ->
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, context.getString(R.string.msg_save_failed, error.message), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                        }
+                    }) {
+                        Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.btn_save), tint = siteInk)
                     }
-                    IconButton(onClick = { importData() }) {
-                        Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.btn_load), tint = siteInk)
+                    IconButton(onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { GalleryBackupManager.importFavoriteSitesFromFile(context) }
+                                .onSuccess {
+                                    withContext(Dispatchers.Main) {
+                                        sites = loadFavoriteSites(preferences)
+                                        Toast.makeText(context, context.getString(R.string.msg_loaded), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .onFailure { error ->
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, context.getString(R.string.msg_load_failed, error.message), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                        }
+                    }) {
+                        Icon(Icons.Default.Download, contentDescription = stringResource(R.string.btn_load), tint = siteInk)
                     }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(
@@ -369,12 +401,14 @@ private fun FavoriteSitesDisplay(
     sites: List<FavoriteSite>,
     modifier: Modifier = Modifier
 ) {
-    val siteBackground = GalleryColorTokens.Dark.background
-    val siteMuted = GalleryColorTokens.Dark.secondaryText
-    val siteCard = GalleryColorTokens.Dark.card
-    val siteInk = GalleryColorTokens.Dark.primaryText
-    val siteAccent = GalleryColorTokens.Dark.accent
-    val siteField = GalleryColorTokens.Dark.field
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
+    val siteBackground = colors.background
+    val siteMuted = colors.secondaryText
+    val siteCard = colors.card
+    val siteInk = colors.primaryText
+    val siteAccent = colors.accent
+    val siteField = colors.field
 
     val context = LocalContext.current
     val visibleSites = sites.filter {
@@ -410,7 +444,7 @@ private fun FavoriteSitesDisplay(
                         Text(
                             text = site.name.ifBlank { stringResource(R.string.fav_untitled_creator) },
                             color = siteInk,
-                            fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
+                            fontSize = textSizes.header,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -421,14 +455,14 @@ private fun FavoriteSitesDisplay(
                         }
                     }
                     if (site.description.isNotBlank()) {
-                        Text(site.description, color = siteMuted, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
+                        Text(site.description, color = siteMuted, fontSize = textSizes.subtitle)
                     }
                     if (site.url.isNotBlank()) {
                         Surface(color = siteField, shape = RoundedCornerShape(6.dp)) {
                             Text(
                                 text = site.url,
                                 color = siteAccent,
-                                fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+                                fontSize = textSizes.small,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
@@ -450,9 +484,10 @@ private fun FavoriteSiteEditCard(
     onDelete: () -> Unit,
     onAccess: () -> Unit
 ) {
-    val siteCard = GalleryColorTokens.Dark.card
-    val siteInk = GalleryColorTokens.Dark.primaryText
-    val siteAccent = GalleryColorTokens.Dark.accent
+    val colors = GalleryThemeTokens.colors
+    val siteCard = colors.card
+    val siteInk = colors.primaryText
+    val siteAccent = colors.accent
 
     Card(
         colors = CardDefaults.cardColors(containerColor = siteCard),
@@ -511,14 +546,17 @@ private fun FavoriteSiteSearchDialog(
     onDismiss: () -> Unit,
     onUrlPicked: (String) -> Unit
 ) {
-    val siteCard = GalleryColorTokens.Dark.card
-    val siteInk = GalleryColorTokens.Dark.primaryText
-    val siteMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val siteCard = colors.card
+    val siteInk = colors.primaryText
+    val siteMuted = colors.secondaryText
 
     val defaultLabel = stringResource(R.string.label_site)
     val initialUrl = remember(siteName, defaultLabel) {
         "https://www.google.com/search?q=${Uri.encode(siteName.ifBlank { defaultLabel })}"
     }
+    var currentUrl by remember(initialUrl) { mutableStateOf(initialUrl) }
+    val pickableUrl = extractGoogleResultUrl(currentUrl)
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -541,6 +579,12 @@ private fun FavoriteSiteSearchDialog(
                     TextButton(onClick = onDismiss) {
                         Text(stringResource(R.string.btn_close), color = siteMuted)
                     }
+                    TextButton(
+                        enabled = pickableUrl != null,
+                        onClick = { pickableUrl?.let(onUrlPicked) }
+                    ) {
+                        Text(stringResource(R.string.fav_use_this_url), color = if (pickableUrl != null) siteInk else siteMuted)
+                    }
                 }
                 AndroidView(
                     modifier = Modifier
@@ -555,16 +599,17 @@ private fun FavoriteSiteSearchDialog(
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    if (!url.isNullOrBlank()) currentUrl = url
+                                }
+
                                 override fun shouldOverrideUrlLoading(
                                     view: WebView?,
                                     request: WebResourceRequest?
                                 ): Boolean {
                                     if (request?.isForMainFrame != true) return false
-                                    val targetUrl = extractGoogleResultUrl(request.url.toString())
-                                    if (targetUrl != null && targetUrl != initialUrl) {
-                                        onUrlPicked(targetUrl)
-                                        return true
-                                    }
+                                    currentUrl = request.url.toString()
                                     return false
                                 }
                             }
@@ -582,19 +627,21 @@ private fun extractGoogleResultUrl(rawUrl: String): String? {
     val host = uri.host.orEmpty().lowercase()
     if (host.contains("google.")) {
         if (uri.path == "/url") {
-            return uri.getQueryParameter("url") ?: uri.getQueryParameter("q")
+            val actualUrl = uri.getQueryParameter("url") ?: uri.getQueryParameter("q")
+            return actualUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.let(::normalizeFavoriteUrl)
         }
         return null
     }
-    return rawUrl.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    return rawUrl.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.let(::normalizeFavoriteUrl)
 }
 
 @Composable
 private fun favoriteSiteTextFieldColors(): TextFieldColors {
-    val siteInk = GalleryColorTokens.Dark.primaryText
-    val siteField = GalleryColorTokens.Dark.field
-    val siteAccent = GalleryColorTokens.Dark.accent
-    val siteMuted = GalleryColorTokens.Dark.secondaryText
+    val colors = GalleryThemeTokens.colors
+    val siteInk = colors.primaryText
+    val siteField = colors.field
+    val siteAccent = colors.accent
+    val siteMuted = colors.secondaryText
 
     return OutlinedTextFieldDefaults.colors(
         focusedTextColor = siteInk,
@@ -603,20 +650,20 @@ private fun favoriteSiteTextFieldColors(): TextFieldColors {
         unfocusedContainerColor = siteField,
         cursorColor = siteAccent,
         focusedBorderColor = siteAccent,
-        unfocusedBorderColor = GalleryThemeTokens.colors.divider,
+        unfocusedBorderColor = colors.divider,
         focusedLabelColor = siteAccent,
         unfocusedLabelColor = siteMuted
     )
 }
 
 private fun openFavoriteSite(context: Context, rawUrl: String) {
-    if (rawUrl.isBlank()) return
-    val url = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
-        rawUrl
-    } else {
-        "https://$rawUrl"
+    val url = normalizeFavoriteUrl(rawUrl)
+    if (url.isBlank()) return
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }.onFailure {
+        Toast.makeText(context, context.getString(R.string.msg_invalid_url, url), Toast.LENGTH_SHORT).show()
     }
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 }
 
 private fun loadFavoriteSites(preferences: android.content.SharedPreferences): List<FavoriteSite> {
@@ -625,9 +672,9 @@ private fun loadFavoriteSites(preferences: android.content.SharedPreferences): L
         List(array.length()) { index ->
             val item = array.getJSONObject(index)
             FavoriteSite(
-                name = item.optString("name"),
-                url = item.optString("url"),
-                description = item.optString("description")
+                name = item.optString("name").trim(),
+                url = normalizeFavoriteUrl(item.optString("url")),
+                description = item.optString("description").trim()
             )
         }
     }.getOrDefault(emptyList())
@@ -638,13 +685,51 @@ private fun saveFavoriteSites(
     sites: List<FavoriteSite>
 ) {
     val array = JSONArray()
-    sites.forEach { site ->
-        array.put(
-            JSONObject()
-                .put("name", site.name)
-                .put("url", site.url)
-                .put("description", site.description)
-        )
-    }
+    val seenKeys = mutableSetOf<String>()
+    sites
+        .map { site ->
+            site.copy(
+                name = site.name.trim(),
+                url = normalizeFavoriteUrl(site.url),
+                description = site.description.trim()
+            )
+        }
+        .filter { it.name.isNotBlank() || it.url.isNotBlank() || it.description.isNotBlank() }
+        .filter { site ->
+            val key = site.url.normalizedFavoriteUrlKey()
+                .ifBlank { site.name.normalizedFavoriteKey() }
+                .ifBlank { site.description.normalizedFavoriteKey() }
+            key.isBlank() || seenKeys.add(key)
+        }
+        .forEach { site ->
+            array.put(
+                JSONObject()
+                    .put("name", site.name)
+                    .put("url", site.url)
+                    .put("description", site.description)
+            )
+        }
     preferences.edit().putString(FAVORITE_SITES_KEY, array.toString()).apply()
+}
+
+private fun normalizeFavoriteUrl(rawUrl: String): String {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isBlank()) return ""
+    return when {
+        trimmed.startsWith("http://", ignoreCase = true) -> trimmed
+        trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+        trimmed.startsWith("//") -> "https:$trimmed"
+        "://" in trimmed -> trimmed
+        else -> "https://$trimmed"
+    }
+}
+
+private fun String.normalizedFavoriteKey(): String = trim().lowercase()
+
+private fun String.normalizedFavoriteUrlKey(): String {
+    return normalizeFavoriteUrl(this)
+        .lowercase()
+        .removePrefix("https://")
+        .removePrefix("http://")
+        .trimEnd('/')
 }

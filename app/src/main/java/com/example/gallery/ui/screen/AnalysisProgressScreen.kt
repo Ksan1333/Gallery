@@ -11,9 +11,9 @@ import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.AnalysisService
+import com.example.gallery.ui.theme.GalleryThemeTokens
 
 @Composable
 fun AnalysisProgressScreen(
@@ -25,6 +25,8 @@ fun AnalysisProgressScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val isProcessing by GlobalOperationService.isProcessing(analysisType).collectAsState(initial = false)
     val isCancelRequested by GlobalOperationService.isCancelRequested(analysisType).collectAsState(initial = false)
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
 
     // フォアグラウンドサービスを開始
     LaunchedEffect(Unit) {
@@ -52,17 +54,17 @@ fun AnalysisProgressScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AppConstants.BackgroundColor)) {
+    Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            CircularProgressIndicator(color = Color.White)
+            CircularProgressIndicator(color = colors.primaryText)
             Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.analysis_bg_running), color = Color.White)
+            Text(stringResource(R.string.analysis_bg_running), color = colors.primaryText)
             Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.analysis_keep_moving), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize)
+            Text(stringResource(R.string.analysis_keep_moving), color = colors.mutedText, fontSize = textSizes.small)
             Spacer(Modifier.height(24.dp))
             Button(onClick = onComplete) {
                 Text(stringResource(R.string.analysis_back_to_gallery))

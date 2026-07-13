@@ -19,6 +19,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,11 +52,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,17 +66,19 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -82,18 +89,17 @@ import coil.request.videoFrameMillis
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.gallery.ui.AppConstants
+import androidx.palette.graphics.Palette
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.entity.VideoDownloadEntity
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.theme.galleryColors
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.util.GlobalPaletteGifEncoder
 import com.example.gallery.util.VideoDownloadUrlUtils
-import com.squareup.gifencoder.GifEncoder
-import com.squareup.gifencoder.ImageOptions
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -113,6 +119,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.ceil
+import kotlin.math.sqrt
 
 private val okHttpClient = OkHttpClient.Builder()
     .connectTimeout(20, TimeUnit.SECONDS)
@@ -130,17 +138,40 @@ private val okHttpClient = OkHttpClient.Builder()
     )
     .build()
 
+private const val GIF_CONVERSION_MAX_SIDE_PX = 1024
+private const val GIF_CONVERSION_TARGET_FPS = 15
+private const val GIF_CONVERSION_MIN_FRAMES = 2
+private const val GIF_CONVERSION_MAX_FRAMES = 90
+private const val GIF_CONVERSION_MAX_TOTAL_PIXELS = 36_000_000L
+private const val GIF_PALETTE_VISIBLE_COLOR_COUNT = 255
+private const val GIF_TRANSPARENT_COLOR_INDEX = 255
+private const val GIF_PALETTE_BASE_SAMPLE_COUNT = 96_000
+private const val GIF_PALETTE_MAX_SAMPLE_COUNT = 192_000
+private const val GIF_PALETTE_DIFF_THRESHOLD = 36
+private const val GIF_BAYER_SCALE = 3
+
+internal enum class GifSaveFormat { MP4, GIF }
+
+private enum class GifConversionStage(val textRes: Int) {
+    ANALYZING(R.string.video_dl_gif_stage_analyzing),
+    DECODING(R.string.video_dl_gif_stage_decoding),
+    PALETTE(R.string.video_dl_gif_stage_palette),
+    ENCODING(R.string.video_dl_gif_stage_encoding)
+}
+
 data class MediaUrlCandidate(
     val url: String,
     val bitrate: Int = 0,
     val contentType: String? = null,
-    val isGifSource: Boolean = false
+    val isGifSource: Boolean = false,
+    val author: String? = null,
+    val tweetId: String? = null,
+    val mediaKey: String = url.substringBefore('?')
 ) {
     val isPlayableVideo: Boolean
         get() = url.isMp4Url() || contentType.equals("video/mp4", ignoreCase = true)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoDownloadScreen(
     galleryState: GalleryState,
@@ -152,8 +183,10 @@ fun VideoDownloadScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var urlInput by remember { mutableStateOf("") }
-    var showDownloadModal by remember { mutableStateOf(false) }
+    val colors = galleryColors
+    val textSizes = GalleryThemeTokens.textSizes
+    var urlInput by rememberSaveable { mutableStateOf("") }
+    var showDownloadModal by rememberSaveable { mutableStateOf(false) }
     var viewerMedia by remember { mutableStateOf<MediaData?>(null) }
 
     val downloads by galleryState.repository.mediaDao.getAllVideoDownloads().collectAsState(initial = emptyList())
@@ -165,39 +198,38 @@ fun VideoDownloadScreen(
     }
 
     fun showOptionsForUrl(url: String) {
-        if (url.isXStatusUrl() && (urlInput != url || !showDownloadModal)) {
+        if (url.isXStatusUrl()) {
             urlInput = url
             showDownloadModal = true
+        } else {
+            Toast.makeText(context, context.getString(R.string.video_dl_enter_url), Toast.LENGTH_SHORT).show()
         }
     }
 
     fun showOptionsFromClipboard() {
-        if (showDownloadModal || urlInput.isNotBlank()) return
-
         val clip = clipboardManager.primaryClip
         if (clip != null && clip.itemCount > 0) {
             val text = clip.getItemAt(0).text?.toString().orEmpty()
-            showOptionsForUrl(text)
+            if (text.isXStatusUrl()) {
+                urlInput = text
+                showDownloadModal = true
+            } else {
+                Toast.makeText(context, context.getString(R.string.video_dl_enter_url), Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, context.getString(R.string.video_dl_enter_url), Toast.LENGTH_SHORT).show()
         }
     }
 
     LaunchedEffect(initialUrl) {
         if (initialUrl != null) {
-            showOptionsForUrl(initialUrl)
+            Log.d("VideoDownloader", "Consuming initial URL: $initialUrl")
+            urlInput = initialUrl
+            showDownloadModal = true
+            // Delay consumption slightly to ensure state is settled
+            kotlinx.coroutines.delay(500)
             onInitialUrlConsumed()
-        } else if (urlInput.isBlank() && !showDownloadModal) {
-            showOptionsFromClipboard()
         }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && initialUrl == null) {
-                showOptionsFromClipboard()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -209,48 +241,42 @@ fun VideoDownloadScreen(
                 onNavigationClick = onMenuClick
             )
         },
-        containerColor = Color.Black
+        containerColor = colors.background
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
+                .padding(dimensionResource(R.dimen.spacing_medium)),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            OutlinedTextField(
-                value = urlInput,
-                onValueChange = { urlInput = it },
-                label = { Text(stringResource(R.string.video_dl_url_label)) },
-                modifier = Modifier.fillMaxWidth(),
-                leadingIcon = { Icon(Icons.Default.Link, null) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color.White,
-                    unfocusedBorderColor = colorResource(R.color.gray)
-                ),
-                singleLine = true
+            Icon(
+                Icons.Default.Link,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = colors.accent.copy(alpha = 0.5f)
             )
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_medium)))
 
             Button(
                 onClick = {
-                    if (urlInput.isNotBlank()) {
-                        showDownloadModal = true
+                    if (initialUrl != null) {
+                        showOptionsForUrl(initialUrl)
                     } else {
-                        Toast.makeText(context, context.getString(R.string.video_dl_enter_url), Toast.LENGTH_SHORT).show()
+                        showOptionsFromClipboard()
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = GalleryThemeTokens.colors.accent)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
             ) {
                 Icon(Icons.Default.Download, null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.video_dl_show_options))
+                Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
+                Text(stringResource(R.string.video_dl_show_options), fontSize = textSizes.subtitle, fontWeight = FontWeight.Bold)
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(48.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -258,9 +284,9 @@ fun VideoDownloadScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.History, null, tint = colorResource(R.color.gray))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.video_dl_history), color = Color.White, fontSize = AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.History, null, tint = colors.mutedText)
+                    Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
+                    Text(stringResource(R.string.video_dl_history), color = colors.primaryText, fontSize = textSizes.header, fontWeight = FontWeight.Bold)
                 }
 
                 if (downloads.isNotEmpty()) {
@@ -274,21 +300,27 @@ fun VideoDownloadScreen(
                     ) {
                         Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.video_dl_clear_history), fontSize = AppConstants.SmallFontSize)
+                        Text(stringResource(R.string.video_dl_clear_history), fontSize = textSizes.small)
                     }
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                contentPadding = PaddingValues(bottom = 88.dp),
+                verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
             ) {
                 items(downloads) { download ->
                     DownloadHistoryItem(
                         download = download,
-                        onOpenInViewer = { media -> viewerMedia = media }
+                        onOpenInViewer = { media -> viewerMedia = media },
+                        onDelete = {
+                            scope.launch {
+                                galleryState.repository.mediaDao.deleteVideoDownload(download)
+                            }
+                        }
                     )
                 }
             }
@@ -314,16 +346,30 @@ fun VideoDownloadScreen(
                 showDownloadModal = false
                 onNavigateHome()
             },
-            onDownloadStart = { resolvedMedia, quality ->
+            onDownloadStart = { selections ->
                 showDownloadModal = false
-                startDownloadTask(
-                    context,
-                    resolvedMedia.url,
-                    quality,
-                    galleryState,
-                    originalUrl = urlInput,
-                    forceGifFromVideo = resolvedMedia.isGifSource
-                )
+                selections.forEachIndexed { index, selection ->
+                    startDownloadTask(
+                        context,
+                        selection.media.url,
+                        selection.qualityLabel,
+                        galleryState,
+                        originalUrl = urlInput,
+                        forceGifFromVideo = selection.transcodeToGif,
+                        author = selection.media.author,
+                        postId = selection.media.tweetId,
+                        batchIndex = index + 1,
+                        batchTotal = selections.size,
+                        downloadIdentity = selection.media.mediaKey
+                    )
+                }
+                if (selections.size > 1) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.video_dl_batch_started, selections.size),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
                 urlInput = ""
             }
         )
@@ -333,20 +379,27 @@ fun VideoDownloadScreen(
 @Composable
 fun DownloadHistoryItem(
     download: VideoDownloadEntity,
-    onOpenInViewer: (MediaData) -> Unit
+    onOpenInViewer: (MediaData) -> Unit,
+    onDelete: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val colors = galleryColors
+    val textSizes = GalleryThemeTokens.textSizes
     val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()) }
+    val completedStatus = stringResource(R.string.video_dl_status_completed)
+    val pendingStatus = stringResource(R.string.video_dl_status_pending)
+    val failedStatus = stringResource(R.string.video_dl_status_failed)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = GalleryThemeTokens.colors.card)
+        colors = CardDefaults.cardColors(containerColor = colors.card)
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_base)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DownloadMediaPreview(
-                uri = download.savePath.takeIf { download.status == "COMPLETED" && it != "Pending..." },
+                uri = download.savePath.takeIf { download.status == completedStatus && it != pendingStatus },
                 modifier = Modifier
                     .width(96.dp)
                     .height(64.dp),
@@ -354,20 +407,48 @@ fun DownloadHistoryItem(
                     buildDownloadMediaData(context, download)?.let(onOpenInViewer)
                 }
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(dimensionResource(R.dimen.spacing_base)))
             Column(modifier = Modifier.weight(1f)) {
-                Text(download.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
-                Spacer(Modifier.height(4.dp))
-                Text(download.url, color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, maxLines = 1)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        download.title,
+                        color = colors.primaryText,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                    androidx.compose.material3.IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(dimensionResource(R.dimen.icon_size_medium))
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = null,
+                            tint = colors.mutedText,
+                            modifier = Modifier.size(dimensionResource(R.dimen.spacing_medium))
+                        )
+                    }
+                }
+                Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny) / 2))
+                Text(download.url, color = colors.mutedText, fontSize = textSizes.small, maxLines = 1)
+                Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(dateFormat.format(Date(download.downloadDate)), color = colorResource(R.color.gray), fontSize = AppConstants.ExtraSmallFontSize)
+                    Text(dateFormat.format(Date(download.downloadDate)), color = colors.mutedText, fontSize = textSizes.extraSmall)
                     Text(
                         download.status,
-                        color = if (download.status == "COMPLETED") Color.Green else colorResource(R.color.red),
-                        fontSize = AppConstants.ExtraSmallFontSize
+                        color = when (download.status) {
+                            completedStatus -> colors.success
+                            failedStatus -> colors.danger
+                            else -> colors.accent
+                        },
+                        fontSize = textSizes.extraSmall
                     )
                 }
             }
@@ -381,10 +462,12 @@ private fun DownloadMediaPreview(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    val colors = galleryColors
+    val textSizes = GalleryThemeTokens.textSizes
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(GalleryThemeTokens.colors.background)
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
+            .background(colors.background)
             .clickable(enabled = !uri.isNullOrBlank(), onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -402,95 +485,190 @@ private fun DownloadMediaPreview(
             Icon(
                 Icons.Default.PlayArrow,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.size(28.dp)
+                tint = colors.primaryText.copy(alpha = 0.85f),
+                modifier = Modifier.size(dimensionResource(R.dimen.spacing_extra_large))
             )
         } else {
-            Text("...", color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize)
+            Text(stringResource(R.string.video_dl_placeholder), color = colors.mutedText, fontSize = textSizes.small)
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DownloadOptionsModal(
+private fun DownloadOptionsModal(
     url: String,
     galleryState: GalleryState,
     onDismiss: () -> Unit,
     onNavigateHome: () -> Unit,
-    onDownloadStart: (MediaUrlCandidate, String) -> Unit
+    onDownloadStart: (List<MediaDownloadSelection>) -> Unit
 ) {
+    val context = LocalContext.current
+    val colors = galleryColors
+    val textSizes = GalleryThemeTokens.textSizes
     var isDuplicate by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
     var resolvedUrls by remember { mutableStateOf<List<MediaUrlCandidate>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
-    var selectedQuality by remember { mutableStateOf("High (1080p)") }
-    val qualities = listOf("High (1080p)", "Medium (720p)", "Low (480p)")
-    val isGifDownload = resolvedUrls.any { it.isGifSource }
+    val selectedUrlByMediaKey = remember { mutableStateMapOf<String, String>() }
+    var gifSaveFormat by remember(url) { mutableStateOf(GifSaveFormat.GIF) }
+
+    val isGifPost = resolvedUrls.any { it.isGifSource }
+    val hasDirectGif = resolvedUrls.any { it.isDirectGifCandidate }
+    val hasPlayableMp4 = resolvedUrls.any { it.isPlayableVideo }
+    val showGifFormatChoice = isGifPost || hasDirectGif
+    val downloadGroups = groupDownloadCandidates(resolvedUrls)
+    val selections = buildMediaDownloadSelections(resolvedUrls, gifSaveFormat, selectedUrlByMediaKey)
+    val previewMedia = selections.firstOrNull()?.media
 
     LaunchedEffect(url) {
         isLoading = true
         error = null
         resolvedUrls = emptyList()
+        selectedUrlByMediaKey.clear()
         isDuplicate = galleryState.repository.mediaDao.isVideoDownloaded(url)
 
-        withContext(Dispatchers.IO) {
+        val resolved = withContext(Dispatchers.IO) {
             try {
-                resolvedUrls = resolveXVideoUrls(url)
-                if (resolvedUrls.isEmpty()) {
-                    error = "Failed to get media URL. Check that the post is public."
-                }
+                resolveXVideoUrls(url)
             } catch (e: Exception) {
-                error = "Resolve error: ${e.localizedMessage}"
-            } finally {
-                isLoading = false
+                error = context.getString(R.string.msg_error_resolve_failed, e.localizedMessage)
+                emptyList()
+            }
+        }
+        resolvedUrls = resolved
+        if (resolved.isEmpty() && error == null) {
+            error = context.getString(R.string.msg_error_fetch_media_url)
+        }
+        isLoading = false
+    }
+
+    LaunchedEffect(resolvedUrls, gifSaveFormat) {
+        val availableMediaKeys = groupDownloadCandidates(resolvedUrls)
+            .mapNotNull { group -> group.firstOrNull()?.mediaKey }
+            .toSet()
+        selectedUrlByMediaKey.keys
+            .filterNot { it in availableMediaKeys }
+            .forEach(selectedUrlByMediaKey::remove)
+        buildMediaDownloadSelections(resolvedUrls, gifSaveFormat).forEach { selection ->
+            if (selection.media.mediaKey !in selectedUrlByMediaKey) {
+                selectedUrlByMediaKey[selection.media.mediaKey] = selection.media.url
             }
         }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = GalleryThemeTokens.colors.surface,
-        title = { Text(stringResource(R.string.video_dl_settings), color = Color.White) },
+        containerColor = colors.surface,
+        title = { Text(stringResource(R.string.video_dl_settings), color = colors.primaryText) },
         text = {
             when {
                 isLoading -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        CircularProgressIndicator(color = colorResource(R.color.cyan))
-                        Spacer(Modifier.height(8.dp))
-                        Text(stringResource(R.string.video_dl_resolving), color = Color.LightGray)
+                        CircularProgressIndicator(color = colors.accent)
+                        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                        Text(stringResource(R.string.video_dl_resolving), color = colors.secondaryText)
                     }
                 }
                 error != null -> {
-                    Text(error!!, color = colorResource(R.color.red))
+                    Text(error!!, color = colors.danger)
                 }
                 else -> {
                     Column {
                         DownloadMediaPreview(
-                            uri = resolvedUrls.firstOrNull()?.url,
+                            uri = previewMedia?.url,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(16f / 9f)
                         )
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_base)))
                         if (isDuplicate) {
-                            Text(stringResource(R.string.video_dl_already_downloaded), color = colorResource(R.color.yellow), fontSize = AppConstants.SubtitleFontSize)
-                            Spacer(Modifier.height(8.dp))
+                            Text(stringResource(R.string.video_dl_already_downloaded), color = colors.accent, fontSize = textSizes.subtitle)
+                            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
                         }
-                        if (isGifDownload) {
-                            Text(stringResource(R.string.video_dl_gif_detected), color = Color.LightGray)
-                        } else {
-                            Text(stringResource(R.string.video_dl_select_quality), color = Color.LightGray)
-                            qualities.forEach { quality ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { selectedQuality = quality }
-                                        .padding(vertical = 8.dp)
-                                ) {
-                                    RadioButton(selected = selectedQuality == quality, onClick = { selectedQuality = quality })
-                                    Text(quality, color = Color.White)
+                        if (downloadGroups.size > 1) {
+                            Text(
+                                stringResource(R.string.video_dl_detected_media_count, downloadGroups.size),
+                                color = colors.primaryText,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                        }
+                        if (showGifFormatChoice) {
+                            Text(stringResource(R.string.video_dl_select_format), color = colors.secondaryText)
+                            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
+                            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                                GifSaveFormat.entries.forEachIndexed { index, format ->
+                                    SegmentedButton(
+                                        selected = gifSaveFormat == format,
+                                        onClick = { gifSaveFormat = format },
+                                        enabled = format != GifSaveFormat.MP4 || hasPlayableMp4,
+                                        shape = SegmentedButtonDefaults.itemShape(
+                                            index = index,
+                                            count = GifSaveFormat.entries.size
+                                        )
+                                    ) {
+                                        Text(format.name)
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                            Text(
+                                text = when {
+                                    gifSaveFormat == GifSaveFormat.MP4 -> stringResource(R.string.video_dl_format_mp4_desc)
+                                    hasDirectGif -> stringResource(R.string.video_dl_format_direct_gif_desc)
+                                    else -> stringResource(R.string.video_dl_format_gif_desc)
+                                },
+                                color = colors.secondaryText
+                            )
+                            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                        }
+                        val selectableVariants = downloadGroups.flatMapIndexed { groupIndex, group ->
+                            val directGifSelected = gifSaveFormat == GifSaveFormat.GIF &&
+                                group.any { it.isDirectGifCandidate }
+                            if (directGifSelected) {
+                                emptyList()
+                            } else {
+                                group.filter { it.isPlayableVideo }
+                                    .sortedByDescending { it.bitrate }
+                                    .map { groupIndex to it }
+                            }
+                        }
+                        if (selectableVariants.isNotEmpty()) {
+                            Text(stringResource(R.string.video_dl_select_quality), color = colors.secondaryText)
+
+                            Box(modifier = Modifier.heightIn(max = 200.dp).fillMaxWidth()) {
+                                LazyColumn {
+                                    items(selectableVariants) { indexedVariant ->
+                                        val groupIndex = indexedVariant.first
+                                        val variant = indexedVariant.second
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { selectedUrlByMediaKey[variant.mediaKey] = variant.url }
+                                                .padding(vertical = 4.dp)
+                                        ) {
+                                            RadioButton(
+                                                selected = selectedUrlByMediaKey[variant.mediaKey] == variant.url,
+                                                onClick = { selectedUrlByMediaKey[variant.mediaKey] = variant.url }
+                                            )
+                                            val label = buildString {
+                                                if (downloadGroups.size > 1) {
+                                                    append(context.getString(R.string.video_dl_media_number, groupIndex + 1))
+                                                    append(": ")
+                                                }
+                                                if (variant.isDirectGifCandidate) append("GIF")
+                                                if (variant.bitrate > 0) append("${variant.bitrate / 1000} kbps")
+                                                if (variant.url.contains(".mp4")) {
+                                                    val res = Regex("""(\d+x\d+)""").find(variant.url)?.value
+                                                    if (res != null) append(" ($res)")
+                                                }
+                                                if (isEmpty()) append(variant.url.substringAfterLast('/').substringBefore('?'))
+                                            }
+                                            Text(label, color = colors.primaryText, fontSize = textSizes.small)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -501,53 +679,83 @@ fun DownloadOptionsModal(
         confirmButton = {
             Button(
                 onClick = {
-                    val selectedMedia = if (isGifDownload) {
-                        selectGifUrl(resolvedUrls)
-                    } else {
-                        selectUrlForQuality(resolvedUrls, selectedQuality)
-                    }
-                    selectedMedia?.let { resolvedMedia ->
-                        onDownloadStart(resolvedMedia, if (isGifDownload) "GIF" else selectedQuality)
-                    }
+                    if (selections.isNotEmpty()) onDownloadStart(selections)
                 },
-                enabled = !isLoading && error == null && resolvedUrls.isNotEmpty()
+                enabled = !isLoading && error == null && selections.isNotEmpty()
             ) {
-                Text(if (isGifDownload) "Download GIF" else if (isDuplicate) "Download again" else "Start download")
+                Text(
+                    if (selections.size > 1) stringResource(R.string.video_dl_download_all, selections.size)
+                    else if (showGifFormatChoice && gifSaveFormat == GifSaveFormat.GIF) stringResource(R.string.video_dl_btn_gif)
+                    else if (showGifFormatChoice) stringResource(R.string.video_dl_btn_mp4)
+                    else if (isDuplicate) stringResource(R.string.video_dl_btn_again)
+                    else stringResource(R.string.video_dl_btn_start)
+                )
             }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = onNavigateHome) { Text(stringResource(R.string.nav_home), color = colorResource(R.color.gray)) }
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel), color = colorResource(R.color.gray)) }
+                TextButton(onClick = onNavigateHome) { Text(stringResource(R.string.nav_home), color = colors.mutedText) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel), color = colors.mutedText) }
             }
         }
     )
 }
 
-private fun selectUrlForQuality(urls: List<MediaUrlCandidate>, quality: String): MediaUrlCandidate? {
-    if (urls.isEmpty()) return null
-    return when {
-        quality.startsWith("Low") -> urls.last()
-        quality.startsWith("Medium") -> urls[urls.size / 2]
-        else -> urls.first()
+internal data class MediaDownloadSelection(
+    val media: MediaUrlCandidate,
+    val qualityLabel: String,
+    val transcodeToGif: Boolean
+)
+
+internal fun groupDownloadCandidates(
+    candidates: List<MediaUrlCandidate>
+): List<List<MediaUrlCandidate>> = candidates
+    .filter { it.isPlayableVideo || it.isDirectGifCandidate }
+    .groupBy { it.mediaKey }
+    .values
+    .toList()
+
+internal fun buildMediaDownloadSelections(
+    candidates: List<MediaUrlCandidate>,
+    gifSaveFormat: GifSaveFormat,
+    selectedUrlByMediaKey: Map<String, String> = emptyMap()
+): List<MediaDownloadSelection> = groupDownloadCandidates(candidates).mapNotNull { group ->
+    val mediaKey = group.first().mediaKey
+    val directGif = group.firstOrNull { it.isDirectGifCandidate }
+    val playable = group.filter { it.isPlayableVideo }
+    val selectedPlayable = selectedUrlByMediaKey[mediaKey]
+        ?.let { selectedUrl -> playable.firstOrNull { it.url == selectedUrl } }
+    val bestPlayable = selectedPlayable ?: playable.maxByOrNull { it.bitrate }
+    val gifSource = directGif != null || group.any { it.isGifSource }
+    val selected = when {
+        gifSource && gifSaveFormat == GifSaveFormat.GIF -> directGif ?: bestPlayable
+        else -> bestPlayable ?: directGif
+    } ?: return@mapNotNull null
+    val transcodeToGif = gifSource &&
+        gifSaveFormat == GifSaveFormat.GIF &&
+        !selected.isDirectGifCandidate &&
+        selected.isPlayableVideo
+    val qualityLabel = when {
+        selected.isDirectGifCandidate || transcodeToGif -> "GIF"
+        selected.bitrate > 0 -> "${selected.bitrate / 1000}k"
+        else -> "MP4"
     }
+    MediaDownloadSelection(selected, qualityLabel, transcodeToGif)
 }
 
-private fun selectGifUrl(urls: List<MediaUrlCandidate>): MediaUrlCandidate? {
-    return urls.firstOrNull {
-        it.isGifSource && (it.url.isGifUrl() || it.contentType.equals("image/gif", ignoreCase = true))
-    } ?: urls.firstOrNull { it.isGifSource }
-}
+private val MediaUrlCandidate.isDirectGifCandidate: Boolean
+    get() = url.isGifUrl() || contentType.equals("image/gif", ignoreCase = true)
 
 private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
     if (!statusUrl.isXStatusUrl()) return listOf(MediaUrlCandidate(statusUrl))
 
     val normalizedUrl = if (!statusUrl.startsWith("http")) "https://$statusUrl" else statusUrl
     val baseUrl = normalizedUrl.substringBefore("?")
-    val apiUrls = buildXApiUrls(baseUrl)
+    val syndicationApiUrls = VideoDownloadUrlUtils.buildXSyndicationApiUrls(baseUrl)
+    val fallbackApiUrls = buildXApiUrls(baseUrl)
 
     return try {
-        apiUrls.firstNotNullOfOrNull { apiUrl ->
+        (syndicationApiUrls + fallbackApiUrls).firstNotNullOfOrNull { apiUrl ->
             val request = Request.Builder()
                 .url(apiUrl)
                 .header(
@@ -556,6 +764,7 @@ private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
                 )
                 .header("Accept", "application/json, text/plain, */*")
                 .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Origin", "https://platform.twitter.com")
                 .header("Referer", baseUrl)
                 .build()
 
@@ -565,8 +774,14 @@ private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
                 }
 
                 val body = response.body?.string() ?: return@use null
+                val json = JSONObject(body)
+                val tweet = json.optJSONObject("tweet") ?: json
+                val author = tweet.optJSONObject("author")?.optString("screen_name")
+                    ?: tweet.optJSONObject("user")?.optString("screen_name")
+                    ?: tweet.optJSONObject("user")?.optString("username")
+                val tweetId = tweet.optString("id_str").ifBlank { tweet.optString("id") }
 
-                extractMediaUrlCandidates(JSONObject(body))
+                extractMediaUrlCandidates(json, author, tweetId.ifBlank { VideoDownloadUrlUtils.extractXPostId(baseUrl).orEmpty() })
                     .sortedWith(
                         compareByDescending<MediaUrlCandidate> {
                             it.url.isGifUrl() || it.contentType.equals("image/gif", ignoreCase = true)
@@ -595,11 +810,13 @@ private fun resolveXVideoUrls(statusUrl: String): List<MediaUrlCandidate> {
 
 private fun buildXApiUrls(baseUrl: String): List<String> = VideoDownloadUrlUtils.buildXApiUrls(baseUrl)
 
-private fun extractMediaUrlCandidates(json: JSONObject): List<MediaUrlCandidate> {
+private fun extractMediaUrlCandidates(json: JSONObject, author: String?, tweetId: String?): List<MediaUrlCandidate> {
     val tweet = json.optJSONObject("tweet") ?: json
     val mediaObjects = buildList {
         tweet.optJSONArray("media_extended")?.let { addAll(it.toJsonObjects()) }
         tweet.optJSONArray("media")?.let { addAll(it.toJsonObjects()) }
+        tweet.optJSONArray("mediaDetails")?.let { addAll(it.toJsonObjects()) }
+        tweet.optJSONArray("media_details")?.let { addAll(it.toJsonObjects()) }
         tweet.optJSONObject("media")?.let { media ->
             media.optJSONArray("all")?.let { addAll(it.toJsonObjects()) }
             media.optJSONArray("videos")?.let { addAll(it.toJsonObjects()) }
@@ -607,27 +824,42 @@ private fun extractMediaUrlCandidates(json: JSONObject): List<MediaUrlCandidate>
         }
     }
 
-    val knownMediaCandidates = mediaObjects.flatMap { media ->
+    val knownMediaCandidates = mediaObjects.flatMapIndexed { index, media ->
         val isGifSource = media.isGifMediaObject()
+        val mediaKey = media.mediaCandidateKey(index)
         buildList {
-            media.gifDirectUrls().forEach { add(MediaUrlCandidate(it, contentType = "image/gif", isGifSource = true)) }
-            media.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
-            media.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
-            media.optString("url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
-            media.optString("media_url_https").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
-            media.optString("media_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
-            media.optString("display_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
-            media.optString("expanded_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
-            media.optString("thumbnail_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
-            media.optString("thumb").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl())) }
-            media.optJSONArray("urls")?.let { addAll(it.toStringCandidates(isGifSource)) }
+            media.gifDirectUrls().forEach { add(MediaUrlCandidate(it, contentType = "image/gif", isGifSource = true, author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource, author, tweetId, mediaKey)) }
+            media.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource, author, tweetId, mediaKey)) }
+            media.optString("url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optString("media_url_https").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optString("media_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optString("display_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optString("expanded_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optString("thumbnail_url").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optString("thumb").takeIf { it.isDirectMediaUrl() }?.let { add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+            media.optJSONArray("urls")?.let { addAll(it.toStringCandidates(isGifSource, author, tweetId, mediaKey)) }
         }
     }
 
-    return knownMediaCandidates + json.collectNestedMediaCandidates()
+    return if (knownMediaCandidates.any { it.isPlayableVideo || it.isDirectGifCandidate }) {
+        knownMediaCandidates
+    } else {
+        knownMediaCandidates + json.collectNestedMediaCandidates(author, tweetId)
+    }
 }
 
-private fun JSONObject.collectNestedMediaCandidates(): List<MediaUrlCandidate> = buildList {
+private fun JSONObject.mediaCandidateKey(index: Int): String {
+    listOf("media_key", "mediaKey", "id_str", "id", "key").forEach { key ->
+        optString(key).takeIf { it.isNotBlank() }?.let { return it }
+    }
+    listOf("media_url_https", "media_url", "thumbnail_url", "thumb", "url").forEach { key ->
+        optString(key).takeIf { it.isNotBlank() }?.let { return it.substringBefore('?') }
+    }
+    return "media-$index"
+}
+
+private fun JSONObject.collectNestedMediaCandidates(author: String?, tweetId: String?): List<MediaUrlCandidate> = buildList {
     lateinit var visitObject: (JSONObject, Boolean) -> Unit
     lateinit var visitArray: (JSONArray, Boolean) -> Unit
 
@@ -636,7 +868,7 @@ private fun JSONObject.collectNestedMediaCandidates(): List<MediaUrlCandidate> =
             when (val child = array.opt(index)) {
                 is JSONObject -> visitObject(child, inheritedGifSource)
                 is String -> child.takeIf { it.isDirectMediaUrl() }?.let {
-                    add(MediaUrlCandidate(it, isGifSource = inheritedGifSource || it.isLikelyXGifVideoUrl()))
+                    add(MediaUrlCandidate(it, isGifSource = inheritedGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId))
                 }
             }
         }
@@ -644,12 +876,13 @@ private fun JSONObject.collectNestedMediaCandidates(): List<MediaUrlCandidate> =
 
     visitObject = { obj, inheritedGifSource ->
         val isGifSource = inheritedGifSource || obj.isGifMediaObject()
-        obj.gifDirectUrls().forEach { add(MediaUrlCandidate(it, contentType = "image/gif", isGifSource = true)) }
-        obj.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
-        obj.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource)) }
+        val mediaKey = obj.mediaCandidateKey(obj.hashCode())
+        obj.gifDirectUrls().forEach { add(MediaUrlCandidate(it, contentType = "image/gif", isGifSource = true, author = author, tweetId = tweetId, mediaKey = mediaKey)) }
+        obj.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource, author, tweetId, mediaKey)) }
+        obj.optJSONObject("video_info")?.optJSONArray("variants")?.let { addAll(it.toCandidates(isGifSource, author, tweetId, mediaKey)) }
         listOf("url", "media_url_https", "media_url", "display_url", "expanded_url", "thumbnail_url", "thumb").forEach { key ->
             obj.optString(key).takeIf { it.isDirectMediaUrl() }?.let {
-                add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl()))
+                add(MediaUrlCandidate(it, isGifSource = isGifSource || it.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey))
             }
         }
         obj.keys().forEach { key ->
@@ -677,13 +910,30 @@ private fun JSONObject.gifDirectUrls(): List<String> {
         "original_gif_url",
         "originalGifUrl",
         "download_gif_url",
-        "downloadGifUrl"
+        "downloadGifUrl",
+        "gif_url_https",
+        "gifUrlHttps",
+        "source_gif_url",
+        "sourceGifUrl",
+        "raw_gif_url",
+        "rawGifUrl",
+        "gif"
     )
 
-    return gifKeys.mapNotNull { key ->
+    val directUrls = mutableListOf<String>()
+    gifKeys.forEach { key ->
         optString(key)
             .takeIf { it.isDirectMediaUrl() && it.isGifUrl() }
+            ?.let(directUrls::add)
     }
+    keys().forEach { key ->
+        if (key.contains("gif", ignoreCase = true)) {
+            optString(key)
+                .takeIf { it.isDirectMediaUrl() && it.isGifUrl() }
+                ?.let(directUrls::add)
+        }
+    }
+    return directUrls.distinct()
 }
 
 private fun JSONArray.toJsonObjects(): List<JSONObject> = buildList {
@@ -692,7 +942,12 @@ private fun JSONArray.toJsonObjects(): List<JSONObject> = buildList {
     }
 }
 
-private fun JSONArray.toCandidates(isGifSource: Boolean = false): List<MediaUrlCandidate> = buildList {
+private fun JSONArray.toCandidates(
+    isGifSource: Boolean = false,
+    author: String? = null,
+    tweetId: String? = null,
+    mediaKey: String? = null
+): List<MediaUrlCandidate> = buildList {
     for (index in 0 until length()) {
         val variant = optJSONObject(index) ?: continue
         val url = variant.optString("url").takeIf { it.isDirectMediaUrl() } ?: continue
@@ -701,14 +956,19 @@ private fun JSONArray.toCandidates(isGifSource: Boolean = false): List<MediaUrlC
             .ifBlank { null }
         if (contentType == "application/x-mpegURL" || url.contains(".m3u8")) continue
         val variantIsGifSource = isGifSource || variant.isGifMediaObject()
-        add(MediaUrlCandidate(url, variant.optInt("bitrate", 0), contentType, variantIsGifSource || url.isLikelyXGifVideoUrl()))
+        add(MediaUrlCandidate(url, variant.optInt("bitrate", 0), contentType, variantIsGifSource || url.isLikelyXGifVideoUrl(), author, tweetId, mediaKey ?: url.substringBefore('?')))
     }
 }
 
-private fun JSONArray.toStringCandidates(isGifSource: Boolean = false): List<MediaUrlCandidate> = buildList {
+private fun JSONArray.toStringCandidates(
+    isGifSource: Boolean = false,
+    author: String? = null,
+    tweetId: String? = null,
+    mediaKey: String? = null
+): List<MediaUrlCandidate> = buildList {
     for (index in 0 until length()) {
         val url = optString(index).takeIf { it.isDirectMediaUrl() } ?: continue
-        add(MediaUrlCandidate(url, isGifSource = isGifSource || url.isLikelyXGifVideoUrl()))
+        add(MediaUrlCandidate(url, isGifSource = isGifSource || url.isLikelyXGifVideoUrl(), author = author, tweetId = tweetId, mediaKey = mediaKey ?: url.substringBefore('?')))
     }
 }
 
@@ -740,29 +1000,58 @@ fun startDownloadTask(
     quality: String,
     galleryState: GalleryState,
     originalUrl: String? = null,
-    forceGifFromVideo: Boolean = false
+    forceGifFromVideo: Boolean = false,
+    author: String? = null,
+    postId: String? = null,
+    batchIndex: Int = 1,
+    batchTotal: Int = 1,
+    downloadIdentity: String? = null
 ) {
     val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
     scope.launch {
         val timestamp = System.currentTimeMillis()
         val checkUrl = originalUrl ?: url
+        val historyUrl = if (batchTotal > 1) {
+            val identityHash = Integer.toUnsignedString((downloadIdentity ?: url).hashCode(), 16)
+            "$checkUrl#gallery-media=$identityHash"
+        } else {
+            checkUrl
+        }
+        val pendingStatus = context.getString(R.string.video_dl_status_pending)
+
+        val finalAuthor = author ?: originalUrl?.let { VideoDownloadUrlUtils.extractXUserId(it) }
+        val finalPostId = postId ?: originalUrl?.let { VideoDownloadUrlUtils.extractXPostId(it) }
 
         Log.i("VideoDownloader", "========================================")
         Log.i("VideoDownloader", "DOWNLOAD START")
         Log.i("VideoDownloader", "Original URL: $checkUrl")
         Log.i("VideoDownloader", "Resolved URL: $url")
+        Log.i("VideoDownloader", "Author: $finalAuthor, PostID: $finalPostId")
         Log.i("VideoDownloader", "========================================")
 
+        val displayTitle = if (finalAuthor != null && finalPostId != null) {
+            buildString {
+                append("$finalAuthor / $finalPostId")
+                if (batchTotal > 1) append(" ($batchIndex/$batchTotal)")
+            }
+        } else {
+            context.getString(R.string.video_dl_media_title_format, timestamp, quality)
+        }
+
         val entity = VideoDownloadEntity(
-            url = checkUrl,
-            title = "Media $timestamp ($quality)",
-            savePath = "Pending...",
+            url = historyUrl,
+            title = displayTitle,
+            savePath = pendingStatus,
             downloadDate = timestamp,
-            status = "DOWNLOADING"
+            status = context.getString(R.string.video_dl_status_downloading)
         )
         galleryState.repository.mediaDao.insertVideoDownload(entity)
         val operationId = GlobalOperationService.startOperation(
-            title = context.getString(R.string.video_dl_downloading),
+            title = if (batchTotal > 1) {
+                context.getString(R.string.video_dl_batch_operation, batchIndex, batchTotal)
+            } else {
+                context.getString(R.string.video_dl_downloading)
+            },
             canCancel = false
         )
 
@@ -787,10 +1076,24 @@ fun startDownloadTask(
                 val detected = detectMediaType(url, response.header("Content-Type"))
                 val shouldTranscodeGif = forceGifFromVideo && detected.second.startsWith("video/")
                 val (extension, mimeType) = if (shouldTranscodeGif) "gif" to "image/gif" else detected
-                val filename = "X_Media_$timestamp.$extension"
+
+                val filename = if (finalAuthor != null && finalPostId != null) {
+                    if (batchTotal > 1) {
+                        "${finalAuthor}_${finalPostId}_${batchIndex}.$extension"
+                    } else {
+                        context.getString(R.string.video_dl_filename_twitter_format, finalAuthor, finalPostId, extension)
+                    }
+                } else {
+                    if (batchTotal > 1) {
+                        "X_Media_${timestamp}_${batchIndex}.$extension"
+                    } else {
+                        context.getString(R.string.video_dl_filename_format, timestamp, extension)
+                    }
+                }
 
                 Log.i("VideoDownloader", "Detected Extension: $extension")
                 Log.i("VideoDownloader", "Detected MIME Type: $mimeType")
+                Log.i("VideoDownloader", "Final Filename: $filename")
 
                 val outputBytes: ByteArray? = if (shouldTranscodeGif) {
                     val tempFile = File.createTempFile("x_gif_source_", ".mp4", context.cacheDir)
@@ -803,12 +1106,23 @@ fun startDownloadTask(
                                     output = output,
                                     totalBytes = totalBytes,
                                     operationId = operationId,
-                                    progressEnd = 0.9f
+                                    progressEnd = 0.62f
                                 )
                             }
                         }
-            GlobalOperationService.updateProgress(0.92f, context.getString(R.string.video_dl_converting_gif), operationId)
-                        transcodeMp4ToGif(context, tempFile)
+                        GlobalOperationService.updateProgress(
+                            0.63f,
+                            context.getString(R.string.video_dl_gif_stage_analyzing),
+                            operationId
+                        )
+                        transcodeMp4ToGif(tempFile) { conversionProgress, stage ->
+                            val overallProgress = 0.62f + conversionProgress.coerceIn(0f, 1f) * 0.35f
+                            GlobalOperationService.updateProgress(
+                                overallProgress,
+                                context.getString(stage.textRes),
+                                operationId
+                            )
+                        }
                     } finally {
                         tempFile.delete()
                     }
@@ -824,7 +1138,11 @@ fun startDownloadTask(
                     put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
 
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        val relativePath = if (mimeType.startsWith("video/")) "Movies/Gallery" else "Pictures/Gallery"
+                        val relativePath = if (mimeType.startsWith("video/")) {
+                            context.getString(R.string.video_dl_rel_path_movies)
+                        } else {
+                            context.getString(R.string.video_dl_rel_path_pictures)
+                        }
                         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                         put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
                     }
@@ -841,7 +1159,7 @@ fun startDownloadTask(
 
                 resolver.openOutputStream(uri)?.use { outputStream ->
                     if (outputBytes != null) {
-            GlobalOperationService.updateProgress(0.98f, context.getString(R.string.video_dl_saving_gif), operationId)
+                        GlobalOperationService.updateProgress(0.98f, context.getString(R.string.video_dl_saving_gif), operationId)
                         outputStream.write(outputBytes)
                     } else {
                         responseBody.byteStream().use { input ->
@@ -863,9 +1181,7 @@ fun startDownloadTask(
                         put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
                         put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
                         put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                            put(android.provider.MediaStore.MediaColumns.DATE_EXPIRES, null as Long?)
-                        }
+                        put(android.provider.MediaStore.MediaColumns.DATE_EXPIRES, null as Long?)
                     }
                     resolver.update(uri, updateValues, null, null)
                 }
@@ -873,7 +1189,7 @@ fun startDownloadTask(
                 val actualPath = try {
                     val cursor = resolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)
                     cursor?.use { if (it.moveToFirst()) it.getString(0) else uri.toString() } ?: uri.toString()
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     uri.toString()
                 }
 
@@ -890,18 +1206,25 @@ fun startDownloadTask(
                     galleryState.refresh()
                 }
 
-                galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "COMPLETED", savePath = actualPath))
-            GlobalOperationService.updateProgress(1f, context.getString(R.string.video_dl_complete), operationId)
+                galleryState.repository.mediaDao.insertVideoDownload(
+                    entity.copy(
+                        status = context.getString(R.string.video_dl_status_completed),
+                        savePath = actualPath
+                    )
+                )
+                GlobalOperationService.updateProgress(1f, context.getString(R.string.video_dl_complete), operationId)
 
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Download complete: $extension", Toast.LENGTH_SHORT).show()
+                if (batchTotal <= 1) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, context.getString(R.string.msg_download_complete_format, extension), Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.e("VideoDownloader", "Task failed", e)
-            galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = "FAILED"))
+            galleryState.repository.mediaDao.insertVideoDownload(entity.copy(status = context.getString(R.string.video_dl_status_failed)))
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, context.getString(R.string.msg_error_download_failed, e.localizedMessage), Toast.LENGTH_LONG).show()
             }
         } finally {
             GlobalOperationService.finishOperation(operationId)
@@ -916,24 +1239,24 @@ private suspend fun copyDownloadWithProgress(
     totalBytes: Long,
     operationId: String,
     progressEnd: Float
-) {
+) = withContext(Dispatchers.IO) {
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
     val startedAt = SystemClock.elapsedRealtime()
     var downloadedBytes = 0L
     var lastUpdateAt = 0L
 
     while (true) {
-        currentCoroutineContext().ensureActive()
+        ensureActive()
         val read = input.read(buffer)
         if (read < 0) break
         output.write(buffer, 0, read)
         downloadedBytes += read
 
         val now = SystemClock.elapsedRealtime()
-        if (now - lastUpdateAt >= 200L || (totalBytes > 0L && downloadedBytes >= totalBytes)) {
+        if (now - lastUpdateAt >= 200L || downloadedBytes >= totalBytes) {
             val elapsedMs = (now - startedAt).coerceAtLeast(1L)
             val fraction = if (totalBytes > 0L) {
-                (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f..1f)
             } else {
                 0f
             }
@@ -944,14 +1267,13 @@ private suspend fun copyDownloadWithProgress(
                 null
             }
             val status = buildString {
-                append(formatDownloadSize(downloadedBytes))
+                append(formatDownloadSize(context, downloadedBytes))
                 if (totalBytes > 0L) {
                     append(" / ")
-                    append(formatDownloadSize(totalBytes))
+                    append(formatDownloadSize(context, totalBytes))
                 }
                 append("  ")
-                append(formatDownloadSize(bytesPerSecond))
-                append(" /s")
+                append(context.getString(R.string.video_dl_size_per_second, formatDownloadSize(context, bytesPerSecond)))
                 if (remainingMs != null && elapsedMs >= 500L) {
                     append("  " + context.getString(R.string.video_dl_remaining) + " ")
                     append(formatDownloadEta(context, remainingMs))
@@ -965,35 +1287,41 @@ private suspend fun copyDownloadWithProgress(
     }
 }
 
-private fun formatDownloadSize(bytes: Long): String {
+private fun formatDownloadSize(context: Context, bytes: Long): String {
     val safeBytes = bytes.coerceAtLeast(0L)
     return when {
-        safeBytes >= 1024L * 1024L -> "%.1f MB".format(Locale.US, safeBytes / (1024f * 1024f))
-        safeBytes >= 1024L -> "%.1f KB".format(Locale.US, safeBytes / 1024f)
-        else -> "$safeBytes B"
+        safeBytes >= 1024L * 1024L -> context.getString(R.string.video_dl_size_mb, safeBytes / (1024f * 1024f))
+        safeBytes >= 1024L -> context.getString(R.string.video_dl_size_kb, safeBytes / 1024f)
+        else -> context.getString(R.string.video_dl_size_b, safeBytes)
     }
 }
 
 private fun formatDownloadEta(context: Context, durationMs: Long): String {
     val totalSeconds = (durationMs.coerceAtLeast(0L) + 999L) / 1000L
     return if (totalSeconds < 60L) {
-        "${totalSeconds}" + context.getString(R.string.unit_seconds)
+        context.getString(R.string.video_dl_eta_seconds, totalSeconds)
     } else {
-        "${totalSeconds / 60L}" + context.getString(R.string.unit_minutes) + "${totalSeconds % 60L}" + context.getString(R.string.unit_seconds)
+        context.getString(R.string.video_dl_eta_minutes_seconds, totalSeconds / 60L, totalSeconds % 60L)
     }
 }
 
-private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
+private suspend fun transcodeMp4ToGif(
+    sourceFile: File,
+    onProgress: (Float, GifConversionStage) -> Unit = { _, _ -> }
+): ByteArray = withContext(Dispatchers.IO) {
     val retriever = MediaMetadataRetriever()
+    val frames = mutableListOf<Bitmap>()
     var input: FileInputStream? = null
+    val conversionStartedAt = SystemClock.elapsedRealtime()
     try {
-        val patchResult = patchMp4ForAndroidExtractor(sourceFile)
+        onProgress(0f, GifConversionStage.ANALYZING)
+        patchMp4ForAndroidExtractor(sourceFile)
         try {
             input = FileInputStream(sourceFile)
             retriever.setDataSource(input.fd)
         } catch (fdError: Exception) {
             Log.w("VideoDownloader", "FileDescriptor data source failed, retrying by path", fdError)
-            input?.close()
+            runCatching { input?.close() }
             input = null
             retriever.setDataSource(sourceFile.absolutePath)
         }
@@ -1002,34 +1330,37 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
         val videoWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
         val videoHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
         val mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
-        val frames = mutableListOf<Bitmap>()
+        val targetFrameCount = targetGifFrameCount(
+            durationMs = durationMs,
+            sourceWidth = videoWidth?.toIntOrNull(),
+            sourceHeight = videoHeight?.toIntOrNull()
+        )
+        var effectiveDurationMs = durationMs
+        var decoderPath = "MediaCodec"
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            val videoFrameCount = retriever
-                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
-                ?.toIntOrNull()
-                ?: 0
-            if (videoFrameCount > 0) {
-                val targetCount = videoFrameCount.coerceIn(1, 28)
-                val step = (videoFrameCount / targetCount).coerceAtLeast(1)
-                var frameIndex = 0
-                while (frameIndex < videoFrameCount && frames.size < targetCount) {
-                    try {
-                        retriever.getFrameAtIndex(frameIndex)?.let { frame ->
-                            frames.add(scaleBitmapForGif(frame))
-                        }
-                    } catch (e: Exception) {
-                        Log.d("VideoDownloader", "getFrameAtIndex failed at index=$frameIndex", e)
-                    }
-                    frameIndex += step
-                }
+        onProgress(0.03f, GifConversionStage.DECODING)
+        val codecFrames = decodeGifFramesWithCodec(sourceFile, targetFrameCount) { decodeProgress ->
+            onProgress(0.03f + decodeProgress.coerceIn(0f, 1f) * 0.27f, GifConversionStage.DECODING)
+        }
+        if (codecFrames.frames.size >= minOf(2, targetFrameCount)) {
+            frames.addAll(codecFrames.frames)
+            effectiveDurationMs = codecFrames.durationMs ?: durationMs
+            onProgress(0.50f, GifConversionStage.DECODING)
+        } else {
+            if (codecFrames.frames.isNotEmpty()) {
+                Log.w(
+                    "VideoDownloader",
+                    "MediaCodec returned too few GIF frames: ${codecFrames.frames.size}/$targetFrameCount"
+                )
+                codecFrames.frames.forEach { if (!it.isRecycled) it.recycle() }
             }
+            decoderPath = "MediaMetadataRetriever"
         }
 
         if (frames.isEmpty()) {
-            val frameCount = (durationMs / 160L).toInt().coerceIn(8, 28)
-            for (index in 0 until frameCount) {
-                val timeUs = (durationMs * 1000L * index / frameCount).coerceAtLeast(0L)
+            for (index in 0 until targetFrameCount) {
+                ensureActive()
+                val timeUs = (durationMs * 1000L * index / targetFrameCount).coerceAtLeast(0L)
                 val frame = try {
                     retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                         ?: retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
@@ -1040,18 +1371,10 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
                 if (frame != null) {
                     frames.add(scaleBitmapForGif(frame))
                 }
-            }
-        }
-
-        if (frames.isEmpty()) {
-            val codecFrames = decodeGifFramesWithCodec(sourceFile)
-            frames.addAll(codecFrames.frames)
-            if (codecFrames.durationMs != null) {
-                // Prefer the decoder duration when Retriever cannot read this X tweet_video MP4.
-                val fallbackDelayMs = (codecFrames.durationMs / frames.size.coerceAtLeast(1)).coerceIn(80L, 180L)
-                if (frames.isNotEmpty()) {
-                    return SimpleGifEncoder.encode(frames, fallbackDelayMs.toInt())
-                }
+                onProgress(
+                    0.30f + (index + 1f) / targetFrameCount.toFloat() * 0.20f,
+                    GifConversionStage.DECODING
+                )
             }
         }
 
@@ -1060,12 +1383,53 @@ private fun transcodeMp4ToGif(context: Context, sourceFile: File): ByteArray {
                 "GIF conversion failed: no frames (size=${sourceFile.length()}, header=${sourceFile.headerHex()}, durationMs=$rawDurationMs, width=$videoWidth, height=$videoHeight, mime=$mimeType)"
             )
         }
-        val frameDelayMs = (durationMs / frames.size.coerceAtLeast(1)).coerceIn(80L, 180L)
-        return SimpleGifEncoder.encode(frames, frameDelayMs.toInt())
+
+        val decodeElapsedMs = SystemClock.elapsedRealtime() - conversionStartedAt
+        Log.i(
+            "VideoDownloader",
+            "GIF decode complete: path=$decoderPath, frames=${frames.size}/$targetFrameCount, " +
+                "durationMs=$effectiveDurationMs, size=${videoWidth}x$videoHeight, elapsedMs=$decodeElapsedMs"
+        )
+
+        onProgress(0.52f, GifConversionStage.PALETTE)
+        val output = withContext(Dispatchers.Default) {
+            OptimizedGifEncoder.encode(frames, effectiveDurationMs) { encodeProgress, stage ->
+                onProgress(0.52f + encodeProgress.coerceIn(0f, 1f) * 0.47f, stage)
+            }
+        }
+        onProgress(1f, GifConversionStage.ENCODING)
+        Log.i(
+            "VideoDownloader",
+            "GIF conversion complete: bytes=${output.size}, totalMs=${SystemClock.elapsedRealtime() - conversionStartedAt}"
+        )
+        return@withContext output
     } finally {
-        retriever.release()
-        input?.close()
+        frames.forEach { if (!it.isRecycled) it.recycle() }
+        runCatching { retriever.release() }
+        runCatching { input?.close() }
     }
+}
+
+private fun targetGifFrameCount(
+    durationMs: Long,
+    sourceWidth: Int? = null,
+    sourceHeight: Int? = null
+): Int {
+    val requestedFrames = ((durationMs * GIF_CONVERSION_TARGET_FPS + 999L) / 1000L)
+        .toInt()
+        .coerceIn(GIF_CONVERSION_MIN_FRAMES, GIF_CONVERSION_MAX_FRAMES)
+    if (sourceWidth == null || sourceHeight == null || sourceWidth <= 0 || sourceHeight <= 0) {
+        return requestedFrames
+    }
+
+    val largest = maxOf(sourceWidth, sourceHeight)
+    val scale = minOf(1f, GIF_CONVERSION_MAX_SIDE_PX.toFloat() / largest.toFloat())
+    val outputWidth = (sourceWidth * scale).toLong().coerceAtLeast(1L)
+    val outputHeight = (sourceHeight * scale).toLong().coerceAtLeast(1L)
+    val memoryLimitedFrames = (GIF_CONVERSION_MAX_TOTAL_PIXELS / (outputWidth * outputHeight))
+        .toInt()
+        .coerceIn(GIF_CONVERSION_MIN_FRAMES, GIF_CONVERSION_MAX_FRAMES)
+    return minOf(requestedFrames, memoryLimitedFrames)
 }
 
 private data class DecodedGifFrames(
@@ -1095,8 +1459,8 @@ private fun patchMp4ForAndroidExtractor(file: File): Mp4PatchResult {
 
         if (majorBrand in setOf("iso5", "iso6") || "isom" !in compatibleBrands) {
             bytes.putAsciiAt(8, "mp42")
-            if (bytes.size >= 20) bytes.putAsciiAt(16, "isom")
-            if (bytes.size >= 24) bytes.putAsciiAt(20, "mp41")
+            bytes.putAsciiAt(16, "isom")
+            bytes.putAsciiAt(20, "mp41")
             details += "ftyp $majorBrand/${compatibleBrands.joinToString(",")} -> mp42/isom,mp41"
         }
 
@@ -1108,8 +1472,8 @@ private fun patchMp4ForAndroidExtractor(file: File): Mp4PatchResult {
                 output.write(bytes)
             }
         }
-    } catch (e: Exception) {
-        Log.w("VideoDownloader", "GIF source MP4 patch failed; continuing with original file", e)
+    } catch (_: Exception) {
+        Log.w("VideoDownloader", "GIF source MP4 patch failed; continuing with original file")
     }
 
     return Mp4PatchResult(details.isNotEmpty(), details)
@@ -1200,7 +1564,11 @@ private fun ByteArray.uInt64At(offset: Int): Long {
     return value
 }
 
-private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): DecodedGifFrames {
+private suspend fun decodeGifFramesWithCodec(
+    sourceFile: File,
+    maxFrames: Int = GIF_CONVERSION_MAX_FRAMES,
+    onProgress: (Float) -> Unit = {}
+): DecodedGifFrames = withContext(Dispatchers.IO) {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
     val frames = mutableListOf<Bitmap>()
@@ -1224,7 +1592,7 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
 
         if (videoTrackIndex == -1 || videoMime == null) {
             Log.w("VideoDownloader", "GIF codec fallback found no video track")
-            return DecodedGifFrames(emptyList(), null)
+            return@withContext DecodedGifFrames(emptyList(), null)
         }
 
         extractor.selectTrack(videoTrackIndex)
@@ -1233,11 +1601,9 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
         durationMs = durationUs?.div(1000L)
 
         codec = createStartedVideoDecoder(videoMime, extractor, videoTrackIndex)
-        val decoder = codec ?: throw Exception("GIF codec decoder was not created")
+        val decoder = codec
         val bufferInfo = MediaCodec.BufferInfo()
-        val targetFrameCount = durationMs
-            ?.let { (it / 160L).toInt().coerceIn(1, maxFrames) }
-            ?: maxFrames
+        val targetFrameCount = maxFrames
         val frameIntervalUs = durationUs
             ?.div(targetFrameCount.coerceAtLeast(1))
             ?.coerceAtLeast(1L)
@@ -1246,8 +1612,10 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
         var outputDone = false
         var idleOutputLoops = 0
         var loopCount = 0
+        var lastReportedProgress = -1f
 
         while (!outputDone && frames.size < maxFrames && loopCount++ < 10_000) {
+            ensureActive()
             if (!inputDone) {
                 val inputIndex = decoder.dequeueInputBuffer(10_000L)
                 if (inputIndex >= 0) {
@@ -1298,8 +1666,8 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
                     }
                 }
 
+                @Suppress("DEPRECATION")
                 MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> {
-                    // Deprecated for modern APIs, but harmless if a device still reports it.
                 }
 
                 else -> {
@@ -1334,6 +1702,13 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
                         }
 
                         decodedFrameCount++
+                        val decodeProgress = durationUs
+                            ?.let { (bufferInfo.presentationTimeUs.toFloat() / it.toFloat()).coerceIn(0f, 1f) }
+                            ?: (frames.size.toFloat() / targetFrameCount.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+                        if (decodeProgress - lastReportedProgress >= 0.01f || endOfStream) {
+                            onProgress(decodeProgress)
+                            lastReportedProgress = decodeProgress
+                        }
                         decoder.releaseOutputBuffer(outputIndex, false)
                         if (endOfStream) outputDone = true
                     }
@@ -1341,7 +1716,8 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
             }
         }
 
-        return DecodedGifFrames(frames, durationMs)
+        onProgress(1f)
+        DecodedGifFrames(frames, durationMs)
     } catch (e: Exception) {
         frames.forEach { it.recycle() }
         Log.e(
@@ -1350,7 +1726,7 @@ private fun decodeGifFramesWithCodec(sourceFile: File, maxFrames: Int = 28): Dec
                 "imageNull=$imageNullCount, durationMs=$durationMs",
             e
         )
-        return DecodedGifFrames(emptyList(), durationMs)
+        DecodedGifFrames(emptyList(), durationMs)
     } finally {
         runCatching { codec?.stop() }
         runCatching { codec?.release() }
@@ -1392,7 +1768,7 @@ private fun Image.toBitmapOrNull(): Bitmap? {
     val nv21 = yuv420888ToNv21()
     val output = ByteArrayOutputStream()
     val compressed = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-        .compressToJpeg(Rect(0, 0, width, height), 90, output)
+        .compressToJpeg(Rect(0, 0, width, height), 100, output)
     if (!compressed) {
         Log.w("VideoDownloader", "Failed to compress codec YUV frame for GIF conversion")
         return null
@@ -1440,10 +1816,6 @@ private fun MediaFormat.longOrNull(key: String): Long? {
     return if (containsKey(key)) runCatching { getLong(key) }.getOrNull() else null
 }
 
-private fun MediaFormat.intOrNull(key: String): Int? {
-    return if (containsKey(key)) runCatching { getInteger(key) }.getOrNull() else null
-}
-
 private fun File.headerHex(byteCount: Int = 16): String {
     return runCatching {
         inputStream().use { input ->
@@ -1455,51 +1827,398 @@ private fun File.headerHex(byteCount: Int = 16): String {
 }
 
 private fun scaleBitmapForGif(bitmap: Bitmap): Bitmap {
-    val maxSide = 360
-    val largest = maxOf(bitmap.width, bitmap.height)
-    if (largest <= maxSide) return bitmap
-    val scale = maxSide.toFloat() / largest.toFloat()
-    val width = (bitmap.width * scale).toInt().coerceAtLeast(1)
-    val height = (bitmap.height * scale).toInt().coerceAtLeast(1)
-    val scaled = Bitmap.createScaledBitmap(bitmap, width, height, true)
-    if (scaled !== bitmap) bitmap.recycle()
+    var current = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+        bitmap
+    } else {
+        bitmap.copy(Bitmap.Config.ARGB_8888, false).also {
+            if (it !== bitmap) bitmap.recycle()
+        }
+    }
+    val largest = maxOf(current.width, current.height)
+    if (largest <= GIF_CONVERSION_MAX_SIDE_PX) return current
+
+    val scale = GIF_CONVERSION_MAX_SIDE_PX.toFloat() / largest.toFloat()
+    val targetWidth = (current.width * scale).toInt().coerceAtLeast(1)
+    val targetHeight = (current.height * scale).toInt().coerceAtLeast(1)
+
+    while (current.width > targetWidth * 2 && current.height > targetHeight * 2) {
+        val stepped = Bitmap.createScaledBitmap(
+            current,
+            maxOf(targetWidth, current.width / 2),
+            maxOf(targetHeight, current.height / 2),
+            true
+        )
+        if (stepped !== current) current.recycle()
+        current = stepped
+    }
+
+    if (current.width == targetWidth && current.height == targetHeight) return current
+    val scaled = Bitmap.createScaledBitmap(current, targetWidth, targetHeight, true)
+    if (scaled !== current) current.recycle()
     return scaled
 }
 
-private object SimpleGifEncoder {
-    fun encode(frames: List<Bitmap>, delayMs: Int): ByteArray {
-        val width = frames.first().width
-        val height = frames.first().height
-        val output = ByteArrayOutputStream()
-        try {
-            val encoder = GifEncoder(output, width, height, 0)
-            val options = ImageOptions().setDelay(delayMs.toLong().coerceAtLeast(20L), TimeUnit.MILLISECONDS)
-            frames.forEach { frame ->
-                val normalized = if (frame.width == width && frame.height == height) {
-                    frame
-                } else {
-                    Bitmap.createScaledBitmap(frame, width, height, true)
-                }
-                encoder.addImage(normalized.toRgbData(), width, options)
-                if (normalized !== frame) normalized.recycle()
+private data class GifFrame(
+    val bitmap: Bitmap,
+    val delayMs: Long
+)
+
+private data class GifFrameBounds(
+    val left: Int,
+    val top: Int,
+    val rightExclusive: Int,
+    val bottomExclusive: Int
+) {
+    val width: Int get() = rightExclusive - left
+    val height: Int get() = bottomExclusive - top
+}
+
+private data class GifDeltaFrame(
+    val colorIndices: IntArray,
+    val bounds: GifFrameBounds,
+    val transparent: Boolean,
+    val changedPixels: Int
+)
+
+private fun prepareGifFrames(sourceFrames: List<Bitmap>, durationMs: Long): List<GifFrame> {
+    require(sourceFrames.isNotEmpty()) { "GIF conversion requires at least one frame" }
+    val width = sourceFrames.first().width
+    val height = sourceFrames.first().height
+    val totalDurationMs = durationMs.coerceAtLeast(sourceFrames.size * 20L)
+    val baseDelayMs = totalDurationMs / sourceFrames.size
+    val extraDelayFrames = (totalDurationMs % sourceFrames.size).toInt()
+    val prepared = mutableListOf<GifFrame>()
+
+    sourceFrames.forEachIndexed { index, source ->
+        val bitmap = if (source.width == width && source.height == height) {
+            source
+        } else {
+            Bitmap.createScaledBitmap(source, width, height, true).also {
+                if (it !== source) source.recycle()
             }
-            encoder.finishEncoding()
-            return output.toByteArray()
-        } finally {
-            frames.forEach { if (!it.isRecycled) it.recycle() }
         }
+        val delayMs = baseDelayMs + if (index < extraDelayFrames) 1L else 0L
+        prepared += GifFrame(bitmap, delayMs)
     }
 
-    private fun Bitmap.toRgbData(): IntArray {
-        val pixels = IntArray(width * height)
-        getPixels(pixels, 0, width, 0, 0, width, height)
-        return IntArray(pixels.size) { index -> pixels[index] and 0x00FFFFFF }
+    return prepared
+}
+
+private fun buildGlobalGifPalette(
+    frames: List<GifFrame>,
+    onProgress: (Float) -> Unit = {}
+): IntArray {
+    val width = frames.first().bitmap.width
+    val height = frames.first().bitmap.height
+    val totalPixels = width.toLong() * height.toLong() * frames.size.toLong()
+    val sampleStride = ceil(
+        sqrt(totalPixels.toDouble() / GIF_PALETTE_BASE_SAMPLE_COUNT.toDouble())
+    ).toInt().coerceAtLeast(1)
+    val sampleGridWidth = (width + sampleStride - 1) / sampleStride
+    val sampleGridHeight = (height + sampleStride - 1) / sampleStride
+    val previousSamples = IntArray(sampleGridWidth * sampleGridHeight) { -1 }
+    val sampleBuffer = IntArray(GIF_PALETTE_MAX_SAMPLE_COUNT)
+    val row = IntArray(width)
+    var sampleCount = 0
+
+    frameLoop@ for ((frameIndex, frame) in frames.withIndex()) {
+        for (y in 0 until height step sampleStride) {
+            frame.bitmap.getPixels(row, 0, width, 0, y, width, 1)
+            val sampleRow = y / sampleStride
+            for (x in 0 until width step sampleStride) {
+                if (sampleCount >= sampleBuffer.size) break@frameLoop
+                val rgb = row[x] and 0x00FFFFFF
+                val sampleIndex = sampleRow * sampleGridWidth + x / sampleStride
+                sampleBuffer[sampleCount++] = rgb or 0xFF000000.toInt()
+
+                val previous = previousSamples[sampleIndex]
+                if (previous >= 0 && rgbDistance(previous, rgb) > GIF_PALETTE_DIFF_THRESHOLD &&
+                    sampleCount < sampleBuffer.size
+                ) {
+                    sampleBuffer[sampleCount++] = rgb or 0xFF000000.toInt()
+                }
+                previousSamples[sampleIndex] = rgb
+            }
+        }
+        onProgress((frameIndex + 1f) / frames.size.toFloat())
     }
+    onProgress(1f)
+
+    if (sampleCount == 0) return fallbackGifPalette()
+    val sampleWidth = minOf(512, sampleCount)
+    val sampleHeight = (sampleCount + sampleWidth - 1) / sampleWidth
+    val samplePixels = IntArray(sampleWidth * sampleHeight)
+    System.arraycopy(sampleBuffer, 0, samplePixels, 0, sampleCount)
+    for (index in sampleCount until samplePixels.size) {
+        samplePixels[index] = sampleBuffer[sampleCount - 1]
+    }
+
+    val sampleBitmap = Bitmap.createBitmap(
+        samplePixels,
+        sampleWidth,
+        sampleHeight,
+        Bitmap.Config.ARGB_8888
+    )
+    val generated = try {
+        Palette.from(sampleBitmap)
+            .maximumColorCount(GIF_PALETTE_VISIBLE_COLOR_COUNT)
+            .clearFilters()
+            .resizeBitmapArea(samplePixels.size)
+            .generate()
+    } finally {
+        sampleBitmap.recycle()
+    }
+
+    val colors = LinkedHashSet<Int>(GIF_PALETTE_VISIBLE_COLOR_COUNT)
+    generated.swatches
+        .sortedByDescending { it.population }
+        .forEach { colors += it.rgb and 0x00FFFFFF }
+    if (colors.isEmpty()) return fallbackGifPalette()
+    if (colors.size == 1) {
+        colors += if (colors.first() == 0x000000) 0xFFFFFF else 0x000000
+    }
+    return colors.take(GIF_PALETTE_VISIBLE_COLOR_COUNT).toIntArray()
+}
+
+private fun rgbDistance(first: Int, second: Int): Int {
+    return kotlin.math.abs((first ushr 16 and 0xFF) - (second ushr 16 and 0xFF)) +
+        kotlin.math.abs((first ushr 8 and 0xFF) - (second ushr 8 and 0xFF)) +
+        kotlin.math.abs((first and 0xFF) - (second and 0xFF))
+}
+
+private fun fallbackGifPalette(): IntArray {
+    val colors = LinkedHashSet<Int>(GIF_PALETTE_VISIBLE_COLOR_COUNT)
+    for (red in 0 until 6) {
+        for (green in 0 until 6) {
+            for (blue in 0 until 6) {
+                colors += ((red * 255 / 5) shl 16) or
+                    ((green * 255 / 5) shl 8) or
+                    (blue * 255 / 5)
+            }
+        }
+    }
+    for (gray in 0 until 40) {
+        val value = gray * 255 / 39
+        colors += (value shl 16) or (value shl 8) or value
+    }
+    return colors.take(GIF_PALETTE_VISIBLE_COLOR_COUNT).toIntArray()
+}
+
+private class GifPaletteMapper(
+    private val palette: IntArray,
+    onProgress: (Float) -> Unit = {}
+) {
+    private val nearestColorLut = buildNearestColorLut(palette, onProgress)
+
+    fun map(bitmap: Bitmap): IntArray {
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        val ditherAmplitude = (6 - GIF_BAYER_SCALE).coerceIn(1, 6)
+
+        for (y in 0 until height) {
+            val rowOffset = y * width
+            for (x in 0 until width) {
+                val index = rowOffset + x
+                val pixel = pixels[index]
+                val centeredBayer = GIF_BAYER_4X4[(y and 3) * 4 + (x and 3)] * 2 - 15
+                val offset = centeredBayer * ditherAmplitude / 2
+                val red = ((pixel ushr 16 and 0xFF) + offset).coerceIn(0, 255)
+                val green = ((pixel ushr 8 and 0xFF) + offset).coerceIn(0, 255)
+                val blue = ((pixel and 0xFF) + offset).coerceIn(0, 255)
+                val lutIndex = ((red * 31 + 127) / 255 shl 10) or
+                    ((green * 31 + 127) / 255 shl 5) or
+                    ((blue * 31 + 127) / 255)
+                pixels[index] = nearestColorLut[lutIndex]
+            }
+        }
+        return pixels
+    }
+
+    private fun buildNearestColorLut(colors: IntArray, onProgress: (Float) -> Unit): IntArray {
+        val lookup = IntArray(32 * 32 * 32)
+        for (index in lookup.indices) {
+            val red = (index ushr 10 and 31) * 255 / 31
+            val green = (index ushr 5 and 31) * 255 / 31
+            val blue = (index and 31) * 255 / 31
+            var nearestIndex = 0
+            var nearestDistance = Int.MAX_VALUE
+            for (colorIndex in colors.indices) {
+                val color = colors[colorIndex]
+                val redDelta = red - (color ushr 16 and 0xFF)
+                val greenDelta = green - (color ushr 8 and 0xFF)
+                val blueDelta = blue - (color and 0xFF)
+                val distance = redDelta * redDelta * 2 +
+                    greenDelta * greenDelta * 4 +
+                    blueDelta * blueDelta
+                if (distance < nearestDistance) {
+                    nearestDistance = distance
+                    nearestIndex = colorIndex
+                }
+            }
+            lookup[index] = nearestIndex
+            if (index and 0x3FF == 0) onProgress(index.toFloat() / lookup.size.toFloat())
+        }
+        onProgress(1f)
+        return lookup
+    }
+}
+
+private val GIF_BAYER_4X4 = intArrayOf(
+    0, 8, 2, 10,
+    12, 4, 14, 6,
+    3, 11, 1, 9,
+    15, 7, 13, 5
+)
+
+private object OptimizedGifEncoder {
+    fun encode(
+        sourceFrames: List<Bitmap>,
+        durationMs: Long,
+        onProgress: (Float, GifConversionStage) -> Unit = { _, _ -> }
+    ): ByteArray {
+        val startedAt = SystemClock.elapsedRealtime()
+        onProgress(0.01f, GifConversionStage.PALETTE)
+        val preparedFrames = prepareGifFrames(sourceFrames, durationMs)
+        val width = preparedFrames.first().bitmap.width
+        val height = preparedFrames.first().bitmap.height
+
+        try {
+            val palette = buildGlobalGifPalette(preparedFrames) { progress ->
+                onProgress(0.02f + progress * 0.18f, GifConversionStage.PALETTE)
+            }
+            val mapper = GifPaletteMapper(palette) { progress ->
+                onProgress(0.20f + progress * 0.15f, GifConversionStage.PALETTE)
+            }
+            val globalPalette = IntArray(256)
+            for (index in 0 until GIF_TRANSPARENT_COLOR_INDEX) {
+                globalPalette[index] = palette.getOrElse(index) { palette.last() }
+            }
+            globalPalette[GIF_TRANSPARENT_COLOR_INDEX] = 0
+            val output = ByteArrayOutputStream()
+            var previousEncodedPixels: IntArray? = null
+            var encodedFrameCount = 0
+            var encodedRectPixels = 0L
+            var changedPixelCount = 0L
+            var transparentFrameCount = 0
+
+            output.use {
+                val encoder = GlobalPaletteGifEncoder(it, width, height, globalPalette, loopCount = 0)
+                for ((frameIndex, frame) in preparedFrames.withIndex()) {
+                    val mappedPixels = mapper.map(frame.bitmap)
+                    if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+                    val deltaFrame = createGifDeltaFrame(
+                        previous = previousEncodedPixels,
+                        current = mappedPixels,
+                        width = width,
+                        height = height
+                    )
+                    encoder.addFrame(
+                        colorIndices = deltaFrame.colorIndices,
+                        width = deltaFrame.bounds.width,
+                        height = deltaFrame.bounds.height,
+                        left = deltaFrame.bounds.left,
+                        top = deltaFrame.bounds.top,
+                        delayMs = frame.delayMs,
+                        transparentColorIndex = GIF_TRANSPARENT_COLOR_INDEX.takeIf { deltaFrame.transparent }
+                    )
+                    encodedRectPixels += deltaFrame.bounds.width.toLong() * deltaFrame.bounds.height.toLong()
+                    changedPixelCount += deltaFrame.changedPixels
+                    if (deltaFrame.transparent) transparentFrameCount++
+                    encodedFrameCount++
+                    previousEncodedPixels = mappedPixels
+                    onProgress(
+                        0.35f + (frameIndex + 1f) / preparedFrames.size.toFloat() * 0.65f,
+                        GifConversionStage.ENCODING
+                    )
+                }
+                encoder.finish()
+            }
+
+            val fullPixelCount = width.toLong() * height.toLong() * encodedFrameCount.coerceAtLeast(1)
+            val rectPixelPermille = encodedRectPixels * 1000L / fullPixelCount
+            val changedPixelPermille = changedPixelCount * 1000L / fullPixelCount
+            Log.i(
+                "VideoDownloader",
+                "GIF encode optimized: decoded=${sourceFrames.size}, encoded=$encodedFrameCount, " +
+                    "palette=${palette.size}+1, transparentFrames=$transparentFrameCount, " +
+                    "rectPermille=$rectPixelPermille, changedPermille=$changedPixelPermille, " +
+                    "elapsedMs=${SystemClock.elapsedRealtime() - startedAt}"
+            )
+            return output.toByteArray()
+        } finally {
+            sourceFrames.forEach { if (!it.isRecycled) it.recycle() }
+            preparedFrames.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+        }
+    }
+}
+
+private fun createGifDeltaFrame(
+    previous: IntArray?,
+    current: IntArray,
+    width: Int,
+    height: Int
+): GifDeltaFrame {
+    if (previous == null || previous.size != current.size) {
+        return GifDeltaFrame(
+            colorIndices = current,
+            bounds = GifFrameBounds(0, 0, width, height),
+            transparent = false,
+            changedPixels = current.size
+        )
+    }
+
+    var minX = width
+    var minY = height
+    var maxX = -1
+    var maxY = -1
+    var changedPixels = 0
+    for (index in current.indices) {
+        if (previous[index] == current[index]) continue
+        changedPixels++
+        val x = index % width
+        val y = index / width
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+    }
+    if (maxX < 0) {
+        return GifDeltaFrame(
+            colorIndices = intArrayOf(GIF_TRANSPARENT_COLOR_INDEX),
+            bounds = GifFrameBounds(0, 0, 1, 1),
+            transparent = true,
+            changedPixels = 0
+        )
+    }
+
+    val bounds = GifFrameBounds(minX, minY, maxX + 1, maxY + 1)
+    val deltaPixels = IntArray(bounds.width * bounds.height)
+    for (row in 0 until bounds.height) {
+        val sourceOffset = (bounds.top + row) * width + bounds.left
+        val outputOffset = row * bounds.width
+        for (column in 0 until bounds.width) {
+            val sourceIndex = sourceOffset + column
+            deltaPixels[outputOffset + column] = if (previous[sourceIndex] == current[sourceIndex]) {
+                GIF_TRANSPARENT_COLOR_INDEX
+            } else {
+                current[sourceIndex]
+            }
+        }
+    }
+    return GifDeltaFrame(
+        colorIndices = deltaPixels,
+        bounds = bounds,
+        transparent = true,
+        changedPixels = changedPixels
+    )
 }
 
 private fun buildDownloadMediaData(context: Context, download: VideoDownloadEntity): MediaData? {
     val path = download.savePath
-    if (path.isBlank() || path == "Pending...") return null
+    val pendingStatus = context.getString(R.string.video_dl_status_pending)
+    if (path.isBlank() || path == pendingStatus) return null
     val uri = Uri.parse(path)
     val resolverMimeType = runCatching {
         if (path.startsWith("content://")) context.contentResolver.getType(uri) else null
@@ -1517,6 +2236,6 @@ private fun buildDownloadMediaData(context: Context, download: VideoDownloadEnti
         dateAdded = download.downloadDate,
         mimeType = mimeType,
         fileName = download.title,
-        folderName = "Downloads"
+        folderName = context.getString(R.string.label_downloads)
     )
 }

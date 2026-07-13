@@ -14,6 +14,7 @@ import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.util.ModelDownloader
 import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.AppDefaults
 import com.example.gallery.service.TagTranslationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -28,12 +29,12 @@ class AiTaggingService(
 ) {
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
-    private var tags: List<String> = emptyList()
+    private var activeModelId: String? = null
+    private var tagInfos: List<TagInfo> = emptyList()
     private var inputName: String = "input"
     private var tensorShape: LongArray = longArrayOf(1, INPUT_SIZE.toLong(), INPUT_SIZE.toLong(), 3)
     private var isNHWC: Boolean = true
     private val mutex = Mutex()
-    private val threshold = 0.60f // 60%以上に設定
     
     // バッファの再利用
     private val imgDataBuffer = FloatBuffer.allocate(1 * INPUT_SIZE * INPUT_SIZE * 3)
@@ -43,15 +44,19 @@ class AiTaggingService(
         // 起動時の初期化を停止。必要時に ensureInitialized() を呼ぶ
     }
 
-    fun ensureInitialized() {
-        if (ortSession != null) return
+    fun ensureInitialized(modelId: String = ModelDownloader.currentTaggerModelId(context)) {
+        val normalizedModelId = AppDefaults.normalizedAiTaggerModel(modelId)
+        if (ortSession != null && activeModelId == normalizedModelId) return
+        if (ortSession != null) {
+            closeSession()
+        }
 
         // 翻訳サービスの初期化
         TagTranslationService.init(context)
 
         try {
-            val modelFile = ModelDownloader.getDanbooruModelFile(context)
-            val tagsFile = ModelDownloader.getDanbooruTagsFile(context)
+            val modelFile = ModelDownloader.getDanbooruModelFile(context, normalizedModelId)
+            val tagsFile = ModelDownloader.getDanbooruTagsFile(context, normalizedModelId)
             
             if (modelFile.exists() && tagsFile.exists()) {
                 if (ortEnv == null) {
@@ -74,17 +79,20 @@ class AiTaggingService(
                 }
                 ortSession = ortEnv?.createSession(modelFile.absolutePath, options)
                 cacheInputMetadata()
+                activeModelId = normalizedModelId
 
-                tags = tagsFile.readLines()
+                tagInfos = tagsFile.readLines()
                     .drop(1)
                     .map { line ->
                         val parts = line.split(",")
                         if (parts.size >= 2) parts[1] else ""
                     }
                     .filter { it.isNotEmpty() }
+                    .map(::buildTagInfo)
             }
         } catch (e: Exception) {
             Log.e("AiTaggingService", "CRITICAL: Failed to initialize Tagger session", e)
+            closeSession()
         }
     }
 
@@ -102,16 +110,21 @@ class AiTaggingService(
         } ?: longArrayOf(1, INPUT_SIZE.toLong(), INPUT_SIZE.toLong(), 3)
     }
 
-    suspend fun analyzeSingle(media: MediaData): List<String> = withContext(Dispatchers.IO) {
-        if (ortSession == null) {
-            ensureInitialized()
+    suspend fun analyzeSingle(
+        media: MediaData,
+        modelId: String = ModelDownloader.currentTaggerModelId(context)
+    ): List<String> = withContext(Dispatchers.IO) {
+        val selectedModelId = AppDefaults.normalizedAiTaggerModel(modelId)
+        if (ortSession == null || activeModelId != selectedModelId) {
+            ensureInitialized(selectedModelId)
         }
 
-        if (media.isVideo || ortSession == null || tags.isEmpty()) {
+        if (media.isVideo || ortSession == null || activeModelId != selectedModelId || tagInfos.isEmpty()) {
             return@withContext emptyList()
         }
 
         mutex.withLock {
+            val analysisSettings = currentAnalysisSettings()
             var bitmap: Bitmap? = null
             var resizedBitmap: Bitmap? = null
 
@@ -131,27 +144,27 @@ class AiTaggingService(
                     return@withLock emptyList()
                 }
 
-                val detectedTags = ArrayList<Pair<String, Float>>(MAX_SAVED_TAGS * 2)
+                val detectedTags = ArrayList<Pair<String, Float>>(analysisSettings.maxSavedTags)
                 var ageRating = "SFW"
 
                 val ratingScores = mutableMapOf<String, Float>()
 
                 scores.forEachIndexed { index, score ->
                     if (score >= 0.05f) {
-                        val tagName = tags.getOrNull(index) ?: return@forEachIndexed
+                        val tagInfo = tagInfos.getOrNull(index) ?: return@forEachIndexed
 
-                        if (RATING_MAP.containsKey(tagName)) {
-                            ratingScores[tagName] = score
+                        if (tagInfo.rating != null) {
+                            ratingScores[tagInfo.name] = score
                         }
 
-                        if (score >= threshold && !RATING_MAP.containsKey(tagName)) {
-                            if (AppConstants.R18Keywords.any { tagName.contains(it, ignoreCase = true) }) {
-                                ageRating = "R18"
-                            } else if (ageRating != "R18" && AppConstants.R15Keywords.any { tagName.contains(it, ignoreCase = true) }) {
-                                ageRating = "R15"
+                        if (score >= analysisSettings.threshold && tagInfo.rating == null) {
+                            if (tagInfo.isR18Keyword) {
+                                ageRating = AppConstants.RATING_R18
+                            } else if (ageRating != AppConstants.RATING_R18 && tagInfo.isR15Keyword) {
+                                ageRating = AppConstants.RATING_R15
                             }
 
-                            detectedTags.add(tagName to score)
+                            addDetectedTag(detectedTags, tagInfo.name to score, analysisSettings.maxSavedTags)
                         }
                     }
                 }
@@ -159,22 +172,20 @@ class AiTaggingService(
                 val maxRatingTag = ratingScores.maxByOrNull { it.value }?.key
                 if (maxRatingTag != null && ratingScores[maxRatingTag]!! > 0.3f) {
                     when (RATING_MAP[maxRatingTag]!!) {
-                        "R18" -> ageRating = "R18"
-                        "R15" -> if (ageRating != "R18") ageRating = "R15"
-                        "SFW" -> Unit
+                        AppConstants.RATING_R18 -> ageRating = AppConstants.RATING_R18
+                        AppConstants.RATING_R15 -> if (ageRating != AppConstants.RATING_R18) ageRating = AppConstants.RATING_R15
+                        AppConstants.RATING_SFW -> Unit
                     }
                 }
 
-                val savedTags = detectedTags
-                    .sortedByDescending { it.second }
-                    .take(MAX_SAVED_TAGS)
-                    .map { (tagName, score) -> TagEntity(media.uri, tagName, score) }
+                val savedTags = detectedTags.map { (tagName, score) -> TagEntity(media.uri, tagName, score) }
 
                 repository.saveAiAnalysisResult(
                     uri = media.uri,
                     ageRating = ageRating,
                     isAiAnalyzed = true,
                     folderName = media.folderName,
+                    aiAnalysisModel = selectedModelId,
                     tags = savedTags
                 )
 
@@ -278,18 +289,80 @@ class AiTaggingService(
     companion object {
         private const val INPUT_SIZE = 448
         private const val INPUT_PIXEL_COUNT = INPUT_SIZE * INPUT_SIZE
-        private const val MAX_SAVED_TAGS = 40
+        private const val DEFAULT_THRESHOLD = 0.60f
+        private const val FAST_MAX_SAVED_TAGS = 24
+        private const val DEFAULT_MAX_SAVED_TAGS = 40
         private val RATING_MAP = mapOf(
-            "rating:general" to "SFW",
-            "rating:sensitive" to "SFW",
-            "rating:questionable" to "R15",
-            "rating:explicit" to "R18"
+            "rating:general" to AppConstants.RATING_SFW,
+            "rating:sensitive" to AppConstants.RATING_SFW,
+            "rating:questionable" to AppConstants.RATING_R15,
+            "rating:explicit" to AppConstants.RATING_R18
         )
     }
 
-    fun close() {
+    private data class TagInfo(
+        val name: String,
+        val rating: String?,
+        val isR15Keyword: Boolean,
+        val isR18Keyword: Boolean
+    )
+
+    private data class AnalysisSettings(
+        val threshold: Float,
+        val maxSavedTags: Int
+    )
+
+    private fun buildTagInfo(tagName: String): TagInfo {
+        return TagInfo(
+            name = tagName,
+            rating = RATING_MAP[tagName],
+            isR15Keyword = AppConstants.R15Keywords.any { tagName.contains(it, ignoreCase = true) },
+            isR18Keyword = AppConstants.R18Keywords.any { tagName.contains(it, ignoreCase = true) }
+        )
+    }
+
+    private fun currentAnalysisSettings(): AnalysisSettings {
+        val prefs = context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
+        val speedMode = prefs.getString(
+            AppDefaults.AI_ANALYSIS_SPEED_MODE_KEY,
+            AppDefaults.AI_ANALYSIS_SPEED_BALANCED
+        )
+        return when (speedMode) {
+            AppDefaults.AI_ANALYSIS_SPEED_FAST -> AnalysisSettings(DEFAULT_THRESHOLD, FAST_MAX_SAVED_TAGS)
+            else -> AnalysisSettings(DEFAULT_THRESHOLD, DEFAULT_MAX_SAVED_TAGS)
+        }
+    }
+
+    private fun addDetectedTag(
+        detectedTags: MutableList<Pair<String, Float>>,
+        tag: Pair<String, Float>,
+        maxSavedTags: Int
+    ) {
+        val insertIndex = detectedTags.indexOfFirst { tag.second > it.second }
+        if (insertIndex >= 0) {
+            detectedTags.add(insertIndex, tag)
+            if (detectedTags.size > maxSavedTags) {
+                detectedTags.removeAt(detectedTags.lastIndex)
+            }
+        } else if (detectedTags.size < maxSavedTags) {
+            detectedTags.add(tag)
+        }
+    }
+
+    private fun closeSession() {
         ortSession?.close()
+        ortSession = null
+        activeModelId = null
+        tagInfos = emptyList()
+        inputName = "input"
+        tensorShape = longArrayOf(1, INPUT_SIZE.toLong(), INPUT_SIZE.toLong(), 3)
+        isNHWC = true
+    }
+
+    fun close() {
+        closeSession()
         ortEnv?.close()
+        ortEnv = null
         TagTranslationService.close()
     }
 }

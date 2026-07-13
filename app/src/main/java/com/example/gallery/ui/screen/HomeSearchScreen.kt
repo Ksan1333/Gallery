@@ -1,5 +1,6 @@
 package com.example.gallery.ui.screen
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -36,6 +39,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -55,14 +59,17 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import com.example.gallery.R
+import com.example.gallery.ui.AppConstants
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.service.TagTranslationService
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.search.filterGallerySearchResults
 import com.example.gallery.ui.search.galleryStorageType
@@ -74,28 +81,122 @@ import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+
+private const val SEARCH_HISTORY_PREFS = "global_settings"
+private const val SEARCH_HISTORY_KEY = "homeSearchHistory"
+private const val SEARCH_HISTORY_LIMIT_KEY = "searchHistoryLimit"
+private const val DEFAULT_SEARCH_HISTORY_LIMIT = 5
 
 private data class SearchTagOption(
     val tag: String,
     val count: Int
 )
 
-private object HomeSearchLabels {
-    const val TITLE = "検索"
-    const val QUERY_LABEL = "タグ名・フォルダ名・ファイル名"
-    const val MATCH_MODE = "AND / OR"
-    const val FAVORITES_ONLY = "お気に入りのみ"
-    const val MEDIA_TYPE = "メディア形式"
-    const val STORAGE = "保存先"
-    const val AGE_RATING = "年齢制限"
-    const val FOLDER = "フォルダ"
-    const val TAGS = "タグ"
-    const val NO_TAGS = "表示できるタグがありません"
-    const val RESULT = "検索結果"
-    const val CLEAR = "条件をクリア"
-    const val SHOW_RESULTS = "検索"
-    const val BACK = "戻る"
-    const val ALL = "すべて"
+private data class SearchHistoryEntry(
+    val query: String,
+    val matchMode: GallerySearchMatchMode,
+    val ageRatings: Set<AgeRatingFilter>,
+    val folders: Set<String>,
+    val mediaTypes: Set<GallerySearchMediaType>,
+    val storageTypes: Set<GallerySearchStorageType>,
+    val favoritesOnly: Boolean,
+    val tags: Set<String>
+) {
+    val isMeaningful: Boolean
+        get() = query.isNotBlank() ||
+            ageRatings.isNotEmpty() ||
+            folders.isNotEmpty() ||
+            mediaTypes.isNotEmpty() ||
+            storageTypes.isNotEmpty() ||
+            favoritesOnly ||
+            tags.isNotEmpty()
+
+    fun summary(context: Context): String {
+        val parts = mutableListOf<String>()
+        if (query.isNotBlank()) parts += query
+        if (tags.isNotEmpty()) parts += tags.take(2).joinToString(prefix = "#", separator = " #")
+        if (folders.isNotEmpty()) parts += folders.take(1).joinToString()
+        if (mediaTypes.isNotEmpty()) parts += mediaTypes.joinToString("/") { it.searchLabel(context) }
+        if (ageRatings.isNotEmpty()) parts += ageRatings.joinToString("/") { it.searchLabel(context) }
+        if (storageTypes.isNotEmpty()) parts += storageTypes.joinToString("/") { it.searchLabel(context) }
+        if (favoritesOnly) parts += context.getString(R.string.label_favorites)
+        return parts.take(4).joinToString(" / ").ifBlank { context.getString(R.string.label_search_history_default) }
+    }
+}
+
+private fun SearchHistoryEntry.toJson(): JSONObject = JSONObject().apply {
+    put("query", query)
+    put("matchMode", matchMode.name)
+    put("ageRatings", JSONArray(ageRatings.map { it.name }))
+    put("folders", JSONArray(folders.toList()))
+    put("mediaTypes", JSONArray(mediaTypes.map { it.name }))
+    put("storageTypes", JSONArray(storageTypes.map { it.name }))
+    put("favoritesOnly", favoritesOnly)
+    put("tags", JSONArray(tags.toList()))
+}
+
+private inline fun <reified T : Enum<T>> enumSetFromJson(json: JSONArray?): Set<T> {
+    if (json == null) return emptySet()
+    return buildSet {
+        for (i in 0 until json.length()) {
+            val value = json.optString(i)
+            enumValues<T>().firstOrNull { it.name == value }?.let(::add)
+        }
+    }
+}
+
+private fun stringSetFromJson(json: JSONArray?): Set<String> {
+    if (json == null) return emptySet()
+    return buildSet {
+        for (i in 0 until json.length()) {
+            json.optString(i).takeIf(String::isNotBlank)?.let(::add)
+        }
+    }
+}
+
+private fun loadSearchHistory(context: Context): List<SearchHistoryEntry> {
+    val prefs = context.getSharedPreferences(SEARCH_HISTORY_PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(SEARCH_HISTORY_KEY, null) ?: return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                add(
+                    SearchHistoryEntry(
+                        query = item.optString("query"),
+                        matchMode = runCatching {
+                            GallerySearchMatchMode.valueOf(item.optString("matchMode"))
+                        }.getOrDefault(GallerySearchMatchMode.AND),
+                        ageRatings = enumSetFromJson(item.optJSONArray("ageRatings")),
+                        folders = stringSetFromJson(item.optJSONArray("folders")),
+                        mediaTypes = enumSetFromJson(item.optJSONArray("mediaTypes")),
+                        storageTypes = enumSetFromJson(item.optJSONArray("storageTypes")),
+                        favoritesOnly = item.optBoolean("favoritesOnly", false),
+                        tags = stringSetFromJson(item.optJSONArray("tags"))
+                    )
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+}
+
+private fun saveSearchHistory(
+    context: Context,
+    nextEntry: SearchHistoryEntry,
+    limit: Int
+): List<SearchHistoryEntry> {
+    if (!nextEntry.isMeaningful) return loadSearchHistory(context)
+    val prefs = context.getSharedPreferences(SEARCH_HISTORY_PREFS, Context.MODE_PRIVATE)
+    val next = (listOf(nextEntry) + loadSearchHistory(context))
+        .distinctBy { it.toJson().toString() }
+        .take(limit.coerceIn(1, 10))
+    val array = JSONArray()
+    next.forEach { array.put(it.toJson()) }
+    prefs.edit().putString(SEARCH_HISTORY_KEY, array.toString()).apply()
+    return next
 }
 
 @Composable
@@ -104,8 +205,14 @@ fun HomeSearchScreen(
     onBack: () -> Unit,
     onShowResults: () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(SEARCH_HISTORY_PREFS, Context.MODE_PRIVATE) }
+    val historyLimit = remember {
+        prefs.getInt(SEARCH_HISTORY_LIMIT_KEY, DEFAULT_SEARCH_HISTORY_LIMIT).coerceIn(1, 10)
+    }
     val colors = GalleryThemeTokens.colors
     var allMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
+    var searchHistory by remember { mutableStateOf(loadSearchHistory(context).take(historyLimit)) }
 
     var draftQuery by remember { mutableStateOf(galleryState.homeSearchQuery) }
     var draftMatchMode by remember { mutableStateOf(galleryState.homeSearchMatchMode) }
@@ -142,7 +249,32 @@ fun HomeSearchScreen(
         galleryState.homeSearchStorageTypes = draftStorageTypes
         galleryState.homeSearchFavoritesOnly = draftFavoritesOnly
         galleryState.homeSearchTags = draftTags
+        searchHistory = saveSearchHistory(
+            context = context,
+            nextEntry = SearchHistoryEntry(
+                query = draftQuery,
+                matchMode = draftMatchMode,
+                ageRatings = draftAgeRatings,
+                folders = draftFolders,
+                mediaTypes = draftMediaTypes,
+                storageTypes = draftStorageTypes,
+                favoritesOnly = draftFavoritesOnly,
+                tags = draftTags
+            ),
+            limit = historyLimit
+        )
         onShowResults()
+    }
+
+    fun restoreHistory(entry: SearchHistoryEntry) {
+        draftQuery = entry.query
+        draftMatchMode = entry.matchMode
+        draftAgeRatings = entry.ageRatings
+        draftFolders = entry.folders
+        draftMediaTypes = entry.mediaTypes
+        draftStorageTypes = entry.storageTypes
+        draftFavoritesOnly = entry.favoritesOnly
+        draftTags = entry.tags
     }
 
     BackHandler {
@@ -235,9 +367,9 @@ fun HomeSearchScreen(
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = HomeSearchLabels.TITLE,
+                title = stringResource(R.string.search_title),
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                navigationContentDescription = HomeSearchLabels.BACK,
+                navigationContentDescription = stringResource(R.string.btn_back),
                 onNavigationClick = ::closeSearchToUnfilteredHome,
                 containerColor = colors.topBar,
                 contentColor = colors.primaryText,
@@ -245,7 +377,7 @@ fun HomeSearchScreen(
                     IconButton(onClick = ::closeSearchToUnfilteredHome) {
                         Icon(
                             Icons.Default.Close,
-                            contentDescription = HomeSearchLabels.CLEAR,
+                            contentDescription = stringResource(R.string.search_clear),
                             tint = colors.primaryText
                         )
                     }
@@ -274,7 +406,7 @@ fun HomeSearchScreen(
                 OutlinedTextField(
                     value = draftQuery,
                     onValueChange = { draftQuery = it },
-                    label = { Text(HomeSearchLabels.QUERY_LABEL) },
+                    label = { Text(stringResource(R.string.search_query_label)) },
                     singleLine = true,
                     leadingIcon = {
                         Icon(Icons.Default.Search, contentDescription = null)
@@ -282,7 +414,7 @@ fun HomeSearchScreen(
                     trailingIcon = {
                         if (draftQuery.isNotBlank()) {
                             IconButton(onClick = { draftQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = HomeSearchLabels.CLEAR)
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.search_clear))
                             }
                         }
                     },
@@ -290,25 +422,47 @@ fun HomeSearchScreen(
                 )
             }
 
+            if (searchHistory.isNotEmpty()) {
+                item {
+                    SearchSection(title = stringResource(R.string.search_history)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            lazyItems(searchHistory) { entry ->
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { restoreHistory(entry) },
+                                    label = {
+                                        Text(
+                                            text = entry.summary(context),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             item {
-                SearchSection(title = HomeSearchLabels.MATCH_MODE) {
+                SearchSection(title = stringResource(R.string.search_match_mode)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = draftMatchMode == GallerySearchMatchMode.AND,
                             onClick = { draftMatchMode = GallerySearchMatchMode.AND },
-                            label = { Text("AND") }
+                            label = { Text(AppConstants.MATCH_AND) }
                         )
                         FilterChip(
                             selected = draftMatchMode == GallerySearchMatchMode.OR,
                             onClick = { draftMatchMode = GallerySearchMatchMode.OR },
-                            label = { Text("OR") }
+                            label = { Text(AppConstants.MATCH_OR) }
                         )
                     }
                 }
             }
 
             item {
-                SearchSection(title = HomeSearchLabels.FAVORITES_ONLY) {
+                SearchSection(title = stringResource(R.string.search_favorites_only)) {
                     OutlinedButton(
                         onClick = { draftFavoritesOnly = !draftFavoritesOnly },
                         modifier = Modifier.fillMaxWidth()
@@ -323,17 +477,17 @@ fun HomeSearchScreen(
                             tint = colors.accent,
                             modifier = Modifier.padding(end = 8.dp)
                         )
-                        Text(HomeSearchLabels.FAVORITES_ONLY)
+                        Text(stringResource(R.string.search_favorites_only))
                     }
                 }
             }
 
             item {
-                SearchSection(title = HomeSearchLabels.MEDIA_TYPE) {
+                SearchSection(title = stringResource(R.string.search_media_type)) {
                     ThreeColumnGrid(maxHeight = 72) {
                         items(GallerySearchMediaType.entries, key = { it.name }) { type ->
                             SelectableGridCell(
-                                label = type.searchLabel,
+                                label = type.searchLabel(context),
                                 selected = type in draftMediaTypes,
                                 onClick = { draftMediaTypes = draftMediaTypes.toggle(type) }
                             )
@@ -343,19 +497,19 @@ fun HomeSearchScreen(
             }
 
             item {
-                SearchSection(title = HomeSearchLabels.STORAGE) {
+                SearchSection(title = stringResource(R.string.search_storage)) {
                     ThreeColumnGrid(maxHeight = 72) {
                         item(key = "__all_storage") {
                             SelectableGridCell(
-                                label = HomeSearchLabels.ALL,
+                                label = stringResource(R.string.label_all_media),
                                 selected = draftStorageTypes.isEmpty(),
                                 onClick = { draftStorageTypes = emptySet() }
                             )
                         }
                         items(storageOptions, key = { it.first.name }) { (type, count) ->
                             SelectableGridCell(
-                                label = type.searchLabel,
-                                subLabel = "${count}件",
+                                label = type.searchLabel(context),
+                                subLabel = stringResource(R.string.search_item_count_unit, count),
                                 selected = type in draftStorageTypes,
                                 onClick = { draftStorageTypes = draftStorageTypes.toggle(type) }
                             )
@@ -365,11 +519,11 @@ fun HomeSearchScreen(
             }
 
             item {
-                SearchSection(title = HomeSearchLabels.AGE_RATING) {
+                SearchSection(title = stringResource(R.string.search_age_rating)) {
                     ThreeColumnGrid(maxHeight = 72) {
                         items(searchAgeRatings, key = { it.name }) { rating ->
                             SelectableGridCell(
-                                label = rating.searchLabel,
+                                label = rating.searchLabel(context),
                                 selected = rating in draftAgeRatings,
                                 onClick = { draftAgeRatings = draftAgeRatings.toggle(rating) }
                             )
@@ -379,11 +533,11 @@ fun HomeSearchScreen(
             }
 
             item {
-                SearchSection(title = HomeSearchLabels.FOLDER) {
+                SearchSection(title = stringResource(R.string.search_folder)) {
                     ThreeColumnGrid(maxHeight = 156) {
                         item(key = "__all_folders") {
                             SelectableGridCell(
-                                label = HomeSearchLabels.ALL,
+                                label = stringResource(R.string.label_all_media),
                                 selected = draftFolders.isEmpty(),
                                 onClick = { draftFolders = emptySet() }
                             )
@@ -400,10 +554,10 @@ fun HomeSearchScreen(
             }
 
             item {
-                SearchSection(title = HomeSearchLabels.TAGS) {
+                SearchSection(title = stringResource(R.string.search_tags)) {
                     if (visibleTags.isEmpty()) {
                         Text(
-                            text = HomeSearchLabels.NO_TAGS,
+                            text = stringResource(R.string.search_no_tags),
                             color = colors.secondaryText,
                             modifier = Modifier.padding(vertical = 12.dp)
                         )
@@ -416,9 +570,9 @@ fun HomeSearchScreen(
                                 SelectableGridCell(
                                     label = if (translated == tag) tag else translated,
                                     subLabel = if (translated == tag) {
-                                        "${option.count}件"
+                                        stringResource(R.string.search_item_count_unit, option.count)
                                     } else {
-                                        "$tag / ${option.count}件"
+                                        "$tag / ${stringResource(R.string.search_item_count_unit, option.count)}"
                                     },
                                     selected = selected,
                                     onClick = { draftTags = draftTags.toggle(tag) }
@@ -447,7 +601,11 @@ private fun SearchSection(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(title, color = colors.primaryText, fontWeight = FontWeight.Bold)
+            Text(
+                text = title,
+                color = colors.primaryText,
+                style = MaterialTheme.typography.titleLarge
+            )
             content()
         }
     }
@@ -548,7 +706,7 @@ private fun SelectableGridCell(
             Text(
                 text = label,
                 color = if (selected) colors.accent else colors.primaryText,
-                fontSize = AppConstants.SmallFontSize,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -559,7 +717,7 @@ private fun SelectableGridCell(
                 Text(
                     text = subLabel,
                     color = colors.secondaryText,
-                    fontSize = AppConstants.TinyFontSize,
+                    style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -590,47 +748,47 @@ private fun SearchBottomBar(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = "${HomeSearchLabels.RESULT}: ${resultCount}件",
+                text = stringResource(R.string.search_result_count, resultCount),
                 color = colors.accent,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleLarge
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onClear,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(HomeSearchLabels.CLEAR)
+                    Text(stringResource(R.string.search_clear))
                 }
                 Button(
                     onClick = onShowResults,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(HomeSearchLabels.SHOW_RESULTS)
+                    Text(stringResource(R.string.search_show_results))
                 }
             }
         }
     }
 }
 
-private val GallerySearchMediaType.searchLabel: String
-    get() = when (this) {
-        GallerySearchMediaType.IMAGE -> "画像"
-        GallerySearchMediaType.GIF -> "GIF"
-        GallerySearchMediaType.VIDEO -> "動画"
+private fun GallerySearchMediaType.searchLabel(context: Context): String
+    = when (this) {
+        GallerySearchMediaType.IMAGE -> context.getString(R.string.label_image)
+        GallerySearchMediaType.GIF -> context.getString(R.string.label_gif)
+        GallerySearchMediaType.VIDEO -> context.getString(R.string.label_video)
     }
 
-private val GallerySearchStorageType.searchLabel: String
-    get() = when (this) {
-        GallerySearchStorageType.INTERNAL -> "内部ストレージ"
-        GallerySearchStorageType.SD_CARD -> "SDカード"
+private fun GallerySearchStorageType.searchLabel(context: Context): String
+    = when (this) {
+        GallerySearchStorageType.INTERNAL -> context.getString(R.string.label_storage_internal)
+        GallerySearchStorageType.SD_CARD -> context.getString(R.string.label_storage_sdcard)
     }
 
-private val AgeRatingFilter.searchLabel: String
-    get() = when (this) {
-        AgeRatingFilter.SFW -> "SFW"
-        AgeRatingFilter.R15 -> "R-15"
-        AgeRatingFilter.R18 -> "R-18"
-        AgeRatingFilter.ALL -> "すべて"
+private fun AgeRatingFilter.searchLabel(context: Context): String
+    = when (this) {
+        AgeRatingFilter.SFW -> context.getString(R.string.opt_age_sfw)
+        AgeRatingFilter.R15 -> context.getString(R.string.opt_age_r15)
+        AgeRatingFilter.R18 -> context.getString(R.string.opt_age_r18)
+        AgeRatingFilter.ALL -> context.getString(R.string.label_search_all)
     }
 
 private val searchAgeRatings = listOf(

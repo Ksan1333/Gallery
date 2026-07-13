@@ -14,7 +14,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -26,6 +25,7 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import com.example.gallery.ui.component.GalleryTopAppBar
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import com.example.gallery.BuildConfig
@@ -66,6 +66,8 @@ fun AboutScreen(
     viewModel: ChangelogViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     LaunchedEffect(Unit) {
         viewModel.fetchChangelog(context)
     }
@@ -79,13 +81,13 @@ fun AboutScreen(
                 onNavigationClick = onBack
             )
         },
-        containerColor = Color.Black
+        containerColor = colors.background
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color.Black)
+                .background(colors.background)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
@@ -94,24 +96,24 @@ fun AboutScreen(
                     Icon(
                         Icons.Default.Info,
                         contentDescription = null,
-                        tint = Color.Cyan,
+                        tint = colors.accent,
                         modifier = Modifier.size(64.dp)
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("Gallery App", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.TitleFontSize, fontWeight = FontWeight.Bold)
-                    Text("Version ${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
+                    Text(stringResource(R.string.app_name), color = colors.primaryText, fontSize = textSizes.title, fontWeight = FontWeight.Bold)
+                    Text("Version ${BuildConfig.VERSION_NAME}", color = colors.mutedText, fontSize = textSizes.subtitle)
                 }
             }
 
             Spacer(Modifier.height(32.dp))
 
-            Text(stringResource(R.string.about_changelog), color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
+            Text(stringResource(R.string.about_changelog), color = colors.accent, fontSize = textSizes.header, fontWeight = FontWeight.Bold)
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = colors.mutedText.copy(alpha = 0.3f))
 
             when {
                 viewModel.isLoading -> {
                     Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.Cyan)
+                        CircularProgressIndicator(color = colors.accent)
                     }
                 }
                 viewModel.error != null -> {
@@ -119,10 +121,10 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(viewModel.error!!, color = Color.Red, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
+                        Text(viewModel.error!!, color = colors.danger, fontSize = textSizes.subtitle)
                         Button(
                             onClick = { viewModel.fetchChangelog(context) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.card)
                         ) {
                             Text(stringResource(R.string.btn_retry))
                         }
@@ -135,10 +137,10 @@ fun AboutScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            Text(stringResource(R.string.about_dev_info), color = Color.Cyan, fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize, fontWeight = FontWeight.Bold)
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
+            Text(stringResource(R.string.about_dev_info), color = colors.accent, fontSize = textSizes.header, fontWeight = FontWeight.Bold)
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = colors.mutedText.copy(alpha = 0.3f))
 
-            Text(stringResource(R.string.about_dev_desc), color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize)
+            Text(stringResource(R.string.about_dev_desc), color = colors.secondaryText, fontSize = textSizes.subtitle)
 
             Spacer(Modifier.height(48.dp))
         }
@@ -150,9 +152,10 @@ private data class ChangelogSection(
     val body: String
 )
 
-private fun parseChangelogSections(text: String): List<ChangelogSection> {
+private fun parseChangelogSections(text: String, context: Context): List<ChangelogSection> {
     val sections = mutableListOf<ChangelogSection>()
-    var currentTitle = "更新履歴"
+    val defaultTitle = context.getString(R.string.about_changelog_default)
+    var currentTitle = defaultTitle
     val body = StringBuilder()
     text.lines().forEach { line ->
         if (line.startsWith("## ")) {
@@ -168,18 +171,20 @@ private fun parseChangelogSections(text: String): List<ChangelogSection> {
     if (body.isNotBlank() || sections.isEmpty()) {
         sections += ChangelogSection(currentTitle, body.toString().trim())
     }
-    return sections.filter { it.body.isNotBlank() || it.title != "更新履歴" }
+    return sections.filter { it.body.isNotBlank() || it.title != defaultTitle }
 }
 
 @Composable
 fun ExpandableChangelog(text: String) {
-    val sections = remember(text) { parseChangelogSections(text) }
+    val context = LocalContext.current
+    val sections = remember(text) { parseChangelogSections(text, context) }
     var expandedTitle by remember(sections) { mutableStateOf(sections.firstOrNull()?.title) }
+    val colors = GalleryThemeTokens.colors
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         sections.forEach { section ->
             val expanded = expandedTitle == section.title
             Surface(
-                color = Color.DarkGray.copy(alpha = 0.45f),
+                color = colors.card.copy(alpha = 0.45f),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -191,8 +196,8 @@ fun ExpandableChangelog(text: String) {
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(section.title, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = Color.Cyan)
+                        Text(section.title, color = colors.primaryText, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = colors.accent)
                     }
                     if (expanded) {
                         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -207,14 +212,16 @@ fun ExpandableChangelog(text: String) {
 
 @Composable
 fun MarkdownText(text: String) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     Column {
         text.lines().forEach { line ->
             when {
                 line.startsWith("# ") -> {
                     Text(
                         text = line.removePrefix("# "),
-                        color = Color.White,
-                        fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
+                        color = colors.primaryText,
+                        fontSize = textSizes.header,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
@@ -222,8 +229,8 @@ fun MarkdownText(text: String) {
                 line.startsWith("## ") -> {
                     Text(
                         text = line.removePrefix("## "),
-                        color = Color.Cyan,
-                        fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
+                        color = colors.accent,
+                        fontSize = textSizes.header,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
                     )
@@ -231,19 +238,19 @@ fun MarkdownText(text: String) {
                 line.startsWith("### ") -> {
                     Text(
                         text = line.removePrefix("### "),
-                        color = Color.White,
-                        fontSize = com.example.gallery.ui.AppConstants.BodyFontSize,
+                        color = colors.primaryText,
+                        fontSize = textSizes.body,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                     )
                 }
                 line.startsWith("- ") || line.startsWith("* ") -> {
                     Row(modifier = Modifier.padding(start = 8.dp).padding(vertical = 2.dp)) {
-                        Text("• ", color = Color.Cyan)
+                        Text("• ", color = colors.accent)
                         Text(
                             text = line.substring(2),
-                            color = Color.LightGray,
-                            fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize
+                            color = colors.secondaryText,
+                            fontSize = textSizes.subtitle
                         )
                     }
                 }
@@ -253,8 +260,8 @@ fun MarkdownText(text: String) {
                 else -> {
                     Text(
                         text = line,
-                        color = Color.LightGray,
-                        fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize,
+                        color = colors.secondaryText,
+                        fontSize = textSizes.subtitle,
                         modifier = Modifier.padding(vertical = 2.dp)
                     )
                 }

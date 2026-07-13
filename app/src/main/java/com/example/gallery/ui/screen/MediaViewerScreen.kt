@@ -40,8 +40,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.material3.*
@@ -50,6 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.draw.clip
@@ -67,6 +66,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +79,8 @@ import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -100,6 +102,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import android.util.Log
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -109,25 +112,89 @@ import android.content.ContentValues
 import android.app.WallpaperManager
 import android.media.MediaMetadataRetriever
 import android.widget.Toast
-import com.example.gallery.ui.AppConstants
-import com.example.gallery.ui.AppDefaults
-import com.example.gallery.ui.AppRoutes
-import com.example.gallery.data.model.MediaData
-import com.example.gallery.ui.state.GalleryState
-import com.example.gallery.ui.state.AgeRatingFilter
-import com.example.gallery.service.TagTranslationService
-import com.example.gallery.ui.component.GalleryFloatingActionButton
-import com.example.gallery.ui.component.OperationProgressIndicator
-import com.example.gallery.ui.component.TapZoneGuideOverlay
-import com.example.gallery.ui.component.tapZoneCountForLayout
-import com.example.gallery.ui.component.UnifiedMediaEditDialog
-import com.example.gallery.ui.theme.GalleryThemeTokens
+import android.content.Context
+import androidx.compose.foundation.pager.PagerState
 import kotlinx.coroutines.Dispatchers
 import java.io.File
 import java.util.Locale
 import java.util.Date
 import java.text.SimpleDateFormat
 import kotlin.math.roundToInt
+import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.AppRoutes
+import com.example.gallery.data.model.MediaData
+import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.state.AgeRatingFilter
+import com.example.gallery.service.TagTranslationService
+import com.example.gallery.ui.component.GalleryFloatingActionButton
+import com.example.gallery.ui.component.GalleryVideoSeekBar
+import com.example.gallery.ui.component.OperationProgressIndicator
+import com.example.gallery.ui.component.ViewerControlBar
+import com.example.gallery.ui.component.resolveViewerAction
+import com.example.gallery.ui.component.TapZoneGuideOverlay
+import com.example.gallery.ui.component.tapZoneCountForLayout
+import com.example.gallery.ui.component.UnifiedMediaEditDialog
+import com.example.gallery.ui.theme.GalleryThemeTokens
+
+private fun handleViewerAction(
+    function: String,
+    context: Context,
+    currentMediaItem: MediaData,
+    galleryState: GalleryState?,
+    scope: kotlinx.coroutines.CoroutineScope,
+    videoPosition: Long,
+    isFrameSteppingVisible: Boolean,
+    gifFrames: List<Bitmap>,
+    onClickedClose: () -> Unit,
+    onRotate: () -> Unit,
+    onToggleSlideshow: () -> Unit,
+    onToggleGifStepping: () -> Unit,
+    onShowTagDialog: () -> Unit,
+    onSearchAscii2d: () -> Unit
+) {
+    when (function) {
+        context.getString(R.string.label_action_trash) -> galleryState?.let { state ->
+            scope.launch {
+                state.repository.moveToTrash(listOf(currentMediaItem.uri))
+                Toast.makeText(context, context.getString(R.string.msg_deleted_count, 1), Toast.LENGTH_SHORT).show()
+                onClickedClose()
+            }
+        }
+        context.getString(R.string.label_action_close) -> onClickedClose()
+        context.getString(R.string.label_action_settings) -> galleryState?.navController?.navigate(AppRoutes.MEDIA_VIEWER_SETTINGS)
+        context.getString(R.string.label_action_rotate) -> onRotate()
+        context.getString(R.string.label_action_screenshot) -> {
+            if (currentMediaItem.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) saveBitmapToScreenshots(context, gifFrames[0])
+            else if (currentMediaItem.isVideo) captureVideoFrame(context, currentMediaItem.uri, videoPosition) { bitmap -> if (bitmap != null) saveBitmapToScreenshots(context, bitmap) }
+            else if (currentMediaItem.isGif) Toast.makeText(context, context.getString(R.string.msg_gif_use_stepping), Toast.LENGTH_SHORT).show()
+        }
+        context.getString(R.string.label_action_favorite) -> galleryState?.let { scope.launch { it.repository.toggleFavorite(currentMediaItem.uri) } }
+        context.getString(R.string.label_action_slideshow) -> onToggleSlideshow()
+        context.getString(R.string.label_action_gif) -> onToggleGifStepping()
+        context.getString(R.string.label_action_ascii2d) -> onSearchAscii2d()
+        context.getString(R.string.label_action_wallpaper) -> {
+            if (currentMediaItem.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) setBitmapAsWallpaper(context, gifFrames[0])
+            else setAsWallpaper(context, currentMediaItem.uri)
+        }
+        context.getString(R.string.label_action_folder_thumbnail) -> scope.launch {
+            galleryState?.repository?.updateFolderThumbnail(currentMediaItem.folderName, currentMediaItem.uri)
+            Toast.makeText(context, context.getString(R.string.msg_set_folder_thumbnail, currentMediaItem.folderName), Toast.LENGTH_SHORT).show()
+        }
+        context.getString(R.string.label_action_tag) -> onShowTagDialog()
+    }
+}
+
+private fun isViewerOverflowAction(function: String, context: Context): Boolean {
+    return function == context.getString(R.string.label_3dot_menu) || function.contains("3")
+}
+
+private fun isMediaViewerActionAvailable(function: String, mediaItem: MediaData, context: Context): Boolean {
+    return when (function) {
+        context.getString(R.string.label_action_gif) -> mediaItem.isGif
+        context.getString(R.string.label_action_ascii2d) -> !mediaItem.isVideo
+        else -> true
+    }
+}
 
 private const val VIDEO_VIEWER_TRACE = "GALLERY_VIDEO_VIEWER_TRACE"
 
@@ -155,19 +222,19 @@ fun MediaViewerScreen(
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { imageList.size })
     val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", android.content.Context.MODE_PRIVATE) }
     val doubleTapFastZoom = globalSettingsPrefs.getBoolean("doubleTapFastZoom", true)
-    val slideshowIntervalMs = remember { globalSettingsPrefs.getInt("slideshowIntervalMs", 0) }
+    val slideshowIntervalMs = remember { globalSettingsPrefs.getInt("slideshowIntervalMs", 5000) }
     val slideshowSpeedMs = remember { globalSettingsPrefs.getInt("slideshowSpeedMs", 250).coerceIn(0, 2000) }
     val randomPlayback = remember { globalSettingsPrefs.getBoolean("randomPlayback", false) }
     val continuousPlayback = remember { globalSettingsPrefs.getBoolean("continuousPlayback", true) }
     val menuAlpha = remember { (1f - globalSettingsPrefs.getInt("menuOpacityPercent", 0) / 100f).coerceIn(0f, 1f) }
-    val controlPanelAutoHideMs = remember { globalSettingsPrefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS).coerceIn(1000, 10000) }
     val progressDisplayMode = globalSettingsPrefs.getString("progressDisplayMode", "MAX") ?: "MAX"
     val progressMiniStyle = globalSettingsPrefs.getString("progressMiniStyle", "BAR") ?: "BAR"
     val longPressMagnifier = globalSettingsPrefs.getBoolean("longPressMagnifier", false)
     val magnifierScale = (globalSettingsPrefs.getInt("magnifierScalePercent", 200) / 100f).coerceIn(1f, 3f)
     val touchIndicatorEnabled = globalSettingsPrefs.getBoolean("touchIndicator", false)
-    val tapZonePrefs = remember { context.getSharedPreferences("book_viewer_settings", android.content.Context.MODE_PRIVATE) }
-    val tapZoneCount = tapZoneCountForLayout(tapZonePrefs.getString("tapZoneLayout", "THREE"))
+    val tapZoneLayout = globalSettingsPrefs.getString("tapZoneLayout", "THREE") ?: "THREE"
+    val tapZoneCount = tapZoneCountForLayout(tapZoneLayout)
+    val showClockBattery = globalSettingsPrefs.getBoolean("showClockBattery", false)
     val fullscreenMode = remember { globalSettingsPrefs.getString("fullscreenMode", "HIDE_STATUS_BAR") ?: "HIDE_STATUS_BAR" }
     val orientationMode = remember { globalSettingsPrefs.getString("orientation", "AUTO") ?: "AUTO" }
     val imageFilterQuality = remember {
@@ -179,7 +246,27 @@ fun MediaViewerScreen(
         }
     }
 
+    val mediaViewerPrefs = remember { context.getSharedPreferences("media_viewer_settings", android.content.Context.MODE_PRIVATE) }
+    val showInfoOverlayEnabled = mediaViewerPrefs.getBoolean("showInfoOverlay", false)
+    val loopGif = mediaViewerPrefs.getBoolean("loopGif", true)
+    val showFrameBar = mediaViewerPrefs.getBoolean("showFrameBar", false)
+    val showRandomRecs = mediaViewerPrefs.getBoolean("showRandomRecs", true)
+    val showSimilarRecs = mediaViewerPrefs.getBoolean("showSimilarRecs", true)
+    val swipeUpRecs = mediaViewerPrefs.getBoolean("swipeUpRecs", true)
+    val swipeDownClose = mediaViewerPrefs.getBoolean("swipeDownClose", true)
+    val doubleTapZoomEnabled = mediaViewerPrefs.getBoolean("doubleTapZoom", true)
+    val showSystemBarsPref = mediaViewerPrefs.getBoolean("showSystemBars", false)
+    val videoSeekIntervalMediaPref = remember { mediaViewerPrefs.getString("seekInterval", "10")?.toIntOrNull() ?: 10 }
+
+    val videoPrefs = remember { context.getSharedPreferences("video_viewer_settings", android.content.Context.MODE_PRIVATE) }
+    val videoAutoPlay = remember { videoPrefs.getBoolean("autoPlay", true) }
+    val videoLoopPlayback = remember { videoPrefs.getBoolean("loopPlayback", true) }
+    val videoDefaultMute = remember { videoPrefs.getBoolean("defaultMute", false) }
+    val videoSeekIntervalPref = remember { videoPrefs.getString("seekInterval", "10")?.toIntOrNull() ?: videoSeekIntervalMediaPref }
+    val videoResizeMode = remember { videoPrefs.getString("resizeMode", "FIT") ?: "FIT" }
+
     val thumbnailListState = rememberLazyListState()
+    val thumbnailOriginalIndices = remember(imageList) { imageList.indices.toList() }
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
 
     var lastInitialPage by rememberSaveable { mutableIntStateOf(initialPage) }
@@ -201,7 +288,7 @@ fun MediaViewerScreen(
     }
     var screenOrientation by rememberSaveable { mutableIntStateOf(configuredScreenOrientation) }
 
-    var isRecommendationVisible by rememberSaveable { mutableStateOf(false) }
+    var isRecommendationVisible by rememberSaveable { mutableStateOf(showInfoOverlayEnabled) }
     val recommendationDragOffset = remember { Animatable(0f) }
 
     val currentMedia = remember(pagerState.currentPage, imageList) { imageList.getOrNull(pagerState.currentPage) }
@@ -229,17 +316,18 @@ fun MediaViewerScreen(
     var isGifFrameLoading by remember { mutableStateOf(false) }
     var gifFrameProgress by remember { mutableStateOf<Float?>(null) }
 
-    var isVideoPlaying by remember(pagerState.currentPage) { mutableStateOf(true) }
+    var isVideoPlaying by remember(pagerState.currentPage) { mutableStateOf(videoAutoPlay) }
     var wasPlayingBeforeSeek by remember { mutableStateOf(false) }
     var videoDuration by remember(pagerState.currentPage) { mutableLongStateOf(0L) }
     var videoPosition by remember(pagerState.currentPage) { mutableLongStateOf(0L) }
-    var isMuted by rememberSaveable { mutableStateOf(true) }
+    var isMuted by rememberSaveable { mutableStateOf(videoDefaultMute) }
     var isSeeking by remember(pagerState.currentPage) { mutableStateOf(false) }
     var seekTargetPosition by remember(pagerState.currentPage) { mutableLongStateOf(-1L) }
 
     var isVerticalSwiping by remember { mutableStateOf(false) }
     var isOverflowMenuVisible by remember { mutableStateOf(false) }
     var isSlideshowRunning by rememberSaveable { mutableStateOf(false) }
+    var ascii2dUploadData by remember { mutableStateOf<Ascii2dUploadData?>(null) }
     var touchIndicatorPoint by remember { mutableStateOf<Offset?>(null) }
     var touchIndicatorToken by remember { mutableIntStateOf(0) }
     var suppressImageTapAfterMagnifier by remember { mutableStateOf(false) }
@@ -267,6 +355,13 @@ fun MediaViewerScreen(
         isVideoPlaying = true
     }
 
+    LaunchedEffect(pagerState.currentPage, thumbnailOriginalIndices) {
+        val displayIndex = thumbnailOriginalIndices.indexOf(pagerState.currentPage)
+        if (displayIndex >= 0) {
+            thumbnailListState.animateScrollToItem(displayIndex)
+        }
+    }
+
     LaunchedEffect(isSlideshowRunning, slideshowIntervalMs, slideshowSpeedMs, pagerState.currentPage, isCurrentPageZoomed, currentMedia?.uri) {
         if (!isSlideshowRunning || slideshowIntervalMs <= 0 || isCurrentPageZoomed || currentMedia?.isVideo == true || imageList.size <= 1) return@LaunchedEffect
         delay(slideshowIntervalMs.toLong())
@@ -287,28 +382,34 @@ fun MediaViewerScreen(
         window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
-    LaunchedEffect(isUiVisible, insetsController, keepNavigationBarsHidden, fullscreenMode, screenOrientation) {
-        window?.navigationBarColor = android.graphics.Color.BLACK
+    val configuration = LocalConfiguration.current
+    LaunchedEffect(isUiVisible, insetsController, keepNavigationBarsHidden, fullscreenMode, screenOrientation, configuration.orientation, showSystemBarsPref) {
+        window?.navigationBarColor = android.graphics.Color.TRANSPARENT
         window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window?.isNavigationBarContrastEnforced = false
         }
         insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        val hiddenTypes = when (fullscreenMode) {
-            "DISABLED" -> 0
-            "FULLSCREEN" -> WindowInsetsCompat.Type.systemBars()
-            "HIDE_NAV_BAR" -> WindowInsetsCompat.Type.navigationBars()
-            else -> WindowInsetsCompat.Type.statusBars()
-        }
-        if (hiddenTypes == 0) {
-            insetsController?.show(WindowInsetsCompat.Type.statusBars())
+
+        if (showSystemBarsPref) {
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
         } else {
-            insetsController?.hide(hiddenTypes)
-        }
-        if (isUiVisible) {
-            insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-        } else {
-            insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
+            val hiddenTypes = when (fullscreenMode) {
+                "DISABLED" -> 0
+                "FULLSCREEN" -> WindowInsetsCompat.Type.systemBars()
+                "HIDE_NAV_BAR" -> WindowInsetsCompat.Type.navigationBars()
+                else -> WindowInsetsCompat.Type.statusBars()
+            }
+            if (hiddenTypes == 0) {
+                insetsController?.show(WindowInsetsCompat.Type.statusBars())
+            } else {
+                insetsController?.hide(hiddenTypes)
+            }
+            if (isUiVisible) {
+                insetsController?.show(WindowInsetsCompat.Type.navigationBars())
+            } else {
+                insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
+            }
         }
     }
 
@@ -358,9 +459,27 @@ fun MediaViewerScreen(
         }
     }
 
+    DisposableEffect(galleryState, isRecommendationVisible) {
+        if (isRecommendationVisible) {
+            galleryState?.isZooming = true
+        }
+        onDispose {
+            if (isRecommendationVisible) {
+                galleryState?.isZooming = false
+            }
+        }
+    }
+
     val onShowSimilarity: (MediaData) -> Unit = {
         isRecommendationVisible = true
         scope.launch { recommendationDragOffset.snapTo(0f) }
+    }
+
+    DisposableEffect(galleryState) {
+        galleryState?.isMediaViewerOpen = true
+        onDispose {
+            galleryState?.isMediaViewerOpen = false
+        }
     }
 
     var controlInteractionToken by remember { mutableIntStateOf(0) }
@@ -368,15 +487,6 @@ fun MediaViewerScreen(
         if (!isRecommendationVisible) {
             isUiVisible = !isUiVisible
             controlInteractionToken++
-        }
-    }
-
-    LaunchedEffect(isUiVisible, controlInteractionToken, pagerState.currentPage, currentMedia?.uri, isOverflowMenuVisible, controlPanelAutoHideMs) {
-        if (isUiVisible && currentMedia?.isVideo == true && !isOverflowMenuVisible) {
-            delay(controlPanelAutoHideMs.toLong())
-            if (!isOverflowMenuVisible) {
-                isUiVisible = false
-            }
         }
     }
 
@@ -388,9 +498,11 @@ fun MediaViewerScreen(
     }
 
     val density = LocalDensity.current
+    val colors = GalleryThemeTokens.colors
     val maxRecDrag = with(density) { 360.dp.toPx() } // 600dp -> 360dp（約60%に調整）
 
-    Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
+    val textSizes = GalleryThemeTokens.textSizes
+    Box(modifier = modifier.fillMaxSize().background(colors.background)) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -404,6 +516,8 @@ fun MediaViewerScreen(
             var magnifierBaseScale by remember(page) { mutableFloatStateOf(1f) }
             var magnifierBaseOffsetX by remember(page) { mutableFloatStateOf(0f) }
             var magnifierBaseOffsetY by remember(page) { mutableFloatStateOf(0f) }
+            var magnifierFocusOffsetX by remember(page) { mutableFloatStateOf(0f) }
+            var magnifierFocusOffsetY by remember(page) { mutableFloatStateOf(0f) }
             var isMagnifierActive by remember(page) { mutableStateOf(false) }
             var magnifierDragOffset by remember(page) { mutableStateOf(Offset.Zero) }
 
@@ -439,6 +553,8 @@ fun MediaViewerScreen(
                         onToggleUi = onToggle,
                         onProgressChanged = { pos, dur -> if (pagerState.currentPage == page && !isSeeking) { videoPosition = pos; videoDuration = dur } },
                         scale = scale.value, offsetX = offsetX.value, offsetY = offsetY.value,
+                        loopPlayback = videoLoopPlayback,
+                        resizeMode = videoResizeMode,
                         onZoomPan = { z, p ->
                             scope.launch {
                                 if (isMagnifierActive) {
@@ -467,10 +583,10 @@ fun MediaViewerScreen(
                         onVerticalDrag = { drag ->
                             isVerticalSwiping = true
                             scope.launch {
-                                if (isRecommendationVisible) {
+                                if (swipeUpRecs && isRecommendationVisible) {
                                     val currentRecOffset = recommendationDragOffset.value
                                     recommendationDragOffset.snapTo((currentRecOffset + drag).coerceAtLeast(0f))
-                                } else {
+                                } else if (swipeUpRecs && !isRecommendationVisible) {
                                     val newOffset = offsetY.value + drag
                                     if (newOffset < -20f) {
                                         scope.launch { recommendationDragOffset.snapTo(0f) }
@@ -478,6 +594,8 @@ fun MediaViewerScreen(
                                     } else {
                                         offsetY.snapTo(newOffset)
                                     }
+                                } else {
+                                    offsetY.snapTo(offsetY.value + drag)
                                 }
                             }
                         },
@@ -509,12 +627,12 @@ fun MediaViewerScreen(
                             if (scale.value < 0.95f) {
                                 scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } }
                             } else if (scale.value <= 1.05f) {
-                                if (offsetY.value > 200f) onClickedClose()
+                                if (swipeDownClose && offsetY.value > 200f) onClickedClose()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
                         onDoubleTap = {
-                            if (doubleTapFastZoom) {
+                            if (doubleTapZoomEnabled && doubleTapFastZoom) {
                                 val targetScale = if (scale.value > 1.1f) 1f else 3.0f
                                 scope.launch { if (targetScale == 1f) { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } } else scale.animateTo(3.0f) }
                             }
@@ -546,10 +664,10 @@ fun MediaViewerScreen(
                         onVerticalDrag = { drag: Float ->
                             isVerticalSwiping = true
                             scope.launch {
-                                if (isRecommendationVisible) {
+                                if (swipeUpRecs && isRecommendationVisible) {
                                     val currentRecOffset = recommendationDragOffset.value
                                     recommendationDragOffset.snapTo((currentRecOffset + drag).coerceAtLeast(0f))
-                                } else {
+                                } else if (swipeUpRecs && !isRecommendationVisible) {
                                     val newOffset = offsetY.value + drag
                                     if (newOffset < -20f) {
                                         scope.launch { recommendationDragOffset.snapTo(0f) }
@@ -557,6 +675,8 @@ fun MediaViewerScreen(
                                     } else {
                                         offsetY.snapTo(newOffset)
                                     }
+                                } else {
+                                    offsetY.snapTo(offsetY.value + drag)
                                 }
                             }
                         },
@@ -636,6 +756,92 @@ fun MediaViewerScreen(
                                     var accumulatedPan = Offset.Zero
                                     var isTransforming = false
                                     var verticalSwipeStarted = false
+                                    var longPressCancelReason = ""
+                                    val longPressReached = if (longPressMagnifier) {
+                                        withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                if (event.changes.count { it.pressed } > 1) {
+                                                    longPressCancelReason = "multi_touch"
+                                                    return@withTimeoutOrNull false
+                                                }
+
+                                                val change = event.changes.firstOrNull { it.id == firstDown.id }
+                                                    ?: return@withTimeoutOrNull false
+                                                if (!change.pressed) {
+                                                    longPressCancelReason = "release"
+                                                    return@withTimeoutOrNull false
+                                                }
+
+                                                if ((change.position - firstDown.position).getDistance() > viewConfiguration.touchSlop) {
+                                                    longPressCancelReason = "move"
+                                                    return@withTimeoutOrNull false
+                                                }
+                                            }
+                                        } == null
+                                    } else {
+                                        false
+                                    }
+
+                                    if (longPressReached) {
+                                        showViewerTouchIndicator(firstDown.position)
+                                        magnifierBaseScale = scale.value
+                                        magnifierBaseOffsetX = offsetX.value
+                                        magnifierBaseOffsetY = offsetY.value
+                                        magnifierDragOffset = Offset.Zero
+                                        suppressImageTapAfterMagnifier = true
+                                        isMagnifierActive = true
+
+                                        val targetScale = (magnifierBaseScale * magnifierScale).coerceIn(1f, 5f)
+                                        var magnifierUpdateJob: Job? = null
+                                        fun focusMagnifierAt(position: Offset) {
+                                            val scaleRatio = targetScale / magnifierBaseScale.coerceAtLeast(0.01f)
+                                            val touchFromCenter = Offset(
+                                                x = position.x - viewportWidthPx / 2f,
+                                                y = position.y - viewportHeightPx / 2f
+                                            )
+                                            val focused = clampOffset(
+                                                targetScale,
+                                                touchFromCenter.x * (1f - scaleRatio) + magnifierBaseOffsetX * scaleRatio,
+                                                touchFromCenter.y * (1f - scaleRatio) + magnifierBaseOffsetY * scaleRatio,
+                                                fittedImageSize
+                                            )
+                                            magnifierFocusOffsetX = focused.x
+                                            magnifierFocusOffsetY = focused.y
+                                            magnifierUpdateJob?.cancel()
+                                            magnifierUpdateJob = scope.launch {
+                                                scale.snapTo(targetScale)
+                                                offsetX.snapTo(focused.x)
+                                                offsetY.snapTo(focused.y)
+                                            }
+                                        }
+
+                                        try {
+                                            focusMagnifierAt(firstDown.position)
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val change = event.changes.firstOrNull { it.id == firstDown.id }
+                                                    ?: break
+                                                if (!change.pressed) break
+                                                focusMagnifierAt(change.position)
+                                                change.consume()
+                                            }
+                                        } finally {
+                                            magnifierUpdateJob?.cancel()
+                                            isMagnifierActive = false
+                                            scope.launch {
+                                                scale.animateTo(magnifierBaseScale)
+                                                offsetX.animateTo(magnifierBaseOffsetX)
+                                                offsetY.animateTo(magnifierBaseOffsetY)
+                                            }
+                                        }
+                                        return@awaitEachGesture
+                                    }
+
+                                    if (longPressCancelReason == "release") {
+                                        return@awaitEachGesture
+                                    }
+
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val zoomChange = event.calculateZoom()
@@ -646,10 +852,15 @@ fun MediaViewerScreen(
                                             magnifierDragOffset += panChange
                                             scope.launch {
                                                 val targetScale = (magnifierBaseScale * magnifierScale).coerceIn(1f, 5f)
+                                                val scaleRatio = targetScale / magnifierBaseScale.coerceAtLeast(0.01f)
+                                                val currentTouchFromCenter = Offset(
+                                                    x = firstDown.position.x + magnifierDragOffset.x - viewportWidthPx / 2f,
+                                                    y = firstDown.position.y + magnifierDragOffset.y - viewportHeightPx / 2f
+                                                )
                                                 val clamped = clampOffset(
                                                     targetScale,
-                                                    magnifierBaseOffsetX + magnifierDragOffset.x * targetScale,
-                                                    magnifierBaseOffsetY + magnifierDragOffset.y * targetScale,
+                                                    currentTouchFromCenter.x * (1f - scaleRatio) + magnifierBaseOffsetX * scaleRatio,
+                                                    currentTouchFromCenter.y * (1f - scaleRatio) + magnifierBaseOffsetY * scaleRatio,
                                                     fittedImageSize
                                                 )
                                                 offsetX.snapTo(clamped.x)
@@ -687,10 +898,10 @@ fun MediaViewerScreen(
                                                         isVerticalSwiping = true
                                                     }
                                                     scope.launch {
-                                                        if (isRecommendationVisible) {
+                                        if (swipeUpRecs && isRecommendationVisible) {
                                                             val currentRecOffset = recommendationDragOffset.value
                                                             recommendationDragOffset.snapTo((currentRecOffset + panChange.y).coerceAtLeast(0f))
-                                                        } else {
+                                                        } else if (swipeUpRecs && !isRecommendationVisible) {
                                                             val newOffset = offsetY.value + panChange.y
                                                             if (newOffset < -20f) {
                                                                 scope.launch { recommendationDragOffset.snapTo(0f) }
@@ -698,6 +909,8 @@ fun MediaViewerScreen(
                                                             } else {
                                                                 offsetY.snapTo(newOffset)
                                                             }
+                                                        } else {
+                                                            offsetY.snapTo(offsetY.value + panChange.y)
                                                         }
                                                     }
                                                     event.changes.forEach { if (it.pressed) it.consume() }
@@ -721,7 +934,7 @@ fun MediaViewerScreen(
                                                 }
 
                                                 if (scale.value <= 1.05f) {
-                                                    if (offsetY.value > 200f) onClickedClose()
+                                                    if (swipeDownClose && offsetY.value > 200f) onClickedClose()
                                                     else scope.launch { offsetY.animateTo(0f) }
                                                 }
                                             }
@@ -733,30 +946,7 @@ fun MediaViewerScreen(
                             .pointerInput(Unit) {
                                 detectTapGestures(onPress = {
                                     showViewerTouchIndicator(it)
-                                    var magnifierShown = false
-                                    magnifierBaseScale = scale.value
-                                    magnifierBaseOffsetX = offsetX.value
-                                    magnifierBaseOffsetY = offsetY.value
-                                    magnifierDragOffset = Offset.Zero
-                                    val job = scope.launch {
-                                        delay(450)
-                                        if (longPressMagnifier) {
-                                            magnifierShown = true
-                                            suppressImageTapAfterMagnifier = true
-                                            isMagnifierActive = true
-                                            scale.animateTo((magnifierBaseScale * magnifierScale).coerceIn(1f, 5f))
-                                        }
-                                    }
                                     tryAwaitRelease()
-                                    job.cancel()
-                                    if (magnifierShown) {
-                                        isMagnifierActive = false
-                                        scope.launch {
-                                            scale.animateTo(magnifierBaseScale)
-                                            offsetX.animateTo(magnifierBaseOffsetX)
-                                            offsetY.animateTo(magnifierBaseOffsetY)
-                                        }
-                                    }
                                 }, onTap = {
                                     showViewerTouchIndicator(it)
                                     if (suppressImageTapAfterMagnifier) {
@@ -766,7 +956,7 @@ fun MediaViewerScreen(
                                     }
                                 }, onDoubleTap = {
                                     showViewerTouchIndicator(it)
-                                    if (doubleTapFastZoom) {
+                                    if (doubleTapZoomEnabled && doubleTapFastZoom) {
                                         val targetScale = if (scale.value > 1.1f) 1f else 3.0f
                                         scope.launch { if (targetScale == 1f) { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } } else scale.animateTo(3.0f) }
                                     }
@@ -794,7 +984,8 @@ fun MediaViewerScreen(
                             scope.launch { delay(100); isSeeking = false; seekTargetPosition = -1L }
                         },
                         galleryState = galleryState,
-                        modifier = Modifier.align(Alignment.Center)
+                        modifier = Modifier.align(Alignment.Center),
+                        defaultSeekInterval = videoSeekIntervalMediaPref
                     )
                 }
 
@@ -812,87 +1003,70 @@ fun MediaViewerScreen(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .graphicsLayer { alpha = menuAlpha }
-                        .background(Color.Black)
+                        .background(colors.background)
                         .navigationBarsPadding()
                         .padding(bottom = 2.dp)
                 ) {
                     if (currentMediaItem.isVideo && videoDuration > 0 && !pagerState.isScrollInProgress) {
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = "${formatTime(videoPosition)} / ${formatTime(videoDuration)}", color = Color.White, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(end = 8.dp))
-                                var sliderWidth by remember { mutableIntStateOf(0) }
-                                Box(
-                                    modifier = Modifier.weight(1f).height(24.dp).onGloballyPositioned { coordinates -> sliderWidth = coordinates.size.width },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Slider(
-                                        value = videoPosition.toFloat(),
-                                        onValueChange = {
-                                            if (!isSeeking) {
-                                                wasPlayingBeforeSeek = isVideoPlaying
+                                Text(text = "${formatTime(videoPosition)} / ${formatTime(videoDuration)}", color = colors.primaryText, fontSize = textSizes.tiny, modifier = Modifier.padding(end = 8.dp))
+                                GalleryVideoSeekBar(
+                                    positionMs = videoPosition,
+                                    durationMs = videoDuration,
+                                    onSeekStart = {
+                                        if (!isSeeking) {
+                                            wasPlayingBeforeSeek = isVideoPlaying
+                                        }
+                                        isSeeking = true
+                                        isVideoPlaying = false
+                                    },
+                                    onSeek = {
+                                        val frameStepMs = 1000L / 30L
+                                        val target = (((it + frameStepMs / 2) / frameStepMs) * frameStepMs).coerceIn(0L, videoDuration)
+                                        videoPosition = target
+                                        seekTargetPosition = target
+                                    },
+                                    onSeekEnd = {
+                                        scope.launch {
+                                            delay(50)
+                                            isSeeking = false
+                                            seekTargetPosition = -1L
+                                            if (wasPlayingBeforeSeek) {
+                                                isVideoPlaying = true
                                             }
-                                            val frameStepMs = 1000L / 30L
-                                            val target = (((it.toLong() + frameStepMs / 2) / frameStepMs) * frameStepMs).coerceIn(0L, videoDuration)
-                                            isSeeking = true
-                                            videoPosition = target
-                                            seekTargetPosition = target
-                                            isVideoPlaying = false
-                                        },
-                                        onValueChangeFinished = {
-                                            scope.launch {
-                                                delay(50)
-                                                isSeeking = false
-                                                seekTargetPosition = -1L
-                                                // Restore playback after seeking.
-                                                if (wasPlayingBeforeSeek) {
-                                                    isVideoPlaying = true
-                                                }
-                                            }
-                                        },
-                                        valueRange = 0f..videoDuration.toFloat().coerceAtLeast(1f),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.3f), activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent),
-                                        interactionSource = remember { MutableInteractionSource() }
-                                    )
-                                    // Keep the scrubber preview near the thumb.
-                                    if (isSeeking && sliderWidth > 0) {
-                                        val fraction = (videoPosition.toFloat() / videoDuration.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
-                                        val thumbX = with(LocalDensity.current) { (sliderWidth * fraction).toDp() }
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.CenterStart)
-                                                .offset(x = thumbX - 20.dp)
-                                                .size(40.dp)
-                                                .background(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.4f), Color.Transparent)), CircleShape)
-                                        )
-                                    }
-                                }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f).height(24.dp),
+                                    trackColor = colors.primaryText.copy(alpha = 0.3f),
+                                    progressColor = colors.primaryText,
+                                    thumbColor = colors.primaryText
+                                )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 GalleryFloatingActionButton(icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, onClick = { isMuted = !isMuted }, size = 32.dp, iconSize = 18.dp)
                             }
-                            FrameStepControlRow(
-                                currentPosition = videoPosition,
-                                duration = videoDuration,
-                                onFrameStep = { direction ->
-                                    val frameStepMs = 1000L / 30L
-                                    val target = (videoPosition + direction.toLong() * frameStepMs).coerceIn(0L, videoDuration)
-                                    seekTargetPosition = target
-                                    videoPosition = target
-                                    isSeeking = true
-                                    isVideoPlaying = false
-                                    scope.launch { delay(80); isSeeking = false; seekTargetPosition = -1L }
-                                },
-                                onScrubTo = { target ->
-                                    val bounded = target.coerceIn(0L, videoDuration)
-                                    seekTargetPosition = bounded
-                                    videoPosition = bounded
-                                    isSeeking = true
-                                    isVideoPlaying = false
-                                },
-                                onScrubFinished = {
-                                    scope.launch { delay(80); isSeeking = false; seekTargetPosition = -1L }
-                                }
-                            )
+                            if (showFrameBar) {
+                                FrameStepControlRow(
+                                    currentPosition = videoPosition,
+                                    duration = videoDuration,
+                                    onFrameStep = { frameDelta ->
+                                        val frameStepMs = 1000L / 30L
+                                        val target = (videoPosition + frameDelta * frameStepMs).coerceIn(0L, videoDuration)
+                                        seekTargetPosition = target
+                                        videoPosition = target
+                                        isSeeking = true
+                                        scope.launch { delay(100); isSeeking = false; seekTargetPosition = -1L }
+                                    },
+                                    onScrubTo = { target ->
+                                        seekTargetPosition = target
+                                        videoPosition = target
+                                        isSeeking = true
+                                    },
+                                    onScrubFinished = {
+                                        scope.launch { delay(100); isSeeking = false; seekTargetPosition = -1L }
+                                    }
+                                )
+                            }
                         }
                     }
 
@@ -901,230 +1075,273 @@ fun MediaViewerScreen(
                         LazyRow(state = frameListState, modifier = Modifier.fillMaxWidth().height(50.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(horizontal = (LocalContext.current.resources.displayMetrics.widthPixels / 2 / LocalContext.current.resources.displayMetrics.density).dp - 21.dp)) {
                             itemsIndexed(gifFrames, key = { index, _ -> index }) { index, bitmap ->
                                 val isSelected = currentFrameIndex == index
-                                Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.size(42.dp).clip(RoundedCornerShape(4.dp)).background(if (isSelected) Color.Yellow.copy(alpha = 0.3f) else Color.Transparent).border(width = if (isSelected) 2.dp else 0.dp, color = if (isSelected) Color.Yellow else Color.Transparent, shape = RoundedCornerShape(4.dp)).clickable { currentFrameIndex = index; scope.launch { frameListState.animateScrollToItem(index) } }, contentScale = ContentScale.Crop)
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
+                                        .background(if (isSelected) colors.accent.copy(alpha = 0.3f) else Color.Transparent)
+                                        .border(
+                                            width = if (isSelected) 2.dp else 0.dp,
+                                            color = if (isSelected) colors.accent else Color.Transparent,
+                                            shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small))
+                                        )
+                                        .clickable {
+                                            currentFrameIndex = index; scope.launch {
+                                            frameListState.animateScrollToItem(
+                                                index
+                                            )
+                                        }
+                                        },
+                                    contentScale = ContentScale.Crop
+                                )
                             }
                         }
                     } else {
                         LazyRow(
                             state = thumbnailListState,
                             modifier = Modifier.fillMaxWidth().height(50.dp),
-                            contentPadding = PaddingValues(horizontal = 4.dp),
-                            reverseLayout = true
+                            contentPadding = PaddingValues(horizontal = 4.dp)
                         ) {
-                            itemsIndexed(imageList) { index, mediaItem ->
-                                val isSelected = pagerState.currentPage == index
-                                Box(modifier = Modifier.padding(horizontal = 2.dp).size(42.dp).clip(RoundedCornerShape(6.dp)).border(width = if (isSelected) 2.dp else 0.dp, color = if (isSelected) Color.White else Color.Transparent, shape = RoundedCornerShape(6.dp)).clickable { scope.launch { pagerState.scrollToPage(index) } }) {
-                                    Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            itemsIndexed(
+                                thumbnailOriginalIndices,
+                                key = { _, originalIndex -> imageList.getOrNull(originalIndex)?.uri ?: originalIndex }
+                            ) { _, originalIndex ->
+                                val mediaItem = imageList[originalIndex]
+                                val isSelected = pagerState.currentPage == originalIndex
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 2.dp)
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
+                                        .border(
+                                            width = if (isSelected) 2.dp else 0.dp,
+                                            color = if (isSelected) colors.primaryText else Color.Transparent,
+                                            shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small))
+                                        )
+                                        .clickable { scope.launch { pagerState.scrollToPage(originalIndex) } }) {
+                                    Image(
+                                        painter = rememberAsyncImagePainter(
+                                            model = ImageRequest.Builder(context).data(mediaItem.uri).apply {
+                                                if (mediaItem.isVideo) videoFrameMillis(
+                                                    1000
+                                                )
+                                            }.build(), imageLoader = imageLoader
+                                        ), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                                    )
                                 }
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        // Trash actions.
-                        galleryState?.let { state ->
-                            if (showDeleteButton) {
-                                GalleryFloatingActionButton(icon = Icons.Default.Delete, tooltipDescription = "Move to trash", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { state.repository.moveToTrash(listOf(currentMediaItem.uri)); Toast.makeText(context, "Moved to trash", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.White)
-                            } else {
-                                Row {
-                                    GalleryFloatingActionButton(icon = Icons.Default.DeleteForever, tooltipDescription = "Delete permanently", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { state.repository.permanentlyDelete(listOf(currentMediaItem.uri)); Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.Red)
-                                    Spacer(Modifier.width(8.dp))
-                                    GalleryFloatingActionButton(icon = Icons.Default.Restore, tooltipDescription = "Restore", size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { state.repository.restoreFromTrash(listOf(currentMediaItem.uri)); Toast.makeText(context, "Restored", Toast.LENGTH_SHORT).show(); onClickedClose() } }, contentColor = Color.White)
+
+                    val barSlots = listOf(
+                        stringResource(R.string.label_bottom_left),
+                        stringResource(R.string.label_bottom_center_left),
+                        stringResource(R.string.label_bottom_center),
+                        stringResource(R.string.label_bottom_center_right),
+                        stringResource(R.string.label_bottom_right)
+                    )
+                    val legacyBarSlots = listOf("位置 1", "位置 2", "位置 3", "位置 4", "位置 5")
+                    val barPrefs = remember { context.getSharedPreferences("media_viewer_settings", Context.MODE_PRIVATE) }
+
+                    val actionTrash = stringResource(R.string.label_action_trash)
+                    val actionSettings = stringResource(R.string.label_action_settings)
+                    val actionRotate = stringResource(R.string.label_action_rotate)
+                    val actionFavorite = stringResource(R.string.label_action_favorite)
+                    val actionSlideshow = stringResource(R.string.label_action_slideshow)
+                    val actionGif = stringResource(R.string.label_action_gif)
+                    val actionAscii2d = stringResource(R.string.label_action_ascii2d)
+                    val actionScreenshot = stringResource(R.string.label_action_screenshot)
+                    val actionWallpaper = stringResource(R.string.label_action_wallpaper)
+                    val actionFolderThumbnail = stringResource(R.string.label_action_folder_thumbnail)
+                    val actionTag = stringResource(R.string.label_action_tag)
+                    val action3dot = stringResource(R.string.label_3dot_menu)
+                    val labelNone = stringResource(R.string.label_none)
+
+                    val mediaActionCatalog = remember(
+                        actionTrash, actionSettings, actionRotate, actionFavorite,
+                        actionSlideshow, actionGif, actionAscii2d, actionScreenshot,
+                        actionWallpaper, actionFolderThumbnail, actionTag
+                    ) {
+                        listOf(
+                            actionTrash, actionSettings, actionRotate, actionFavorite,
+                            actionSlideshow, actionGif, actionAscii2d, actionScreenshot,
+                            actionWallpaper, actionFolderThumbnail, actionTag
+                        )
+                    }
+                    val defaultBarAssignments = remember(showDeleteButton, actionTrash, actionSettings, actionRotate, actionFavorite, action3dot) {
+                        if (showDeleteButton) listOf(actionTrash, actionSettings, actionRotate, actionFavorite, action3dot)
+                        else listOf(actionSettings, actionRotate, actionFavorite, action3dot)
+                    }
+                            val barAssignments = remember(barPrefs, controlInteractionToken, showDeleteButton, labelNone) {
+                                barSlots.mapIndexedNotNull { index, slot ->
+                                    val saved = barPrefs.getString("media_bar.$slot", null)
+                                        ?: barPrefs.getString("media_bar.${legacyBarSlots[index]}", null)
+                                    val fallback = defaultBarAssignments.getOrNull(index)
+                                    when {
+                                        saved == null -> fallback
+                                        saved == labelNone -> null
+                                        else -> saved
+                                    }
                                 }
                             }
-                        }
-
-                        // 画面回転
-                        GalleryFloatingActionButton(
-                            icon = Icons.Default.ScreenRotation,
-                            tooltipDescription = stringResource(R.string.viewer_rotate),
-                            size = 36.dp,
-                            iconSize = 20.dp,
-                            onClick = {
-                                val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
-                                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                } else {
-                                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                }
-                                screenOrientation = target
-                                (context as Activity).requestedOrientation = target
-                                if (!isUiVisible || keepNavigationBarsHidden) {
-                                    insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
-                                }
+                            val menuAssignments = remember(barAssignments, currentMediaItem.uri, currentMediaItem.isGif, currentMediaItem.isVideo) {
+                                mediaActionCatalog
+                                    .filterNot { action -> barAssignments.contains(action) }
+                                    .filter { action -> isMediaViewerActionAvailable(action, currentMediaItem, context) }
                             }
-                        )
 
-                        // Playback control is disabled in the image viewer toolbar.
-                        if (false) GalleryFloatingActionButton(
-                            icon = if (isVideoPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            tooltipDescription = if (isVideoPlaying) stringResource(R.string.viewer_pause) else stringResource(R.string.viewer_play),
-                            size = 36.dp,
-                            iconSize = 20.dp,
-                            enabled = false,
-                            contentColor = Color.Transparent,
-                            onClick = { }
-                        )
-
-                        // Favorite toggle.
-                        galleryState?.let { state ->
-                            val favorites by state.repository.getFavoriteMedia().collectAsState(initial = emptyList<MediaData>())
-                            val isFavorite = favorites.any { it.uri == currentMediaItem.uri }
-                            GalleryFloatingActionButton(icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tooltipDescription = stringResource(R.string.viewer_favorite_toggle), size = 36.dp, iconSize = 20.dp, onClick = { scope.launch { state.repository.toggleFavorite(currentMediaItem.uri) } }, contentColor = if (isFavorite) Color.Red else Color.White)
-                        }
-
-                        // その他のボタン
-                        var isAscii2dSearching by remember { mutableStateOf(false) }
-                        var ascii2dUploadData by remember { mutableStateOf<Ascii2dUploadData?>(null) }
-                        Box {
-                            GalleryFloatingActionButton(
-                                icon = Icons.Default.MoreVert,
-                                tooltipDescription = "More",
-                                size = 36.dp,
-                                iconSize = 20.dp,
-                                onClick = { isOverflowMenuVisible = true; isUiVisible = true; controlInteractionToken++ }
-                            )
-                            DropdownMenu(
-                                expanded = isOverflowMenuVisible,
-                                onDismissRequest = { isOverflowMenuVisible = false },
-                                modifier = Modifier.background(GalleryThemeTokens.colors.surfaceVariant)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .padding(horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                val canUseSlideshow = imageList.size > 1 && !currentMediaItem.isVideo
-                                DropdownMenuItem(
-                                    text = { Text(if (isSlideshowRunning) stringResource(R.string.viewer_slideshow_stop) else stringResource(R.string.viewer_slideshow_start), color = if (canUseSlideshow) Color.White else Color.Gray) },
-                                    leadingIcon = { Icon(if (isSlideshowRunning) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if (canUseSlideshow) Color.White else Color.Gray) },
-                                    enabled = canUseSlideshow,
-                                    onClick = {
-                                        isOverflowMenuVisible = false
-                                        isSlideshowRunning = !isSlideshowRunning
-                                        isUiVisible = !isSlideshowRunning
+                                val favorites by (galleryState?.repository?.getFavoriteMedia() ?: kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(initial = emptyList<MediaData>())
+                                val isFavorite = favorites.any { it.uri == currentMediaItem.uri }
+
+                                barAssignments.forEach { function ->
+                                    if (isViewerOverflowAction(function, context) || !isMediaViewerActionAvailable(function, currentMediaItem, context)) {
+                                        return@forEach
                                     }
-                                )
-                                // GIF frame stepping.
-                                DropdownMenuItem(
-                                    text = { Text(if (isFrameSteppingVisible) stringResource(R.string.viewer_gif_stepping_stop) else stringResource(R.string.viewer_gif_stepping), color = if (currentMediaItem.isGif) (if (isFrameSteppingVisible) Color.Yellow else Color.White) else Color.Gray) },
-                                    leadingIcon = { Icon(if (isFrameSteppingVisible) Icons.Default.Close else Icons.Default.Collections, null, tint = if (currentMediaItem.isGif) (if (isFrameSteppingVisible) Color.Yellow else Color.White) else Color.Gray) },
-                                    enabled = currentMediaItem.isGif && !isGifFrameLoading,
+                            val action = resolveViewerAction(function, isFavorite = isFavorite, isPlaying = isVideoPlaying, isSlideshowRunning = isSlideshowRunning, isGifStepping = isFrameSteppingVisible)
+                            if (action != null) {
+                                GalleryFloatingActionButton(
+                                    icon = action.icon,
+                                    tooltipDescription = action.label,
+                                    size = 40.dp,
+                                    iconSize = 22.dp,
+                                    contentColor = action.color ?: colors.primaryText,
                                     onClick = {
-                                        isOverflowMenuVisible = false
-                                        if (!isFrameSteppingVisible) {
-                                            isGifFrameLoading = true
-                                            gifFrameProgress = 0f
-                                            extractGifFrames(
-                                                context = context,
-                                                uriString = currentMediaItem.uri,
-                                                scope = scope,
-                                                onProgress = { progress -> gifFrameProgress = progress }
-                                            ) { frames ->
-                                                gifFrames = frames
-                                                currentFrameIndex = 0
-                                                isFrameSteppingVisible = frames.isNotEmpty()
-                                                isGifFrameLoading = false
-                                                gifFrameProgress = null
+                                        handleViewerAction(
+                                            function = function,
+                                            context = context,
+                                            currentMediaItem = currentMediaItem,
+                                            galleryState = galleryState,
+                                            scope = scope,
+                                            videoPosition = videoPosition,
+                                            isFrameSteppingVisible = isFrameSteppingVisible,
+                                            gifFrames = gifFrames,
+                                            onClickedClose = onClickedClose,
+                                            onRotate = {
+                                                val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                                screenOrientation = target
+                                                (context as android.app.Activity).requestedOrientation = target
+                                            },
+                                            onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
+                                            onToggleGifStepping = {
+                                                if (!isFrameSteppingVisible) {
+                                                    isGifFrameLoading = true
+                                                    gifFrameProgress = 0f
+                                                    extractGifFrames(context, currentMediaItem.uri, scope, onProgress = { gifFrameProgress = it }) { frames ->
+                                                        gifFrames = frames
+                                                        currentFrameIndex = 0
+                                                        isFrameSteppingVisible = frames.isNotEmpty()
+                                                        isGifFrameLoading = false
+                                                        gifFrameProgress = null
+                                                    }
+                                                } else {
+                                                    isFrameSteppingVisible = false
+                                                    gifFrames = emptyList()
+                                                    currentFrameIndex = 0
+                                                }
+                                            },
+                                            onShowTagDialog = { showTagDialog = true },
+                                            onSearchAscii2d = {
+                                                android.widget.Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), android.widget.Toast.LENGTH_SHORT).show()
+                                                scope.launch {
+                                                    val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { kotlin.runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) } }
+                                                    result.onSuccess { ascii2dUploadData = it }.onFailure { error -> android.widget.Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), android.widget.Toast.LENGTH_LONG).show() }
+                                                }
                                             }
-                                        } else {
-                                            isFrameSteppingVisible = false
-                                            gifFrames = emptyList()
-                                            currentFrameIndex = 0
-                                        }
+                                        )
                                     }
                                 )
-
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.settings_title), color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.Settings, null, tint = Color.White) },
-                                    onClick = {
-                                        isOverflowMenuVisible = false
-                                        galleryState?.navController?.navigate(AppRoutes.SETTINGS)
-                                    }
-                                )
-
-                                // Image search.
-                                val isAscii2dEnabled = !currentMediaItem.isVideo && !isAscii2dSearching
-                                DropdownMenuItem(
-                                    text = { Text(if (isAscii2dSearching) stringResource(R.string.viewer_searching_ascii2d) else stringResource(R.string.viewer_search_ascii2d), color = if (isAscii2dEnabled) Color.White else Color.Gray) },
-                                    leadingIcon = { Icon(Icons.Default.Search, null, tint = if (isAscii2dEnabled) Color.White else Color.Gray) },
-                                    enabled = isAscii2dEnabled,
-                                    onClick = {
-                                        isOverflowMenuVisible = false
-                                        isAscii2dSearching = true
-                                        Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), Toast.LENGTH_SHORT).show()
-                                        scope.launch {
-                                            val result = withContext(Dispatchers.IO) {
-                                                runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) }
-                                            }
-                                            isAscii2dSearching = false
-                                            result.onSuccess { uploadData ->
-                                                ascii2dUploadData = uploadData
-                                            }.onFailure { error ->
-                                                Log.e("Ascii2dSearch", "Failed to search ascii2d", error)
-                                                Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                    }
-                                )
-
-                                val isSaveEnabled = currentMediaItem.isVideo || currentMediaItem.isGif
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.viewer_save_screenshot), color = if (isSaveEnabled) Color.White else colorResource(R.color.gray)) },
-                                    leadingIcon = { Icon(Icons.Default.Screenshot, null, tint = if (isSaveEnabled) Color.White else Color.Gray) },
-                                    enabled = isSaveEnabled,
-                                    onClick = {
-                                        isOverflowMenuVisible = false
-                                        if (currentMediaItem.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) saveBitmapToScreenshots(context, gifFrames[currentFrameIndex])
-                                        else if (currentMediaItem.isVideo) captureVideoFrame(context, currentMediaItem.uri, videoPosition) { bitmap -> if (bitmap != null) saveBitmapToScreenshots(context, bitmap) else Toast.makeText(context, context.getString(R.string.msg_error_get_frame), Toast.LENGTH_SHORT).show() }
-                                        else if (currentMediaItem.isGif) Toast.makeText(context, context.getString(R.string.msg_gif_use_stepping), Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-
-                                // Wallpaper setting.
-                                val isWallpaperEnabled = !currentMediaItem.isVideo && (!currentMediaItem.isGif || isFrameSteppingVisible)
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.viewer_set_wallpaper), color = if (isWallpaperEnabled) Color.White else colorResource(R.color.gray)) },
-                                    leadingIcon = { Icon(Icons.Default.Wallpaper, null, tint = if (isWallpaperEnabled) Color.White else Color.Gray) },
-                                    enabled = isWallpaperEnabled,
-                                    onClick = {
-                                        isOverflowMenuVisible = false
-                                        if (currentMediaItem.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) setBitmapAsWallpaper(context, gifFrames[currentFrameIndex])
-                                        else setAsWallpaper(context, currentMediaItem.uri)
-                                    }
-                                )
-
-                                // Set as folder thumbnail.
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.edit_set_folder_thumbnail), color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Default.FolderSpecial, null, tint = Color.White) },
-                                    onClick = {
-                                        isOverflowMenuVisible = false
-                                        scope.launch {
-                                            galleryState?.repository?.updateFolderThumbnail(currentMediaItem.folderName, currentMediaItem.uri)
-                                            Toast.makeText(context, context.getString(R.string.msg_set_folder_thumbnail, currentMediaItem.folderName), Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                )
-
-                                // Edit tags.
-                                galleryState?.let { _ ->
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.edit_tags), color = Color.White) },
-                                        leadingIcon = { Icon(Icons.Default.LocalOffer, null, tint = Color.White) },
-                                        onClick = {
-                                            isOverflowMenuVisible = false
-                                            showTagDialog = true
-                                        }
-                                    )
-                                }
                             }
-                            ascii2dUploadData?.let { uploadData ->
-                                Ascii2dSearchDialog(
-                                    uploadData = uploadData,
-                                    onDismiss = { ascii2dUploadData = null }
+                        }
+
+                        if (menuAssignments.isNotEmpty() && barAssignments.any { isViewerOverflowAction(it, context) }) {
+                            var showMoreMenu by remember { mutableStateOf(false) }
+                            Box {
+                                GalleryFloatingActionButton(
+                                    icon = Icons.Default.MoreVert,
+                                    tooltipDescription = stringResource(R.string.btn_open),
+                                    size = 40.dp,
+                                    iconSize = 22.dp,
+                                    contentColor = colors.primaryText,
+                                    onClick = { showMoreMenu = true }
                                 )
+                                DropdownMenu(
+                                    expanded = showMoreMenu,
+                                    onDismissRequest = { showMoreMenu = false },
+                                    modifier = Modifier.background(GalleryThemeTokens.colors.surfaceVariant)
+                                ) {
+                                    menuAssignments.forEach { function ->
+                                        val action = resolveViewerAction(function, isFavorite = isFavorite, isPlaying = isVideoPlaying, isSlideshowRunning = isSlideshowRunning, isGifStepping = isFrameSteppingVisible)
+                                        if (action != null) {
+                                            DropdownMenuItem(
+                                                text = { Text(action.label, color = colors.primaryText) },
+                                                leadingIcon = { Icon(action.icon, null, tint = action.color ?: colors.primaryText) },
+                                                onClick = {
+                                                    showMoreMenu = false
+                                                    handleViewerAction(
+                                                        function = function,
+                                                        context = context,
+                                                        currentMediaItem = currentMediaItem,
+                                                        galleryState = galleryState,
+                                                        scope = scope,
+                                                        videoPosition = videoPosition,
+                                                        isFrameSteppingVisible = isFrameSteppingVisible,
+                                                        gifFrames = gifFrames,
+                                                        onClickedClose = onClickedClose,
+                                                        onRotate = {
+                                                            val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                                            screenOrientation = target
+                                                            (context as android.app.Activity).requestedOrientation = target
+                                                        },
+                                                        onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
+                                                        onToggleGifStepping = {
+                                                            if (!isFrameSteppingVisible) {
+                                                                isGifFrameLoading = true
+                                                                gifFrameProgress = 0f
+                                                                extractGifFrames(context, currentMediaItem.uri, scope, onProgress = { gifFrameProgress = it }) { frames ->
+                                                                    gifFrames = frames
+                                                                    currentFrameIndex = 0
+                                                                    isFrameSteppingVisible = frames.isNotEmpty()
+                                                                    isGifFrameLoading = false
+                                                                    gifFrameProgress = null
+                                                                }
+                                                            } else {
+                                                                isFrameSteppingVisible = false
+                                                                gifFrames = emptyList()
+                                                                currentFrameIndex = 0
+                                                            }
+                                                        },
+                                                        onShowTagDialog = { showTagDialog = true },
+                                                        onSearchAscii2d = {
+                                                            android.widget.Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), android.widget.Toast.LENGTH_SHORT).show()
+                                                            scope.launch {
+                                                                val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { kotlin.runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) } }
+                                                                result.onSuccess { ascii2dUploadData = it }.onFailure { error -> android.widget.Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), android.widget.Toast.LENGTH_LONG).show() }
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 if (showTagDialog) { galleryState?.let { state -> UnifiedMediaEditDialog(uris = listOf(currentMediaItem.uri), repository = state.repository, onDismiss = { showTagDialog = false }) } }
+                ascii2dUploadData?.let { uploadData -> Ascii2dSearchDialog(uploadData = uploadData, onDismiss = { ascii2dUploadData = null }) }
             }
         }
 
@@ -1151,10 +1368,39 @@ fun MediaViewerScreen(
             )
         }
 
+        if (showClockBattery) {
+            var clockText by remember { mutableStateOf("") }
+            LaunchedEffect(Unit) {
+                val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+                while (true) {
+                    val batteryIntent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                    val level = batteryIntent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                    val scaleValue = batteryIntent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+                    val battery = if (level >= 0 && scaleValue > 0) "${(level * 100 / scaleValue)}%" else "--%"
+                    clockText = "${formatter.format(Date())}  $battery"
+                    delay(30_000)
+                }
+            }
+            Surface(
+                color = Color.Black.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = if (isUiVisible) 96.dp else 16.dp, end = 16.dp)
+            ) {
+                Text(
+                    text = clockText,
+                    color = colors.primaryText,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    fontSize = textSizes.tiny
+                )
+            }
+        }
+
         AnimatedVisibility(visible = isRecommendationVisible, enter = slideInVertically(initialOffsetY = { it }) + fadeIn(), exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             val density = LocalDensity.current
             val maxDrag = with(density) { 360.dp.toPx() }
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.42f).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = 0.95f)).pointerInput(Unit) { detectVerticalDragGestures(onDragEnd = { if (recommendationDragOffset.value > 100f) { scope.launch { recommendationDragOffset.animateTo(maxDrag, tween(250)); isRecommendationVisible = false; delay(250); recommendationDragOffset.snapTo(0f) } } else { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } } }, onVerticalDrag = { change, dragAmount -> change.consume(); scope.launch { recommendationDragOffset.snapTo((recommendationDragOffset.value + dragAmount).coerceAtLeast(0f)) } }) }) {
+            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.42f).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = 0.95f)).pointerInput(Unit) { detectDragGestures(onDragEnd = { if (recommendationDragOffset.value > 100f) { scope.launch { recommendationDragOffset.animateTo(maxDrag, tween(250)); isRecommendationVisible = false; delay(250); recommendationDragOffset.snapTo(0f) } } else { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } } }, onDragCancel = { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } }, onDrag = { change, dragAmount -> change.consume(); scope.launch { recommendationDragOffset.snapTo((recommendationDragOffset.value + dragAmount.y).coerceAtLeast(0f)) } }) }) {
                 Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
                     Box(modifier = Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) { Surface(modifier = Modifier.width(40.dp).height(4.dp), color = Color.Gray.copy(alpha = 0.5f), shape = CircleShape) {} }
                     Row(
@@ -1162,11 +1408,15 @@ fun MediaViewerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(stringResource(R.string.viewer_details), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold)
                         Text(
-                            stringResource(R.string.btn_close),
-                            color = colorResource(R.color.gray),
-                            fontSize = AppConstants.SubtitleFontSize,
+                            text = stringResource(R.string.viewer_details),
+                            color = colors.primaryText,
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Text(
+                            text = stringResource(R.string.btn_close),
+                            color = colors.secondaryText,
+                            style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.clickable { isRecommendationVisible = false }.padding(8.dp)
                         )
                     }
@@ -1174,13 +1424,30 @@ fun MediaViewerScreen(
                         val currentMediaItem = imageList.getOrNull(pagerState.currentPage)
                         if (currentMediaItem != null) {
                             // Visual recommendations.
-                            if (!currentMediaItem.isVideo && !isTrashMode) {
-                                item { Text(stringResource(R.string.viewer_similar_images), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                            if (!currentMediaItem.isVideo && !isTrashMode && showSimilarRecs) {
+                                item {
+                                    Text(
+                                        text = stringResource(R.string.viewer_similar_images),
+                                        color = colors.primaryText,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
                                 item {
                                     if (currentMetadata?.hasFeatureVector != true) {
-                                        Text(stringResource(R.string.viewer_not_analyzed), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
+                                        Text(
+                                            text = stringResource(R.string.viewer_not_analyzed),
+                                            color = colors.secondaryText,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(16.dp)
+                                        )
                                     } else if (recommendedMediaByVisual.isEmpty()) {
-                                        Text(stringResource(R.string.viewer_no_similar), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
+                                        Text(
+                                            text = stringResource(R.string.viewer_no_similar),
+                                            color = colors.secondaryText,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(16.dp)
+                                        )
                                     } else {
                                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             itemsIndexed(recommendedMediaByVisual) { _, similarity ->
@@ -1203,11 +1470,23 @@ fun MediaViewerScreen(
                             }
 
                             // Random media.
-                            if (!isTrashMode) {
-                                item { Text(if (currentMediaItem.isVideo) stringResource(R.string.viewer_random_videos) else stringResource(R.string.viewer_random_images), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                            if (!isTrashMode && showRandomRecs) {
+                                item {
+                                    Text(
+                                        text = if (currentMediaItem.isVideo) stringResource(R.string.viewer_random_videos) else stringResource(R.string.viewer_random_images),
+                                        color = colors.primaryText,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
                                 item {
                                     if (randomMediaList.isEmpty()) {
-                                        Text(if (currentMediaItem.isVideo) stringResource(R.string.viewer_no_videos) else stringResource(R.string.viewer_loading), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize, modifier = Modifier.padding(16.dp))
+                                        Text(
+                                            text = if (currentMediaItem.isVideo) stringResource(R.string.viewer_no_videos) else stringResource(R.string.viewer_loading),
+                                            color = colors.secondaryText,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(16.dp)
+                                        )
                                     } else {
                                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             itemsIndexed(randomMediaList) { _, item ->
@@ -1224,22 +1503,44 @@ fun MediaViewerScreen(
 
                             // Tags.
                             item {
-                                val normalTags = remember(currentMediaTagsFlow) { currentMediaTagsFlow.filter { !it.tag.endsWith("系") && it.confidence >= 0.6f }.sortedByDescending { it.confidence } }
-                                val currentAgeRating = currentMetadata?.ageRating ?: "SFW"
+                                val tagSuffixGroup = stringResource(R.string.label_tag_suffix_group)
+                                val normalTags = remember(currentMediaTagsFlow, tagSuffixGroup) { currentMediaTagsFlow.filter { !it.tag.endsWith(tagSuffixGroup) && it.confidence >= 0.6f }.sortedByDescending { it.confidence } }
+                                val currentAgeRating = currentMetadata?.ageRating ?: AppConstants.RATING_SFW
 
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.LocalOffer, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.LocalOffer, contentDescription = null, tint = colors.primaryText, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text(stringResource(R.string.viewer_tags), color = Color.White, fontSize = AppConstants.BodyFontSize, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = stringResource(R.string.viewer_tags),
+                                            color = colors.primaryText,
+                                            style = MaterialTheme.typography.titleLarge
+                                        )
                                         Spacer(modifier = Modifier.width(12.dp))
-                                        Surface(color = when(currentAgeRating) { "R18" -> Color.Red.copy(alpha = 0.8f); "R15" -> Color.Yellow.copy(alpha = 0.8f); else -> Color.Green.copy(alpha = 0.8f) }, shape = RoundedCornerShape(4.dp)) {
-                                            Text(text = if (isTrashMode) "$currentAgeRating Trash" else currentAgeRating, color = if (currentAgeRating == "R15") Color.Black else Color.White, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        Surface(
+                                            color = when(currentAgeRating) {
+                                                AppConstants.RATING_R18 -> colors.danger.copy(alpha = 0.8f)
+                                                AppConstants.RATING_R15 -> colors.warning.copy(alpha = 0.8f)
+                                                else -> colors.success.copy(alpha = 0.8f)
+                                            },
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isTrashMode) "$currentAgeRating Trash" else currentAgeRating,
+                                                color = if (currentAgeRating == AppConstants.RATING_R15) colors.background else colors.primaryText,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
                                         }
                                     }
 
                                     if (!currentMediaItem.isVideo && currentMetadata?.isAiAnalyzed != true) {
-                                        Text(stringResource(R.string.viewer_no_tags), color = colorResource(R.color.gray), fontSize = AppConstants.SmallFontSize)
+                                        Text(
+                                            text = stringResource(R.string.viewer_no_tags),
+                                            color = colors.secondaryText,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
                                     }
 
                                     Spacer(Modifier.height(8.dp))
@@ -1249,11 +1550,11 @@ fun MediaViewerScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color.DarkGray)
+                                                    .background(colors.surfaceVariant)
                                                     .drawWithContent {
                                                         val progressWidth = size.width * tag.confidence
                                                         drawRect(
-                                                            color = Color.Green.copy(alpha = 0.4f),
+                                                            color = colors.success.copy(alpha = 0.4f),
                                                             topLeft = Offset(size.width - progressWidth, 0f),
                                                             size = Size(progressWidth, size.height)
                                                         )
@@ -1263,16 +1564,28 @@ fun MediaViewerScreen(
                                                     .padding(horizontal = 12.dp, vertical = 6.dp)
                                             ) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(TagTranslationService.translate(tag.tag), color = Color.White, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize)
+                                                    Text(
+                                                        text = TagTranslationService.translate(tag.tag),
+                                                        color = colors.primaryText,
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
                                                     if (tag.confidence > 0f && tag.confidence < 1f) {
-                                                        Text(text = " ${(tag.confidence * 100).toInt()}%", color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(start = 4.dp))
+                                                        Text(
+                                                            text = " ${(tag.confidence * 100).toInt()}%",
+                                                            color = colors.secondaryText,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            modifier = Modifier.padding(start = 4.dp)
+                                                        )
                                                     }
                                                 }
                                             }
                                         }
                                         if (!isTrashMode) {
-                                            IconButton(onClick = { showTagDialog = true }, modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) {
-                                                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.edit_new_tag), tint = Color.White, modifier = Modifier.size(16.dp))
+                                            IconButton(
+                                                onClick = { showTagDialog = true },
+                                                modifier = Modifier.size(32.dp).background(colors.primaryText.copy(alpha = 0.1f), CircleShape)
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.edit_new_tag), tint = colors.primaryText, modifier = Modifier.size(16.dp))
                                             }
                                         }
                                     }
@@ -1281,8 +1594,13 @@ fun MediaViewerScreen(
                             item {
                                 val media = currentMediaItem
                                 Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                                    HorizontalDivider(color = colorResource(R.color.gray).copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 16.dp))
-                                    Text(stringResource(R.string.viewer_file_info), color = Color.White, fontSize = AppConstants.SubtitleFontSize, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 16.dp))
+                                    Text(
+                                        text = stringResource(R.string.viewer_file_info),
+                                        color = colors.primaryText,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        modifier = Modifier.padding(bottom = 12.dp)
+                                    )
                                     MediaInfoRow(stringResource(R.string.viewer_date), SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault()).format(Date(media.dateAdded)))
                                     MediaInfoRow(stringResource(R.string.viewer_file_name), media.fileName)
                                     val actualPath = remember(media.uri) {
@@ -1294,10 +1612,11 @@ fun MediaViewerScreen(
                                         }
                                     }
                                     MediaInfoRow(stringResource(R.string.viewer_file_path), actualPath)
-                                    val labels = currentMediaTagsFlow.filter { !it.tag.endsWith("系") }.map { TagTranslationService.translate(it.tag) }
-                                    if (labels.isNotEmpty()) MediaInfoRow("画像情報", labels.joinToString(", "))
-                                    MediaInfoRow("ファイルサイズ", formatFileSize(media.fileSize))
-                                    if (media.width > 0 && media.height > 0) MediaInfoRow("画像の幅・高さ", "${media.width} x ${media.height}")
+                                    val tagSuffixGroup = stringResource(R.string.label_tag_suffix_group)
+                                val labels = currentMediaTagsFlow.filter { !it.tag.endsWith(tagSuffixGroup) }.map { TagTranslationService.translate(it.tag) }
+                                    if (labels.isNotEmpty()) MediaInfoRow(stringResource(R.string.viewer_info_image), labels.joinToString(", "))
+                                    MediaInfoRow(stringResource(R.string.viewer_file_size), formatFileSize(media.fileSize))
+                                    if (media.width > 0 && media.height > 0) MediaInfoRow(stringResource(R.string.viewer_image_res), "${media.width} x ${media.height}")
                                 }
                             }
                         }
@@ -1320,6 +1639,8 @@ fun FrameStepControlRow(
     var isScrubbing by remember { mutableStateOf(false) }
     var previewFrameDelta by remember { mutableIntStateOf(0) }
     val latestCurrentPosition by rememberUpdatedState(currentPosition)
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
 
     Row(
         modifier = Modifier
@@ -1334,8 +1655,8 @@ fun FrameStepControlRow(
                 .weight(1f)
                 .height(34.dp)
                 .clip(RoundedCornerShape(17.dp))
-                .background(if (isScrubbing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f))
-                .border(1.dp, Color.White.copy(alpha = if (isScrubbing) 0.45f else 0.18f), RoundedCornerShape(17.dp))
+                .background(if (isScrubbing) colors.primaryText.copy(alpha = 0.18f) else colors.primaryText.copy(alpha = 0.08f))
+                .border(1.dp, colors.primaryText.copy(alpha = if (isScrubbing) 0.45f else 0.18f), RoundedCornerShape(17.dp))
                 .pointerInput(duration) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
@@ -1366,13 +1687,13 @@ fun FrameStepControlRow(
             contentAlignment = Alignment.Center
         ) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = if (isScrubbing) "${if (previewFrameDelta >= 0) "+" else ""}$previewFrameDelta f" else "1 f",
-                    color = if (isScrubbing) Color.Cyan else Color.White.copy(alpha = 0.75f),
-                    fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    modifier = Modifier.width(58.dp)
-                )
+                    Text(
+                        text = if (isScrubbing) "${if (previewFrameDelta >= 0) "+" else ""}$previewFrameDelta ${stringResource(R.string.label_frame_unit)}" else stringResource(R.string.label_frame_step),
+                        color = if (isScrubbing) colors.accent else colors.primaryText.copy(alpha = 0.75f),
+                        fontSize = textSizes.small,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        modifier = Modifier.width(58.dp)
+                    )
                 Box(
                     modifier = Modifier
                         .height(2.dp)
@@ -1390,6 +1711,7 @@ private fun RepeatFrameStepButton(
     direction: Int,
     onFrameStep: (Int) -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
     val latestOnFrameStep by rememberUpdatedState(onFrameStep)
     val repeatScope = rememberCoroutineScope()
     var repeatJob by remember { mutableStateOf<Job?>(null) }
@@ -1432,7 +1754,7 @@ private fun RepeatFrameStepButton(
         Icon(
             if (direction < 0) Icons.AutoMirrored.Filled.ArrowBack else Icons.AutoMirrored.Filled.ArrowForward,
             contentDescription = null,
-            tint = Color.White,
+            tint = colors.primaryText,
             modifier = Modifier.size(22.dp)
         )
     }
@@ -1446,9 +1768,11 @@ fun VideoTransportControlRow(
     onTogglePlay: () -> Unit,
     onSeekRequested: (Long) -> Unit,
     galleryState: GalleryState?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    defaultSeekInterval: Int = 10
 ) {
-    val currentInterval = galleryState?.videoSeekInterval ?: 10
+    val colors = GalleryThemeTokens.colors
+    val currentInterval = galleryState?.videoSeekInterval ?: defaultSeekInterval
     Row(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.42f), RoundedCornerShape(32.dp))
@@ -1465,9 +1789,9 @@ fun VideoTransportControlRow(
         Spacer(modifier = Modifier.width(24.dp))
         IconButton(
             onClick = onTogglePlay,
-            modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.14f), CircleShape)
+            modifier = Modifier.size(56.dp).background(colors.primaryText.copy(alpha = 0.14f), CircleShape)
         ) {
-            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = colors.primaryText, modifier = Modifier.size(32.dp))
         }
         Spacer(modifier = Modifier.width(24.dp))
         SeekButtonWithPicker(
@@ -1481,6 +1805,8 @@ fun VideoTransportControlRow(
 
 @Composable
 fun SeekButtonWithPicker(isForward: Boolean, currentInterval: Int, onIntervalSelected: (Int) -> Unit, onClick: () -> Unit) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     val options = listOf(1, 2, 5, 10, 30, 60)
     var isPickerVisible by remember { mutableStateOf(false) }
     var selectedIndexByDrag by remember(currentInterval) {
@@ -1489,15 +1815,31 @@ fun SeekButtonWithPicker(isForward: Boolean, currentInterval: Int, onIntervalSel
     val currentOnClick by rememberUpdatedState(onClick); val currentOnIntervalSelected by rememberUpdatedState(onIntervalSelected)
     Box(contentAlignment = Alignment.Center) {
         Column(modifier = Modifier.pointerInput(currentInterval) { awaitPointerEventScope { while (true) { val down = awaitFirstDown(); val startTimestamp = System.currentTimeMillis(); var isLongPress = false; val baseIndex = options.indexOf(currentInterval).let { if (it == -1) 3 else it }; selectedIndexByDrag = baseIndex; while (true) { val event = awaitPointerEvent(); val currentTime = System.currentTimeMillis(); if (currentTime - startTimestamp > 400 && !isLongPress) { isLongPress = true; isPickerVisible = true }; if (isLongPress) { val dragChange = event.changes.first(); val dragY = dragChange.position.y - down.position.y; val indexOffset = (dragY / 40f).roundToInt(); selectedIndexByDrag = (baseIndex + indexOffset).coerceIn(0, options.size - 1); dragChange.consume() }; if (event.changes.any { !it.pressed }) { if (isLongPress) { currentOnIntervalSelected(options[selectedIndexByDrag]); isPickerVisible = false } else currentOnClick(); break } } } } }.size(48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) { Icon(imageVector = if (isForward) Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(28.dp)); Text(text = currentInterval.toString(), color = Color.White, fontSize = com.example.gallery.ui.AppConstants.BottomNavFontSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
-            Text(stringResource(R.string.viewer_skip), color = Color.White, fontSize = AppConstants.BottomNavFontSize)
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) { Icon(imageVector = if (isForward) Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = colors.primaryText.copy(alpha = 0.6f), modifier = Modifier.size(28.dp)); Text(text = currentInterval.toString(), color = colors.primaryText, fontSize = textSizes.bottomNav, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
+            Text(stringResource(R.string.viewer_skip), color = colors.primaryText, fontSize = textSizes.bottomNav)
         }
-        if (isPickerVisible) { Popup(alignment = Alignment.Center, offset = IntOffset(0, 0)) { Surface(color = Color.Black.copy(alpha = 0.8f), shape = RoundedCornerShape(24.dp), modifier = Modifier.width(60.dp)) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 12.dp)) { options.forEachIndexed { index, value -> val isSelected = index == selectedIndexByDrag; Text(text = value.toString(), color = if (isSelected) Color.Cyan else Color.White, fontSize = if (isSelected) com.example.gallery.ui.AppConstants.HeaderFontSize else com.example.gallery.ui.AppConstants.SubtitleFontSize, fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null, modifier = Modifier.padding(vertical = 8.dp)) } } } } }
+        if (isPickerVisible) { Popup(alignment = Alignment.Center, offset = IntOffset(0, 0)) { Surface(color = colors.background.copy(alpha = 0.8f), shape = RoundedCornerShape(24.dp), modifier = Modifier.width(60.dp)) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 12.dp)) { options.forEachIndexed { index, value -> val isSelected = index == selectedIndexByDrag; Text(text = value.toString(), color = if (isSelected) colors.accent else colors.primaryText, fontSize = if (isSelected) textSizes.header else textSizes.subtitle, fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null, modifier = Modifier.padding(vertical = 8.dp)) } } } } }
     }
 }
 
 @Composable
-fun MediaInfoRow(label: String, value: String) { Row(modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth()) { Text(text = label, color = Color.Gray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, modifier = Modifier.width(100.dp)); Text(text = value, color = Color.LightGray, fontSize = com.example.gallery.ui.AppConstants.SmallFontSize, modifier = Modifier.weight(1f)) } }
+fun MediaInfoRow(label: String, value: String) {
+    val colors = GalleryThemeTokens.colors
+    Row(modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth()) {
+        Text(
+            text = label,
+            color = colors.secondaryText,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.width(100.dp)
+        )
+        Text(
+            text = value,
+            color = colors.primaryText,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
 
 private fun formatFileSize(size: Long): String { if (size <= 0) return "0 B"; val units = arrayOf("B", "KB", "MB", "GB", "TB"); val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt(); return "%.1f %s".format(size / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups]) }
 
@@ -1592,6 +1934,8 @@ private fun Ascii2dSearchDialog(
     uploadData: Ascii2dUploadData,
     onDismiss: () -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     var isLoading by remember { mutableStateOf(true) }
     var hasRequestedFile by remember(uploadData.filePath) { mutableStateOf(false) }
     var hasProvidedFile by remember(uploadData.filePath) { mutableStateOf(false) }
@@ -1765,16 +2109,16 @@ private fun Ascii2dSearchDialog(
             ) {
                 Text(
                     text = when {
-                        isLoading -> "ascii2dを読み込み中..."
-                        hasProvidedFile -> "画像をセットしました。ascii2dの検索ボタンを押してください"
-                        hasRequestedFile -> "Select an image file in the page to set this image."
-                        else -> "画像選択を準備中..."
+                        isLoading -> stringResource(R.string.viewer_loading_ascii2d)
+                        hasProvidedFile -> stringResource(R.string.viewer_ascii2d_ready)
+                        hasRequestedFile -> stringResource(R.string.msg_video_frame_stepping_guide)
+                        else -> stringResource(R.string.viewer_preparing_selection)
                     },
-                    color = Color.White,
-                    fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize
+                    color = colors.primaryText,
+                    fontSize = textSizes.subtitle
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_close), tint = Color.White)
                 }
             }
 
@@ -1862,15 +2206,26 @@ fun VideoPlayer(
     onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onSeek: (Long) -> Unit,
     onDragEnd: () -> Unit, onDoubleTap: () -> Unit, isScrollInProgress: Boolean, modifier: Modifier = Modifier,
     videoPosition: Long = 0L, videoDuration: Long = 0L, isSeeking: Boolean = false,
-    onTouchIndicator: (Offset) -> Unit = {}
+    onTouchIndicator: (Offset) -> Unit = {},
+    loopPlayback: Boolean = true,
+    resizeMode: String = "FIT"
 ) {
     val context = LocalContext.current
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     val exoPlayer = remember(uri) {
         logVideoViewerTrace("player_create uriHash=${uri.hashCode()}")
         ExoPlayer.Builder(context).setRenderersFactory(
             androidx.media3.exoplayer.DefaultRenderersFactory(context)
                 .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         ).build().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true
+            )
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     logVideoViewerTrace(
@@ -1892,7 +2247,7 @@ fun VideoPlayer(
                 }
             })
             setMediaItem(MediaItem.fromUri(Uri.parse(uri)))
-            repeatMode = Player.REPEAT_MODE_ONE
+            repeatMode = if (loopPlayback) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             setSeekParameters(SeekParameters.EXACT)
             prepare()
             seekTo(0)
@@ -2032,7 +2387,11 @@ fun VideoPlayer(
                         setBackgroundColor(android.graphics.Color.BLACK)
                         controllerAutoShow = false
                         hideController()
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        this.resizeMode = when (resizeMode) {
+                            "FILL" -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+                            "ZOOM" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
                         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     }
                 },
@@ -2100,15 +2459,15 @@ fun VideoPlayer(
                     ) {
                         Text(
                             text = stringResource(R.string.viewer_frame_stepping),
-                            color = Color.Cyan,
-                            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+                            color = colors.accent,
+                            fontSize = textSizes.small,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "${formatTime(videoPosition)} / ${formatTime(videoDuration)}",
-                            color = Color.White,
-                            fontSize = com.example.gallery.ui.AppConstants.HeaderFontSize,
+                            color = colors.primaryText,
+                            fontSize = textSizes.header,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
                         )
                     }
@@ -2121,6 +2480,7 @@ fun VideoPlayer(
 @Composable
 fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: Float, offsetX: Float, offsetY: Float, onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDoubleTap: () -> Unit, onLongPressStart: () -> Unit = {}, onLongPressEnd: () -> Unit = {}, onTouchIndicator: (Offset) -> Unit = {}, imageLoader: ImageLoader, isFrameSteppingVisible: Boolean, gifFrames: List<Bitmap>, currentFrameIndex: Int, longPressEnabled: Boolean = false, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val colors = GalleryThemeTokens.colors
     val scope = rememberCoroutineScope()
     var suppressNextTap by remember { mutableStateOf(false) }
     val painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(uri).build(), imageLoader = imageLoader)
@@ -2195,35 +2555,50 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
 }
 
 @Composable
-fun RecommendationCard(mediaItem: MediaData, score: String?, imageLoader: ImageLoader, isDeleted: Boolean = false, onClick: () -> Unit) { Box(modifier = Modifier.size(110.dp).clip(RoundedCornerShape(8.dp)).background(Color.DarkGray).clickable { onClick() }) { Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(LocalContext.current).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit); if (score != null) Box(modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text(score, color = Color.White, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize) }; if (isDeleted) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) { Icon(imageVector = Icons.Default.Delete, contentDescription = stringResource(R.string.viewer_deleted), tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(32.dp)) } } }
+fun RecommendationCard(mediaItem: MediaData, score: String?, imageLoader: ImageLoader, isDeleted: Boolean = false, onClick: () -> Unit) {
+    val colors = GalleryThemeTokens.colors
+    Box(modifier = Modifier.size(110.dp).clip(RoundedCornerShape(8.dp)).background(colors.surfaceVariant).clickable { onClick() }) { Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(LocalContext.current).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit); if (score != null) Box(modifier = Modifier.align(Alignment.BottomEnd).background(colors.background.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text(score, color = colors.primaryText, fontSize = GalleryThemeTokens.textSizes.tiny) }; if (isDeleted) Box(modifier = Modifier.fillMaxSize().background(colors.background.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) { Icon(imageVector = Icons.Default.Delete, contentDescription = stringResource(R.string.viewer_deleted), tint = colors.primaryText.copy(alpha = 0.8f), modifier = Modifier.size(32.dp)) } } }
 
+@Composable
 private fun mediaTapZoneLabels(zoneCount: Int): List<String> {
+    val prev = stringResource(R.string.label_tap_prev)
+    val next = stringResource(R.string.label_tap_next)
+    val zoom = stringResource(R.string.label_tap_zoom)
+    val save = stringResource(R.string.label_tap_save)
+    val toggle = stringResource(R.string.label_tap_toggle_ui)
+    val settings = stringResource(R.string.label_tap_settings)
+    val search = stringResource(R.string.label_tap_search)
+
     return when (zoneCount) {
-        11 -> listOf("前へ", "前へ", "前へ", "ズーム", "保存", "表示切替", "設定", "検索", "ズーム", "次へ", "次へ")
-        4 -> listOf("前へ", "ズーム", "表示切替", "次へ")
-        else -> listOf("前へ", "表示切替", "次へ")
+        11 -> listOf(prev, prev, prev, zoom, save, toggle, settings, search, zoom, next, next)
+        4 -> listOf(prev, zoom, toggle, next)
+        else -> listOf(prev, toggle, next)
     }
 }
 
+@Composable
 private fun mediaTapZoneGuideLabels(zoneCount: Int): List<String> {
+    val prevMedia = stringResource(R.string.label_tap_prev_media)
+    val nextMedia = stringResource(R.string.label_tap_next_media)
+    val details = stringResource(R.string.label_tap_details)
+    val prev = stringResource(R.string.label_tap_prev)
+    val next = stringResource(R.string.label_tap_next)
+    val zoom = stringResource(R.string.label_tap_zoom)
+    val controls = stringResource(R.string.label_tap_controls)
+    val settings = stringResource(R.string.label_tap_settings)
+    val tagEdit = stringResource(R.string.label_tap_tag_edit)
+    val slideshow = stringResource(R.string.label_tap_slideshow)
+    val screenshot = stringResource(R.string.label_tap_screenshot)
+    val search = stringResource(R.string.label_tap_search)
+
     return when (zoneCount) {
         11 -> listOf(
-            "前のメディア",
-            "詳細を開く",
-            "次のメディア",
-            "前へ",
-            "ズーム",
-            "コントロール",
-            "設定",
-            "タグ編集",
-            "スライドショー",
-            "スクリーンショット",
-            "検索"
+            prevMedia, details, nextMedia, prev, zoom, controls, settings, tagEdit, slideshow, screenshot, search
         )
-        7 -> listOf("前のメディア", "次のメディア", "前へ", "コントロール", "次へ", "ズーム", "設定")
-        5 -> listOf("前へ", "前のメディア", "コントロール", "次のメディア", "次へ")
-        4 -> listOf("前へ", "ズーム", "コントロール", "次へ")
-        else -> listOf("前へ", "コントロール", "次へ")
+        7 -> listOf(prevMedia, nextMedia, prev, controls, next, zoom, settings)
+        5 -> listOf(prev, prevMedia, controls, nextMedia, next)
+        4 -> listOf(prev, zoom, controls, next)
+        else -> listOf(prev, controls, next)
     }
 }
 
@@ -2324,14 +2699,14 @@ private fun extractGifFrames(
         withContext(Dispatchers.Main) {
             onProgress(null)
             if (frames.isEmpty()) {
-                Toast.makeText(context, "コマの抽出に失敗しました", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.msg_error_extract_frame), Toast.LENGTH_SHORT).show()
             }
             onResult(frames)
         }
     }
 }
-private fun saveBitmapToScreenshots(context: android.content.Context, bitmap: Bitmap) { val filename = "Screenshot_${System.currentTimeMillis()}.png"; val contentValues = ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, filename); put(MediaStore.MediaColumns.MIME_TYPE, "image/png"); if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Screenshots"); put(MediaStore.MediaColumns.IS_PENDING, 1) } }; val resolver = context.contentResolver; try { val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues); if (uri != null) { resolver.openOutputStream(uri)?.use { outputStream -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream) }; if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { contentValues.clear(); contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0); resolver.update(uri, contentValues, null, null) }; (context as Activity).runOnUiThread { Toast.makeText(context, "スクリーンショットを保存しました", Toast.LENGTH_SHORT).show() } } } catch (e: Exception) { Log.e("PictureViewer", "Error saving screenshot", e); (context as Activity).runOnUiThread { Toast.makeText(context, "保存に失敗しました", Toast.LENGTH_SHORT).show() } } }
+private fun saveBitmapToScreenshots(context: android.content.Context, bitmap: Bitmap) { val filename = "Screenshot_${System.currentTimeMillis()}.png"; val contentValues = ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, filename); put(MediaStore.MediaColumns.MIME_TYPE, "image/png"); if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Screenshots"); put(MediaStore.MediaColumns.IS_PENDING, 1) } }; val resolver = context.contentResolver; try { val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues); if (uri != null) { resolver.openOutputStream(uri)?.use { outputStream -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream) }; if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { contentValues.clear(); contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0); resolver.update(uri, contentValues, null, null) }; (context as Activity).runOnUiThread { Toast.makeText(context, context.getString(R.string.msg_screenshot_saved), Toast.LENGTH_SHORT).show() } } } catch (e: Exception) { Log.e("PictureViewer", "Error saving screenshot", e); (context as Activity).runOnUiThread { Toast.makeText(context, context.getString(R.string.msg_error_save_failed), Toast.LENGTH_SHORT).show() } } }
 
-private fun setAsWallpaper(context: android.content.Context, uriString: String) { val wallpaperManager = WallpaperManager.getInstance(context); val uri = Uri.parse(uriString); try { val intent = wallpaperManager.getCropAndSetWallpaperIntent(uri); context.startActivity(intent) } catch (e: Exception) { try { val inputStream = context.contentResolver.openInputStream(uri); wallpaperManager.setStream(inputStream); Toast.makeText(context, "壁紙に設定しました", Toast.LENGTH_SHORT).show() } catch (e2: Exception) { Log.e("PictureViewer", "Failed to set wallpaper", e2); Toast.makeText(context, "壁紙の設定に失敗しました", Toast.LENGTH_SHORT).show() } } }
+private fun setAsWallpaper(context: android.content.Context, uriString: String) { val wallpaperManager = WallpaperManager.getInstance(context); val uri = Uri.parse(uriString); try { val intent = wallpaperManager.getCropAndSetWallpaperIntent(uri); context.startActivity(intent) } catch (e: Exception) { try { val inputStream = context.contentResolver.openInputStream(uri); wallpaperManager.setStream(inputStream); Toast.makeText(context, context.getString(R.string.msg_wallpaper_set), Toast.LENGTH_SHORT).show() } catch (e2: Exception) { Log.e("PictureViewer", "Failed to set wallpaper", e2); Toast.makeText(context, context.getString(R.string.msg_error_wallpaper_failed), Toast.LENGTH_SHORT).show() } } }
 
-private fun setBitmapAsWallpaper(context: android.content.Context, bitmap: Bitmap) { val wallpaperManager = WallpaperManager.getInstance(context); try { wallpaperManager.setBitmap(bitmap); Toast.makeText(context, "今表示しているコマを壁紙に設定しました", Toast.LENGTH_SHORT).show() } catch (e: Exception) { Log.e("PictureViewer", "Failed to set bitmap as wallpaper", e); Toast.makeText(context, "壁紙の設定に失敗しました", Toast.LENGTH_SHORT).show() } }
+private fun setBitmapAsWallpaper(context: android.content.Context, bitmap: Bitmap) { val wallpaperManager = WallpaperManager.getInstance(context); try { wallpaperManager.setBitmap(bitmap); Toast.makeText(context, context.getString(R.string.msg_wallpaper_set_frame), Toast.LENGTH_SHORT).show() } catch (e: Exception) { Log.e("PictureViewer", "Failed to set bitmap as wallpaper", e); Toast.makeText(context, context.getString(R.string.msg_error_wallpaper_failed), Toast.LENGTH_SHORT).show() } }

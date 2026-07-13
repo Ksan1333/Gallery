@@ -20,6 +20,8 @@
 
 `AnalysisProgressScreen` は AI 分析専用の進捗画面で、ユーザーが処理の種類、対象期間、進捗、キャンセル可否を確認するために使う。Drawer と BottomBar は主要機能へ移動する入口であり、各機能画面の状態に応じて表示/非表示を切り替える。
 
+テーマ基盤は`GalleryTheme`が`GalleryColors`を検証し、CompositionLocalとMaterial3 `ColorScheme`の両方へ供給する。背景と文字のコントラストが不足する場合は可読色へ補正し、`surfaceContainer`系列もカスタムパレットへ合わせる。
+
 チュートリアルは、各画面を覆う中央モーダルでページ単位の説明と箇条書きを表示する。メディアビューア、動画ビューア、ブックビューアの基本操作もチュートリアルページに含める。
 
 ### 4.2. 画面要素
@@ -30,6 +32,7 @@
 | `AnalysisProgressScreen` | AI 分析の進捗・キャンセル |
 | `TutorialDialog` | 初回チュートリアル |
 | Drawer / BottomBar | 主要機能への導線 |
+| `GalleryTheme` | カスタムパレット、文字コントラスト、Material3コンテナ色の統一 |
 
 ### 4.3. UIモック
 
@@ -126,6 +129,8 @@ erDiagram
 | Service | `AnalysisService` | foreground AI 分析 |
 | Utility | `ModelDownloader` | AI モデルとタグ CSV の取得・検証 |
 | Utility | `TagTranslationService` | タグ翻訳・手動 override |
+| Theme | `ensureReadableTextColors()` | 主要背景に対する文字・アクセント色の補正 |
+| Theme | `buildGalleryColorScheme()` | メニュー、ダイアログ、ボタンを含むMaterial3色役割の構築 |
 
 `AnalysisService` はモデルダウンロード中にキャンセル要求を受けても、モデル取得処理そのものを即終了扱いにしない。ダウンロードが終わるまでは `GlobalOperationService` の進捗を維持し、完了後にキャンセル要求を確認して分析本体へ進むか終了する。
 
@@ -160,6 +165,7 @@ sequenceDiagram
 - Coil は `limitedParallelism(2)` とキャッシュを使い、一覧スクロールの詰まりを抑える。
 - `fallbackToDestructiveMigration(dropAllTables = true)` が設定されているため、DB 破壊的更新の扱いには注意する。
 - `GalleryState` は便利な集約点だが、責務が増えやすいため新機能追加時は Repository / Service 側に処理を寄せる。
+- テーマモードとカスタムパレットの明暗が異なる場合は、実際の背景輝度からMaterial3の明暗コンテナを選ぶ。
 
 ## 10. 利用 API・外部連携
 

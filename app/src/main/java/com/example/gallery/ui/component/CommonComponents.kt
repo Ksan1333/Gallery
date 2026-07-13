@@ -21,11 +21,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
+import java.util.Locale
+import androidx.compose.ui.res.stringResource
+import com.example.gallery.R
 import com.example.gallery.service.AnalysisService
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.OperationState
 import com.example.gallery.service.selectRepresentativeProgressOperation
-import com.example.gallery.ui.AppText
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.AgeRatingFilter
 import com.example.gallery.ui.state.DeviceFilter
@@ -45,19 +47,24 @@ fun GlobalProgressOverlay() {
     var isMinimized by rememberSaveable(progressDisplayMode) {
         mutableStateOf(progressDisplayMode.equals("MIN", ignoreCase = true))
     }
+    val useCircleMini = isMinimized && progressMiniStyle.equals("CIRCLE", ignoreCase = true)
 
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     if (operations.isNotEmpty()) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .then(if (useCircleMini) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .zIndex(2000f)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = if (useCircleMini) Modifier.fillMaxSize() else Modifier,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 val visibleOperations = if (
-                    isMinimized &&
-                    progressMiniStyle.equals("CIRCLE", ignoreCase = true)
+                    useCircleMini
                 ) {
                     listOfNotNull(selectRepresentativeProgressOperation(operations))
                 } else {
@@ -82,9 +89,9 @@ fun GlobalProgressOverlay() {
 
                 if (operations.size > 2 && !isMinimized) {
                     Text(
-                        text = "${AppText.OTHER_TASKS_IN_PROGRESS_PREFIX}${operations.size - 2}${AppText.OTHER_TASKS_IN_PROGRESS_SUFFIX}",
-                        color = Color.Gray,
-                        fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
+                        text = "${stringResource(R.string.msg_other_tasks_prefix)}${operations.size - 2}${stringResource(R.string.msg_other_tasks_suffix)}",
+                        color = colors.mutedText,
+                        fontSize = textSizes.tiny,
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 }
@@ -106,6 +113,7 @@ private fun OperationCard(
     onCancel: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     val shouldUseMinimum = isMinimized
     if (shouldUseMinimum) {
         OperationProgressIndicator(
@@ -115,7 +123,7 @@ private fun OperationCard(
             minimumStyle = miniStyle,
             centerText = if (miniStyle.equals("CIRCLE", ignoreCase = true)) activeCount.toString() else null,
             onClick = onMinimizeToggle,
-            modifier = Modifier.clickable { onMinimizeToggle() }
+            modifier = Modifier
         )
     } else {
         Surface(
@@ -144,7 +152,7 @@ private fun OperationCard(
                         Text(
                             text = op.title,
                             color = colors.primaryText,
-                            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+                            fontSize = textSizes.small,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -153,7 +161,7 @@ private fun OperationCard(
                             onClick = onMinimizeToggle,
                             modifier = Modifier.size(24.dp).padding(start = 4.dp)
                         ) {
-                            Icon(Icons.Default.ArrowDropUp, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ArrowDropUp, null, tint = colors.mutedText, modifier = Modifier.size(16.dp))
                         }
                     }
 
@@ -161,7 +169,7 @@ private fun OperationCard(
                         Text(
                             text = "${kotlin.math.round(op.progress * 100).toInt()}%",
                             color = colors.accent,
-                            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+                            fontSize = textSizes.small,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                         if (op.canCancel) {
@@ -170,7 +178,7 @@ private fun OperationCard(
                                 onClick = onCancel,
                                 modifier = Modifier.size(24.dp)
                             ) {
-                                Icon(Icons.Default.Close, AppText.INTERRUPT, tint = colors.mutedText, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.Close, stringResource(R.string.btn_interrupt), tint = colors.mutedText, modifier = Modifier.size(14.dp))
                             }
                         }
                     }
@@ -189,7 +197,7 @@ private fun OperationCard(
                     Text(
                         text = op.text,
                         color = colors.mutedText,
-                        fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
+                        fontSize = textSizes.tiny,
                         modifier = Modifier.padding(top = 4.dp),
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -212,6 +220,8 @@ fun TooltipWrapper(
     showExternally: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     var showTooltipLocal by remember { mutableStateOf(false) }
     val isVisible = showExternally || showTooltipLocal
 
@@ -233,7 +243,7 @@ fun TooltipWrapper(
                 )
             ) {
                 Surface(
-                    color = Color.Black.copy(alpha = 0.9f),
+                    color = colors.background.copy(alpha = 0.9f),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
@@ -241,8 +251,8 @@ fun TooltipWrapper(
                 ) {
                     Text(
                         text = description,
-                        color = Color.White,
-                        fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize,
+                        color = colors.primaryText,
+                        fontSize = textSizes.subtitle,
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
                     )
                 }
@@ -273,7 +283,7 @@ fun GalleryTopControlBar(
     ) {
         if (isFilterEnabled) {
             var showFilterTooltip by remember { mutableStateOf(false) }
-            TooltipWrapper(description = "フィルタ", showExternally = showFilterTooltip) {
+            TooltipWrapper(description = stringResource(R.string.label_filter), showExternally = showFilterTooltip) {
                 IconButton(
                     onClick = { showFilterMenu = true },
                     onLongClick = { showFilterTooltip = true },
@@ -283,18 +293,19 @@ fun GalleryTopControlBar(
                     Icon(Icons.Default.FilterAlt, null, tint = if (isFilterEnabled) colors.primaryText else colors.disabled, modifier = Modifier.size(20.dp))
                     if (isFilterEnabled) {
                         DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }, modifier = Modifier.background(colors.surfaceVariant)) {
-                            Text("メディア種別", color = colors.mutedText, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(8.dp))
+                            Text(stringResource(R.string.label_media_type), color = colors.mutedText, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(8.dp))
                             MediaTypeFilter.entries.forEach { filter ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             text = when (filter) {
-                                                MediaTypeFilter.ALL -> "すべて"
-                                                MediaTypeFilter.IMAGE -> "画像"
-                                                MediaTypeFilter.VIDEO -> "動画"
-                                                MediaTypeFilter.GIF -> "GIF"
+                                                MediaTypeFilter.ALL -> stringResource(R.string.label_all_media)
+                                                MediaTypeFilter.IMAGE -> stringResource(R.string.label_image)
+                                                MediaTypeFilter.VIDEO -> stringResource(R.string.label_video)
+                                                MediaTypeFilter.GIF -> stringResource(R.string.label_gif)
                                             },
-                                            color = if (galleryState.mediaTypeFilter == filter) colors.accent else colors.primaryText
+                                            color = if (galleryState.mediaTypeFilter == filter) colors.accent else colors.primaryText,
+                                            style = MaterialTheme.typography.bodyLarge
                                         )
                                     },
                                     onClick = {
@@ -304,17 +315,18 @@ fun GalleryTopControlBar(
                                 )
                             }
                             HorizontalDivider(color = colors.divider)
-                            Text("デバイス背景", color = colors.mutedText, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize, modifier = Modifier.padding(8.dp))
+                            Text(stringResource(R.string.label_device_bg), color = colors.mutedText, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(8.dp))
                             DeviceFilter.entries.forEach { filter ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             text = when (filter) {
-                                                DeviceFilter.ALL -> "すべて"
-                                                DeviceFilter.SMARTPHONE -> "スマホ背景"
-                                                DeviceFilter.PC -> "PC背景"
+                                                DeviceFilter.ALL -> stringResource(R.string.label_all_media)
+                                                DeviceFilter.SMARTPHONE -> stringResource(R.string.label_smartphone_bg)
+                                                DeviceFilter.PC -> stringResource(R.string.label_pc_bg)
                                             },
-                                            color = if (galleryState.deviceFilter == filter) colors.accent else colors.primaryText
+                                            color = if (galleryState.deviceFilter == filter) colors.accent else colors.primaryText,
+                                            style = MaterialTheme.typography.bodyLarge
                                         )
                                     },
                                     onClick = {
@@ -332,14 +344,14 @@ fun GalleryTopControlBar(
             Spacer(modifier = Modifier.width(4.dp))
 
             var showAgeTooltip by remember { mutableStateOf(false) }
-            TooltipWrapper(description = "年齢制限", showExternally = showAgeTooltip) {
+            TooltipWrapper(description = stringResource(R.string.label_age_rating), showExternally = showAgeTooltip) {
                 IconButton(
                     onClick = { showAgeFilterMenu = true },
                     onLongClick = { showAgeTooltip = true },
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(imageVector = Icons.Default.PrivacyTip, contentDescription = null, modifier = Modifier.size(20.dp), tint = when(galleryState.ageRatingFilter) {
-                        AgeRatingFilter.SFW -> colors.success; AgeRatingFilter.R15 -> Color.Yellow; AgeRatingFilter.R18 -> colors.danger; else -> colors.primaryText
+                        AgeRatingFilter.SFW -> colors.success; AgeRatingFilter.R15 -> colors.warning; AgeRatingFilter.R18 -> colors.danger; else -> colors.primaryText
                     })
                     DropdownMenu(expanded = showAgeFilterMenu, onDismissRequest = { showAgeFilterMenu = false }, modifier = Modifier.background(colors.surfaceVariant)) {
                         AgeRatingFilter.entries.forEach { filter ->
@@ -347,12 +359,13 @@ fun GalleryTopControlBar(
                                 text = {
                                     Text(
                                         text = when (filter) {
-                                            AgeRatingFilter.ALL -> "すべて"
-                                            AgeRatingFilter.SFW -> "安全"
+                                            AgeRatingFilter.ALL -> stringResource(R.string.label_all_media)
+                                            AgeRatingFilter.SFW -> stringResource(R.string.label_safe)
                                             AgeRatingFilter.R15 -> "R-15"
                                             AgeRatingFilter.R18 -> "R-18"
                                         },
-                                        color = if (galleryState.ageRatingFilter == filter) colors.accent else colors.primaryText
+                                        color = if (galleryState.ageRatingFilter == filter) colors.accent else colors.primaryText,
+                                        style = MaterialTheme.typography.bodyLarge
                                     )
                                 },
                                 onClick = {

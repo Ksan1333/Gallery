@@ -1,10 +1,13 @@
 package com.example.gallery
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -56,34 +59,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.gallery.ui.AppConstants
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.dimensionResource
+import com.example.gallery.R
+import com.example.gallery.data.local.PreferenceManager
+import com.example.gallery.data.model.MediaData
+import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.ui.AppDefaults
 import com.example.gallery.ui.AppRoutes
-import com.example.gallery.ui.AppText
-import com.example.gallery.data.model.MediaData
-import com.example.gallery.ui.screen.VideoGalleryScreen
-import com.example.gallery.ui.screen.VideoFullscreenViewerScreen
+import com.example.gallery.ui.component.*
 import com.example.gallery.ui.screen.*
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.GalleryViewMode
-import com.example.gallery.data.local.PreferenceManager
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.dimensionResource
-import com.example.gallery.ui.component.GalleryBottomNavigationBar
-import com.example.gallery.ui.component.GlobalProgressOverlay
-import com.example.gallery.ui.component.TutorialChooserDialog
-import com.example.gallery.ui.component.TutorialDialog
-import com.example.gallery.ui.component.TutorialSetupDialog
-import com.example.gallery.ui.component.allTutorialTargets
-import com.example.gallery.ui.component.defaultTutorialTargetIds
-import com.example.gallery.ui.component.tutorialTargetById
-import com.example.gallery.ui.component.tutorialTargetForRoute
-import com.example.gallery.ui.component.UnifiedMediaEditDialog
-import com.example.gallery.ui.theme.GalleryColors
-import com.example.gallery.ui.theme.GalleryColorTokens
-import com.example.gallery.ui.theme.GalleryTheme
-import com.example.gallery.ui.theme.GalleryThemeMode
-import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.*
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.ThumbnailGenerationService
 import kotlinx.coroutines.Dispatchers
@@ -173,6 +161,8 @@ private fun loadCustomPalette(context: Context): GalleryColors? {
         accentSoft = color("accentSoft", 0xFF163B5F.toInt()),
         danger = color("danger", 0xFFFF6B7A.toInt()),
         success = color("success", 0xFF47D18C.toInt()),
+        warning = color("warning", 0xFFFFC857.toInt()),
+        info = color("info", 0xFF4DA3FF.toInt()),
         divider = color("divider", 0x33FFFFFF.toInt()),
         disabled = color("disabled", 0xFF6E7A86.toInt())
     )
@@ -198,6 +188,8 @@ private fun saveCustomPalette(context: Context, colors: GalleryColors?) {
         pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "accentSoft", colors.accentSoft.toArgb())
         pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "danger", colors.danger.toArgb())
         pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "success", colors.success.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "warning", colors.warning.toArgb())
+        pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "info", colors.info.toArgb())
         pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "divider", colors.divider.toArgb())
         pm.setInt(PreferenceManager.CUSTOM_PALETTE_PREFIX + "disabled", colors.disabled.toArgb())
     }
@@ -284,7 +276,9 @@ fun AppNavigation(
     galleryState.navController = navController
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var isBottomBarVisible by rememberSaveable { mutableStateOf(true) }
+    var isFolderGalleryOpen by rememberSaveable { mutableStateOf(false) }
     var isVideoFolderOpen by rememberSaveable { mutableStateOf(false) }
+    var isBookFolderOpen by rememberSaveable { mutableStateOf(false) }
 
     val tutorialPrefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
     var showTutorialSetup by rememberSaveable { mutableStateOf(false) }
@@ -306,12 +300,30 @@ fun AppNavigation(
     var showAnalysisPeriodDialog by rememberSaveable { mutableStateOf(false) }
     var showAnalysisDatePicker by rememberSaveable { mutableStateOf(false) }
     var pendingAnalysisType by rememberSaveable { mutableStateOf(AppDefaults.ANALYSIS_TYPE_AI_TAGGING) }
+    var pendingAiTaggerModel by rememberSaveable {
+        mutableStateOf(
+            AppDefaults.normalizedAiTaggerModel(
+                globalSettingsPrefs.getString(
+                    AppDefaults.AI_TAGGER_MODEL_KEY,
+                    AppDefaults.AI_TAGGER_MODEL_NORMAL
+                )
+            )
+        )
+    }
     var analysisPeriodDays by rememberSaveable { mutableIntStateOf(AppDefaults.ANALYSIS_PERIOD_ALL) }
     var customAnalysisStartTime by rememberSaveable { mutableStateOf<Long?>(null) }
     var analysisTargetCount by remember { mutableStateOf<Int?>(null) }
 
     fun openAnalysisPeriodDialog(type: String = AppDefaults.ANALYSIS_TYPE_AI_TAGGING) {
         pendingAnalysisType = type
+        if (type == AppDefaults.ANALYSIS_TYPE_AI_TAGGING) {
+            pendingAiTaggerModel = AppDefaults.normalizedAiTaggerModel(
+                globalSettingsPrefs.getString(
+                    AppDefaults.AI_TAGGER_MODEL_KEY,
+                    AppDefaults.AI_TAGGER_MODEL_NORMAL
+                )
+            )
+        }
         analysisPeriodDays = AppDefaults.ANALYSIS_PERIOD_ALL
         customAnalysisStartTime = null
         analysisTargetCount = null
@@ -329,6 +341,11 @@ fun AppNavigation(
 
     fun startPendingAnalysis() {
         val daysToPass = resolveAnalysisPeriodDays()
+        if (pendingAnalysisType == AppDefaults.ANALYSIS_TYPE_AI_TAGGING) {
+            globalSettingsPrefs.edit()
+                .putString(AppDefaults.AI_TAGGER_MODEL_KEY, pendingAiTaggerModel)
+                .apply()
+        }
         showAnalysisPeriodDialog = false
         navController.navigate(AppRoutes.analysis(type = pendingAnalysisType, periodDays = daysToPass))
     }
@@ -336,6 +353,7 @@ fun AppNavigation(
     LaunchedEffect(
         showAnalysisPeriodDialog,
         pendingAnalysisType,
+        pendingAiTaggerModel,
         analysisPeriodDays,
         customAnalysisStartTime,
         galleryState.refreshTrigger
@@ -344,7 +362,7 @@ fun AppNavigation(
         analysisTargetCount = null
         val periodDays = resolveAnalysisPeriodDays()
         analysisTargetCount = withContext(Dispatchers.IO) {
-            countAnalysisTargets(galleryState, pendingAnalysisType, periodDays)
+            countAnalysisTargets(galleryState, pendingAnalysisType, periodDays, pendingAiTaggerModel)
         }
     }
 
@@ -370,6 +388,82 @@ fun AppNavigation(
     ) { permissions ->
         if (permissions.values.all { it }) {
             galleryState.refresh()
+        }
+    }
+
+    var pendingMoveUris by remember { mutableStateOf<List<String>>(emptyList()) }
+    var pendingMoveTarget by remember { mutableStateOf<String?>(null) }
+    var pendingMoveAlreadyMoved by remember { mutableIntStateOf(0) }
+    var pendingMoveFailedUris by remember { mutableStateOf<List<String>>(emptyList()) }
+    val folderMovePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { activityResult ->
+        val retryUris = pendingMoveUris
+        val retryTarget = pendingMoveTarget
+        val alreadyMoved = pendingMoveAlreadyMoved
+        val alreadyFailedUris = pendingMoveFailedUris
+        pendingMoveUris = emptyList()
+        pendingMoveTarget = null
+        pendingMoveAlreadyMoved = 0
+        pendingMoveFailedUris = emptyList()
+        if (activityResult.resultCode != Activity.RESULT_OK || retryUris.isEmpty() || retryTarget == null) {
+            Log.w(
+                "FOLDER_MOVE_TRACE",
+                "permission_result granted=false pending=${retryUris.size} target=$retryTarget result=${activityResult.resultCode}"
+            )
+            galleryState.urisToMove = (alreadyFailedUris + retryUris).distinct()
+            galleryState.refresh()
+            Toast.makeText(context, R.string.msg_move_permission_cancelled, Toast.LENGTH_LONG).show()
+            return@rememberLauncherForActivityResult
+        }
+
+        scope.launch {
+            when (val retryResult = galleryState.repository.moveMediaToFolder(retryUris, retryTarget)) {
+                is MediaRepository.MoveMediaResult.Completed -> {
+                    val totalMoved = alreadyMoved + retryResult.movedCount
+                    val combinedFailedUris = (alreadyFailedUris + retryResult.failedUris).distinct()
+                    Log.d(
+                        "FOLDER_MOVE_TRACE",
+                        "permission_retry_complete moved=$totalMoved failed=${combinedFailedUris.size}"
+                    )
+                    galleryState.urisToMove = combinedFailedUris
+                    galleryState.refresh()
+                    if (combinedFailedUris.isNotEmpty()) {
+                        Toast.makeText(
+                            context,
+                            context.getString(
+                                R.string.msg_move_partially_failed,
+                                totalMoved,
+                                combinedFailedUris.size
+                            ),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.msg_move_completed, totalMoved),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    if (
+                        combinedFailedUris.isEmpty() &&
+                        navController.currentBackStackEntry?.destination?.route == "bulk_move_selection"
+                    ) {
+                        navController.popBackStack()
+                    }
+                }
+                is MediaRepository.MoveMediaResult.PermissionRequired -> {
+                    Log.e(
+                        "FOLDER_MOVE_TRACE",
+                        "permission_retry_still_required pending=${retryResult.pendingUris.size} target=${retryResult.targetFolder}"
+                    )
+                    galleryState.urisToMove = (
+                        alreadyFailedUris + retryResult.failedUris + retryResult.pendingUris
+                    ).distinct()
+                    galleryState.refresh()
+                    Toast.makeText(context, R.string.msg_move_failed, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -434,6 +528,8 @@ fun AppNavigation(
         if (isStartupUnlocked) galleryState.repository.mediaDao.cleanupAgeRatingTags()
     }
 
+    val systemBarBackgroundColor = GalleryThemeTokens.colors.background.toArgb()
+    val systemBarTopColor = GalleryThemeTokens.colors.topBar.toArgb()
     val window = (context as? android.app.Activity)?.window
     fun setupSystemBars(isViewerVisible: Boolean, currentRoute: String?) {
         if (window != null) {
@@ -441,30 +537,38 @@ fun AppNavigation(
                 androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
             insetsController.systemBarsBehavior =
                 androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
+            }
 
-            val isFullScreenRoute = currentRoute == "folders_select" ||
-                                   currentRoute?.startsWith("analysis") == true
-
-            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == AppRoutes.SETTINGS || currentRoute == AppRoutes.SEARCH || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
+            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == AppRoutes.SETTINGS || currentRoute == AppRoutes.MEDIA_VIEWER_SETTINGS || currentRoute == AppRoutes.BOOK_VIEWER_SETTINGS || currentRoute == AppRoutes.VIDEO_VIEWER_SETTINGS || currentRoute == AppRoutes.SEARCH || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
                 currentRoute == "references" || currentRoute?.startsWith("reference_detail") == true || currentRoute?.startsWith("reference_search") == true
 
             if (isAlwaysShowNavBarRoute) {
+                window.statusBarColor = systemBarTopColor
+                window.navigationBarColor = systemBarBackgroundColor
                 insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
                 insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
                 return
             }
 
-            if (isFullScreenRoute) {
-                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                return
-            }
-
-            if (!isViewerVisible) {
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            } else {
+            val isViewerHostRoute = currentRoute in setOf(
+                AppRoutes.HOME,
+                AppRoutes.FOLDERS,
+                AppRoutes.TRASH,
+                AppRoutes.VIDEOS,
+                AppRoutes.BOOKS
+            )
+            if (isViewerVisible && isViewerHostRoute) {
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
                 insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+            } else {
+                window.navigationBarColor = systemBarBackgroundColor
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
             }
         }
     }
@@ -479,8 +583,14 @@ fun AppNavigation(
     val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
     val currentRouteForDrawer = navBackStackEntryForDrawer?.destination?.route
     LaunchedEffect(currentRouteForDrawer) {
+        if (currentRouteForDrawer != AppRoutes.FOLDERS) {
+            isFolderGalleryOpen = false
+        }
         if (currentRouteForDrawer != AppRoutes.VIDEOS) {
             isVideoFolderOpen = false
+        }
+        if (currentRouteForDrawer != AppRoutes.BOOKS) {
+            isBookFolderOpen = false
         }
     }
     BackHandler(
@@ -489,14 +599,27 @@ fun AppNavigation(
             AppRoutes.FOLDERS,
             AppRoutes.VIDEOS,
             AppRoutes.BOOKS,
-            AppRoutes.TRASH
+            AppRoutes.TRASH,
+            AppRoutes.REFERENCES,
+            "favorite_artists",
+            "favorite_sites",
+            "book_bookmarks",
+            "video_downloader",
+            AppRoutes.SETTINGS
         )
     ) {
         if (currentRouteForDrawer != AppRoutes.HOME) {
-            navController.navigate(AppRoutes.HOME) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
-                launchSingleTop = true
-                restoreState = false
+            val startDestination = loadStartupRoute(context)
+            if (currentRouteForDrawer == startDestination) {
+                navController.navigate(AppRoutes.HOME) {
+                    popUpTo(startDestination) { inclusive = true }
+                }
+            } else {
+                navController.navigate(AppRoutes.HOME) {
+                    popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                    launchSingleTop = true
+                    restoreState = false
+                }
             }
         }
     }
@@ -516,6 +639,7 @@ fun AppNavigation(
         }
     }
     val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     val drawerItemColors = NavigationDrawerItemDefaults.colors(
         unselectedContainerColor = Color.Transparent,
         unselectedTextColor = colors.primaryText,
@@ -524,7 +648,24 @@ fun AppNavigation(
         selectedTextColor = colors.accent,
         selectedIconColor = colors.accent
     )
-    val isRefOrBookmarkRoute = currentRouteForDrawer == AppRoutes.BOOK_BOOKMARKS || currentRouteForDrawer == AppRoutes.REFERENCES
+    val isDrawerRoute = currentRouteForDrawer in setOf(
+        AppRoutes.HOME,
+        AppRoutes.FOLDERS,
+        AppRoutes.VIDEOS,
+        AppRoutes.BOOKS,
+        AppRoutes.TRASH,
+        AppRoutes.REFERENCES,
+        "favorite_artists",
+        "favorite_sites",
+        AppRoutes.BOOK_BOOKMARKS,
+        "video_downloader",
+        AppRoutes.SETTINGS
+    )
+    val isInteriorDrawerBlocked =
+        (currentRouteForDrawer == AppRoutes.FOLDERS && isFolderGalleryOpen) ||
+            (currentRouteForDrawer == AppRoutes.VIDEOS && isVideoFolderOpen) ||
+            (currentRouteForDrawer == AppRoutes.BOOKS && isBookFolderOpen)
+    val canOpenDrawerForRoute = isDrawerRoute && !isInteriorDrawerBlocked
     val isReferenceInteriorRoute = currentRouteForDrawer?.startsWith("reference_detail") == true ||
         currentRouteForDrawer?.startsWith("reference_search") == true
 
@@ -534,11 +675,12 @@ fun AppNavigation(
             ModalDrawerSheet(
                 drawerContainerColor = colors.drawer,
                 drawerContentColor = colors.primaryText,
-                modifier = Modifier.width(AppConstants.DrawerWidth)
+                modifier = Modifier.width(dimensionResource(R.dimen.drawer_width))
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .navigationBarsPadding()
                         .verticalScroll(rememberScrollState())
                 ) {
                     Spacer(Modifier.height(12.dp))
@@ -551,7 +693,7 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_menu_title),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = AppConstants.SubtitleFontSize,
+                        fontSize = textSizes.subtitle,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                     HorizontalDivider(color = colors.divider)
@@ -559,7 +701,7 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_basic_features),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = AppConstants.ExtraSmallFontSize,
+                        fontSize = textSizes.extraSmall,
                         color = colors.mutedText
                     )
 
@@ -658,7 +800,7 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_handy_features),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = AppConstants.ExtraSmallFontSize,
+                        fontSize = textSizes.extraSmall,
                         color = colors.mutedText
                     )
                     NavigationDrawerItem(
@@ -730,7 +872,7 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_info),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = AppConstants.ExtraSmallFontSize,
+                        fontSize = textSizes.extraSmall,
                         color = colors.mutedText
                     )
 
@@ -773,7 +915,7 @@ fun AppNavigation(
                     Text(
                         "Version ${BuildConfig.VERSION_NAME}",
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                        fontSize = AppConstants.ExtraSmallFontSize,
+                        fontSize = textSizes.extraSmall,
                         color = colors.mutedText
                     )
 
@@ -781,7 +923,11 @@ fun AppNavigation(
                 }
             }
         },
-        gesturesEnabled = (isBottomBarVisible || isRefOrBookmarkRoute) && !isReferenceInteriorRoute && !(currentRouteForDrawer == AppRoutes.VIDEOS && isVideoFolderOpen) && !galleryState.isSelectionMode && !galleryState.isZooming
+        gesturesEnabled = canOpenDrawerForRoute &&
+            !isReferenceInteriorRoute &&
+            !galleryState.isSelectionMode &&
+            !galleryState.isZooming &&
+            !galleryState.isMediaViewerOpen
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
@@ -791,10 +937,22 @@ fun AppNavigation(
                     currentRouteForDrawer == AppRoutes.FOLDERS ||
                     currentRouteForDrawer == AppRoutes.REFERENCES ||
                     currentRouteForDrawer == AppRoutes.BOOK_BOOKMARKS ||
-                    currentRouteForDrawer == AppRoutes.BOOKS ||
-                    (currentRouteForDrawer == AppRoutes.VIDEOS && !isVideoFolderOpen)
+                    (currentRouteForDrawer == AppRoutes.BOOKS && !isBookFolderOpen) ||
+                    (currentRouteForDrawer == AppRoutes.VIDEOS && !isVideoFolderOpen) ||
+                    currentRouteForDrawer == AppRoutes.TRASH ||
+                    currentRouteForDrawer == "favorite_artists" ||
+                    currentRouteForDrawer == "favorite_sites" ||
+                    currentRouteForDrawer == "video_downloader" ||
+                    currentRouteForDrawer == AppRoutes.SETTINGS
 
-            if (!drawerState.isOpen && (isBottomBarVisible || isRefOrBookmarkRoute) && !isReferenceInteriorRoute && isGalleryGridVisible && !galleryState.isSelectionMode && !galleryState.isZooming) {
+            if (!drawerState.isOpen &&
+                canOpenDrawerForRoute &&
+                !isReferenceInteriorRoute &&
+                isGalleryGridVisible &&
+                !galleryState.isSelectionMode &&
+                !galleryState.isZooming &&
+                !galleryState.isMediaViewerOpen
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
@@ -842,7 +1000,7 @@ fun AppNavigation(
                 modifier = Modifier.fillMaxSize()
             ) {
                 composable(AppRoutes.HOME) {
-                    isBottomBarVisible = true
+                    isBottomBarVisible = galleryState.activeMediaViewerIndex == null
                     LaunchedEffect(Unit) {
                         galleryState.lastViewedUri = null
                     }
@@ -905,6 +1063,7 @@ fun AppNavigation(
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onBackToFolders = { navController.popBackStack() },
                         onStartAnalysis = { openAnalysisPeriodDialog() },
+                        onFolderStateChanged = { isFolderGalleryOpen = it },
                         onFolderSelected = { target ->
                             if (target.startsWith("TAG_NAVIGATION:")) {
                                 val tag = target.removePrefix("TAG_NAVIGATION:")
@@ -974,10 +1133,39 @@ fun AppNavigation(
                         galleryState = galleryState,
                         onFolderSelected = { folder ->
                             scope.launch {
-                                GlobalOperationService.startOperation(AppText.MOVING_ITEMS)
-                                galleryState.repository.moveMediaToFolder(galleryState.urisToMove, folder)
-                                GlobalOperationService.finishOperation()
-                                navController.popBackStack()
+                                when (val moveResult = galleryState.repository.moveMediaToFolder(galleryState.urisToMove, folder)) {
+                                    is MediaRepository.MoveMediaResult.Completed -> {
+                                        galleryState.urisToMove = moveResult.failedUris
+                                        galleryState.refresh()
+                                        if (moveResult.failedCount > 0) {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(
+                                                    R.string.msg_move_partially_failed,
+                                                    moveResult.movedCount,
+                                                    moveResult.failedCount
+                                                ),
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.msg_move_completed, moveResult.movedCount),
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        if (moveResult.failedCount == 0) navController.popBackStack()
+                                    }
+                                    is MediaRepository.MoveMediaResult.PermissionRequired -> {
+                                        pendingMoveUris = moveResult.pendingUris
+                                        pendingMoveTarget = moveResult.targetFolder
+                                        pendingMoveAlreadyMoved = moveResult.movedCount
+                                        pendingMoveFailedUris = moveResult.failedUris
+                                        folderMovePermissionLauncher.launch(
+                                            IntentSenderRequest.Builder(moveResult.intentSender).build()
+                                        )
+                                    }
+                                }
                             }
                         },
                         onBack = { navController.popBackStack() }
@@ -1014,6 +1202,7 @@ fun AppNavigation(
                         onBookmarksChanged = { bookmarksCount = bookmarksPrefs.all.size },
                         onNavigateToBookmarks = { navController.navigate("book_bookmarks") },
                         onOpenBookSettings = { navController.navigate(AppRoutes.BOOK_VIEWER_SETTINGS) },
+                        onFolderStateChanged = { isBookFolderOpen = it },
                         initialJumpBookId = pendingBookmarkBookId,
                         initialJumpPage = pendingBookmarkPage,
                         onJumpHandled = {
@@ -1070,10 +1259,11 @@ fun AppNavigation(
                         VideoGalleryScreen(
                             galleryState = galleryState,
                             onMenuClick = { scope.launch { drawerState.open() } },
+                            onSettingsClick = { navController.navigate(AppRoutes.VIDEO_VIEWER_SETTINGS) },
                             onFolderStateChanged = { isVideoFolderOpen = it },
                             onFullscreenVideo = { list, index ->
                                 window?.let { targetWindow ->
-                                    targetWindow.navigationBarColor = android.graphics.Color.BLACK
+                                    targetWindow.navigationBarColor = android.graphics.Color.TRANSPARENT
                                     targetWindow.statusBarColor = android.graphics.Color.BLACK
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                         targetWindow.isNavigationBarContrastEnforced = false
@@ -1089,6 +1279,7 @@ fun AppNavigation(
                                 videoList = list,
                                 initialIndex = fullscreenVideoIndex,
                                 onClose = { fullscreenVideoList = null },
+                                onNavigateToSettings = { navController.navigate(AppRoutes.VIDEO_VIEWER_SETTINGS) },
                                 galleryState = galleryState
                             )
                         }
@@ -1190,8 +1381,22 @@ fun AppNavigation(
                         onBack = { navController.popBackStack() }
                     )
                 }
+                composable(AppRoutes.MEDIA_VIEWER_SETTINGS) {
+                    isBottomBarVisible = false
+                    AppSettingsScreen(
+                        themeMode = themeMode,
+                        customPalette = customPalette,
+                        textScale = textScale,
+                        onThemeModeChange = onThemeModeChange,
+                        onCustomPaletteChange = onCustomPaletteChange,
+                        onTextScaleChange = onTextScaleChange,
+                        onBack = { navController.popBackStack() },
+                        initialPage = SettingsPage.MEDIA_VIEWER,
+                        directBackFromInitialPage = true
+                    )
+                }
                 composable(AppRoutes.BOOK_VIEWER_SETTINGS) {
-                    isBottomBarVisible = true
+                    isBottomBarVisible = false
                     AppSettingsScreen(
                         themeMode = themeMode,
                         customPalette = customPalette,
@@ -1204,6 +1409,20 @@ fun AppNavigation(
                         directBackFromInitialPage = true
                     )
                 }
+                composable(AppRoutes.VIDEO_VIEWER_SETTINGS) {
+                    isBottomBarVisible = false
+                    AppSettingsScreen(
+                        themeMode = themeMode,
+                        customPalette = customPalette,
+                        textScale = textScale,
+                        onThemeModeChange = onThemeModeChange,
+                        onCustomPaletteChange = onCustomPaletteChange,
+                        onTextScaleChange = onTextScaleChange,
+                        onBack = { navController.popBackStack() },
+                        initialPage = SettingsPage.VIDEO_VIEWER,
+                        directBackFromInitialPage = true
+                    )
+                }
             }
 
             }
@@ -1213,6 +1432,8 @@ fun AppNavigation(
                     selectedPeriodDays = analysisPeriodDays,
                     customStartTime = customAnalysisStartTime,
                     targetCount = analysisTargetCount,
+                    analysisType = pendingAnalysisType,
+                    selectedAiTaggerModel = pendingAiTaggerModel,
                     onSelectPeriod = { days ->
                         if (days == CUSTOM_ANALYSIS_PERIOD) {
                             showAnalysisDatePicker = true
@@ -1220,6 +1441,9 @@ fun AppNavigation(
                             analysisPeriodDays = days
                             customAnalysisStartTime = null
                         }
+                    },
+                    onSelectAiTaggerModel = { model ->
+                        pendingAiTaggerModel = AppDefaults.normalizedAiTaggerModel(model)
                     },
                     onDismiss = { showAnalysisPeriodDialog = false },
                     onStart = ::startPendingAnalysis
@@ -1245,7 +1469,7 @@ fun AppNavigation(
             if (!isStartupUnlocked) {
                 AlertDialog(
                     onDismissRequest = {},
-                    title = { Text("起動パスワード") },
+                    title = { Text(stringResource(R.string.auth_startup_password)) },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
@@ -1254,13 +1478,13 @@ fun AppNavigation(
                                     startupPasswordInput = it.filter(Char::isDigit)
                                     startupPasswordError = false
                                 },
-                                label = { Text("パスワード") },
+                                label = { Text(stringResource(R.string.auth_password_label)) },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                                 isError = startupPasswordError
                             )
                             if (startupPasswordError) {
-                                Text("パスワードが違います", color = GalleryThemeTokens.colors.danger)
+                                Text(stringResource(R.string.auth_wrong_password_msg), color = GalleryThemeTokens.colors.danger)
                             }
                         }
                     },
@@ -1272,7 +1496,7 @@ fun AppNavigation(
                                 startupPasswordError = true
                             }
                         }) {
-                            Text(AppText.UNLOCK)
+                            Text(stringResource(R.string.btn_unlock))
                         }
                     }
                 )
@@ -1280,20 +1504,12 @@ fun AppNavigation(
 
             if (showTutorialSetup) {
                 TutorialSetupDialog(
-                    selectedIds = tutorialSetupSelection,
-                    onToggle = { targetId ->
-                        tutorialSetupSelection = if (targetId in tutorialSetupSelection) {
-                            tutorialSetupSelection - targetId
-                        } else {
-                            tutorialSetupSelection + targetId
-                        }
-                    },
                     onConfirm = {
                         val editor = tutorialPrefs.edit()
                             .putBoolean(TUTORIAL_SETUP_DONE_PREF, true)
                         allTutorialTargets().forEach { target ->
                             editor
-                                .putBoolean(TUTORIAL_ENABLED_PREFIX + target.id, target.id in tutorialSetupSelection)
+                                .putBoolean(TUTORIAL_ENABLED_PREFIX + target.id, true)
                                 .putBoolean(TUTORIAL_SHOWN_PREFIX + target.id, false)
                         }
                         editor.apply()
@@ -1339,9 +1555,14 @@ fun AppNavigation(
                 currentRoute == AppRoutes.BOOKS ||
                 currentRoute == AppRoutes.TRASH ||
                 currentRoute == AppRoutes.VIDEOS
+            val isInteriorGalleryRoute =
+                (currentRoute == AppRoutes.FOLDERS && isFolderGalleryOpen) ||
+                    (currentRoute == AppRoutes.VIDEOS && isVideoFolderOpen) ||
+                    (currentRoute == AppRoutes.BOOKS && isBookFolderOpen)
 
             val isHideRoute = currentRoute == null ||
                 !isBasicFunction ||
+                isInteriorGalleryRoute ||
                 currentRoute == AppRoutes.MASS_EDIT ||
                 currentRoute == AppRoutes.FOLDERS_SELECT ||
                 currentRoute.startsWith("analysis")
@@ -1351,7 +1572,6 @@ fun AppNavigation(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .navigationBarsPadding()
                 ) {
                     GalleryBottomNavigationBar(
                         navController = navController,
@@ -1373,26 +1593,29 @@ private fun AnalysisPeriodDialog(
     selectedPeriodDays: Int,
     customStartTime: Long?,
     targetCount: Int?,
+    analysisType: String,
+    selectedAiTaggerModel: String,
     onSelectPeriod: (Int) -> Unit,
+    onSelectAiTaggerModel: (String) -> Unit,
     onDismiss: () -> Unit,
     onStart: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
     val customLabel = customStartTime?.let { startTime ->
         val formatter = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.getDefault())
-        "${formatter.format(java.util.Date(startTime))} 以降"
-    } ?: "カレンダーから選ぶ"
+        stringResource(R.string.analysis_period_custom, formatter.format(java.util.Date(startTime)))
+    } ?: stringResource(R.string.analysis_period_calendar)
     val periods = listOf(
-        7 to "直近7日",
-        30 to "直近30日",
-        AppDefaults.ANALYSIS_PERIOD_ALL to "すべての期間",
+        7 to stringResource(R.string.analysis_period_7d),
+        30 to stringResource(R.string.analysis_period_30d),
+        AppDefaults.ANALYSIS_PERIOD_ALL to stringResource(R.string.analysis_period_all),
         CUSTOM_ANALYSIS_PERIOD to customLabel
     )
     val estimatedSeconds = targetCount?.times(4)
     val estimatedText = when (estimatedSeconds) {
-        null -> "計算中..."
-        0 -> "約0分"
-        else -> "約${(estimatedSeconds + 59) / 60}分（${targetCount}件）"
+        null -> stringResource(R.string.analysis_calculating)
+        0 -> stringResource(R.string.analysis_zero_minutes)
+        else -> stringResource(R.string.analysis_estimated_minutes, (estimatedSeconds + 59) / 60, targetCount)
     }
 
     AlertDialog(
@@ -1400,14 +1623,49 @@ private fun AnalysisPeriodDialog(
         containerColor = colors.surface,
         title = {
             Text(
-                text = "AI分析を実行",
+                text = stringResource(R.string.analysis_run_ai),
                 color = colors.primaryText,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )
         },
         text = {
-            Column {
-                Text("分析対象の期間を選択してください", color = colors.secondaryText)
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (analysisType == AppDefaults.ANALYSIS_TYPE_AI_TAGGING) {
+                    Text(
+                        text = stringResource(R.string.settings_ai_tagger_model),
+                        color = colors.primaryText,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                    listOf(
+                        AppDefaults.AI_TAGGER_MODEL_NORMAL to stringResource(R.string.opt_ai_model_normal),
+                        AppDefaults.AI_TAGGER_MODEL_HIGH to stringResource(R.string.opt_ai_model_high)
+                    ).forEach { (model, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectAiTaggerModel(model) }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = selectedAiTaggerModel == model,
+                                onClick = { onSelectAiTaggerModel(model) }
+                            )
+                            Text(
+                                text = label,
+                                color = colors.primaryText,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_ai_tagger_model_desc),
+                        color = colors.secondaryText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+                Text(stringResource(R.string.analysis_select_period_desc), color = colors.secondaryText)
                 Spacer(Modifier.height(8.dp))
                 periods.forEach { (days, label) ->
                     Row(
@@ -1441,12 +1699,12 @@ private fun AnalysisPeriodDialog(
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         Text(
-                            text = "対象件数: ${targetCount?.toString() ?: "計算中..."}件",
+                            text = stringResource(R.string.analysis_target_count_label, targetCount ?: 0),
                             color = colors.primaryText,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                         Text(
-                            text = "推定時間: $estimatedText",
+                            text = stringResource(R.string.analysis_estimated_time_label, estimatedText),
                             color = colors.secondaryText
                         )
                     }
@@ -1459,12 +1717,12 @@ private fun AnalysisPeriodDialog(
                 enabled = (selectedPeriodDays != CUSTOM_ANALYSIS_PERIOD || customStartTime != null) &&
                     targetCount != null
             ) {
-                Text("分析開始")
+                Text(stringResource(R.string.analysis_start))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(AppText.CANCEL)
+                Text(stringResource(R.string.btn_cancel))
             }
         }
     )
@@ -1489,12 +1747,12 @@ private fun AnalysisDatePickerDialog(
                 },
                 enabled = datePickerState.selectedDateMillis != null
             ) {
-                Text(AppText.OK)
+                Text(stringResource(R.string.btn_ok))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(AppText.CANCEL)
+                Text(stringResource(R.string.btn_cancel))
             }
         }
     ) {
@@ -1518,7 +1776,8 @@ private fun Intent.extractXStatusUrl(): String? {
 private suspend fun countAnalysisTargets(
     galleryState: GalleryState,
     analysisType: String,
-    periodDays: Int
+    periodDays: Int,
+    selectedAiTaggerModel: String = AppDefaults.AI_TAGGER_MODEL_NORMAL
 ): Int {
     val startTime = if (periodDays == AppDefaults.ANALYSIS_PERIOD_ALL) {
         0L
@@ -1527,6 +1786,11 @@ private suspend fun countAnalysisTargets(
     }
     val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
     val metadataByUri = galleryState.repository.getAllMetadataSummary().associateBy { it.uri }
+    val selectedTaggerModel = if (analysisType == AppDefaults.ANALYSIS_TYPE_AI_TAGGING) {
+        AppDefaults.normalizedAiTaggerModel(selectedAiTaggerModel)
+    } else {
+        AppDefaults.AI_TAGGER_MODEL_NORMAL
+    }
 
     return allMedia.count { item ->
         if (item.isVideo) return@count false
@@ -1534,7 +1798,9 @@ private suspend fun countAnalysisTargets(
 
         val metadata = metadataByUri[item.uri]
         when (analysisType) {
-            AppDefaults.ANALYSIS_TYPE_AI_TAGGING -> metadata?.isAiAnalyzed != true
+            AppDefaults.ANALYSIS_TYPE_AI_TAGGING -> metadata == null ||
+                !metadata.isAiAnalyzed ||
+                AppDefaults.aiTaggerModelRank(metadata.aiAnalysisModel) < AppDefaults.aiTaggerModelRank(selectedTaggerModel)
             "COLOR_VECTOR" -> metadata?.hasFeatureVector != true
             else -> true
         }

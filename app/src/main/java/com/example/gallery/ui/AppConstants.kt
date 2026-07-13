@@ -1,67 +1,66 @@
 package com.example.gallery.ui
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.ui.res.dimensionResource
-import com.example.gallery.R
-import com.example.gallery.ui.theme.GalleryThemeTokens
-
 object AppConstants {
-    val BackgroundColor @Composable @ReadOnlyComposable get() = GalleryThemeTokens.colors.background
-
-    val HeaderHeight @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.header_height)
-    val DrawerWidth @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_width)
-    val DrawerItemHeight @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_item_height)
-    val DrawerEdgeHitWidth @Composable @ReadOnlyComposable get() = dimensionResource(R.dimen.drawer_edge_hit_width)
-
-    // フォントサイズ (GalleryThemeTokens 経由でリソースから取得)
-    val TitleFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.title
-    val HeaderFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.header
-    val BodyFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.body
-    val SubtitleFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.subtitle
-    val SmallFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.small
-    val ExtraSmallFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.extraSmall
-    val TinyFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.tiny
-    val BottomNavFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.bottomNav
-    val ScrollbarLabelFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.scrollbarLabel
-    val BadgeFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.badge
-    val DenseBadgeFontSize: androidx.compose.ui.unit.TextUnit
-        @Composable
-        @ReadOnlyComposable
-        get() = GalleryThemeTokens.textSizes.denseBadge
-
     const val GRID_IMAGE_LOAD_PAUSE_VELOCITY_ITEMS_PER_SEC = 90f
     const val GALLERY_SELECTION_LONG_PRESS_EXTRA_MS = 220L
+
+    // Age Ratings
+    const val RATING_SFW = "SFW"
+    const val RATING_R15 = "R15"
+    const val RATING_R18 = "R18"
+
+    // Project Status
+    const val STATUS_ACTIVE = "ACTIVE"
+    const val STATUS_FINISHED = "FINISHED"
+
+    // Search Modes
+    const val MATCH_AND = "AND"
+    const val MATCH_OR = "OR"
+
+    // Action Names (Internal IDs)
+    const val ACTION_TRASH = "ゴミ箱"
+    const val ACTION_CLOSE = "閉じる"
+    const val ACTION_SETTINGS = "設定"
+    const val ACTION_BOOKMARK = "しおり"
+    const val ACTION_ROTATE = "回転"
+    const val ACTION_SCREENSHOT = "スクリーンショット"
+    const val ACTION_PREV = "前へ"
+    const val ACTION_NEXT = "次へ"
+    const val ACTION_PLAY_PAUSE = "再生/停止"
+    const val ACTION_FAVORITE = "お気に入り"
+    const val ACTION_SLIDESHOW = "スライドショー"
+    const val ACTION_GIF = "GIF"
+    const val ACTION_ASCII2D = "ascii2d"
+    const val ACTION_WALLPAPER = "壁紙"
+    const val ACTION_THUMBNAIL = "フォルダサムネイル"
+    const val ACTION_TAG = "タグ"
+    const val ACTION_SEARCH = "検索"
+    const val ACTION_SAVE = "保存"
+    const val ACTION_OVERFLOW = "3点ボタン"
+
+    // Book specific actions
+    const val ACTION_PREV_BOOK = "前の本"
+    const val ACTION_NEXT_BOOK = "次の本"
+    const val ACTION_PREV_PAGE = "前ページ"
+    const val ACTION_NEXT_PAGE = "次ページ"
+    const val ACTION_ZOOM = "ズーム"
+    const val ACTION_MENU = "メニュー"
+    const val ACTION_TOGGLE_UI = "表示切替"
+
+    // Slot Names
+    const val SLOT_BOTTOM_LEFT = "ボトム左"
+    const val SLOT_BOTTOM_CENTER_LEFT = "ボトム中央左"
+    const val SLOT_BOTTOM_CENTER = "ボトム中央"
+    const val SLOT_BOTTOM_CENTER_RIGHT = "ボトム中央右"
+    const val SLOT_BOTTOM_RIGHT = "ボトム右"
+
+    // Operation Types
+    const val OP_AI_TAGGING = "AI_TAGGING"
+    const val OP_COLOR_VECTOR = "COLOR_VECTOR"
+    const val OP_AUTO_RATING = "AUTO_RATING"
+
+    // Default Values
+    const val DEFAULT_COMPRESSION_QUALITY = 75
 
     val R15Keywords = setOf(
         "cleavage", "underboob", "sideboob", "bikini", "swimsuit", "one-piece_swimsuit",

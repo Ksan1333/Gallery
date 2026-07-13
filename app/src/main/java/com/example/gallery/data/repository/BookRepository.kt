@@ -15,6 +15,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
+import com.example.gallery.R
 
 data class BookData(
     val id: String,
@@ -29,7 +30,7 @@ data class BookData(
 
 enum class BookType { ZIP, PDF }
 
-class BookRepository(context: Context) {
+class BookRepository(private val context: Context) {
     private val thumbDir = File(context.cacheDir, "book_thumbs").apply { if (!exists()) mkdirs() }
     private val indexFile = File(context.cacheDir, "book_index.json")
     private val trashRootsFile = File(context.cacheDir, "book_trash_roots.json")
@@ -189,7 +190,7 @@ class BookRepository(context: Context) {
                                 type = type,
                                 pageCount = pageCount,
                                 thumbnailPath = thumbnail,
-                                folderName = originalFolder?.name ?: "本のゴミ箱",
+                                folderName = originalFolder?.name ?: context.getString(R.string.label_book_trash),
                                 folderPath = originalFolder?.absolutePath ?: file.parentFile?.absolutePath.orEmpty()
                             )
                         )

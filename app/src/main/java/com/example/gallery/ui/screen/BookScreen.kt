@@ -44,14 +44,17 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
+import androidx.compose.ui.res.dimensionResource
 import com.example.gallery.R
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.data.repository.BookType
 import com.example.gallery.service.GlobalOperationService
-import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.AppRoutes
+import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.component.OperationProgressIndicator
 import com.example.gallery.ui.screen.BookViewerScreen
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.roundToInt
@@ -68,6 +71,7 @@ fun BookScreen(
     onBookmarksChanged: () -> Unit = {},
     onNavigateToBookmarks: () -> Unit = {},
     onOpenBookSettings: () -> Unit = {},
+    onFolderStateChanged: (Boolean) -> Unit = {},
     initialJumpBookId: String? = null,
     initialJumpPage: Int = -1,
     onJumpHandled: () -> Unit = {}
@@ -102,6 +106,8 @@ fun BookScreen(
     var selectedBookIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var favoriteVersion by remember { mutableIntStateOf(0) }
     var pendingDeleteBooks by remember { mutableStateOf<List<BookData>>(emptyList()) }
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
 
     // しおりからの自動遷移処理
     LaunchedEffect(initialJumpBookId, books) {
@@ -116,6 +122,9 @@ fun BookScreen(
 
     // 現在選択されているフォルダパス
     var selectedFolderPath by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedFolderPath) {
+        onFolderStateChanged(selectedFolderPath != null)
+    }
 
     // Store the selected book without relying on Parcelable state.
     val bookSaver = Saver<BookData?, Map<String, Any?>>(
@@ -196,14 +205,14 @@ fun BookScreen(
         scope.launch {
             isLoading = true
             val operationId = GlobalOperationService.startOperation(
-                title = "本を走査中...",
+                title = context.getString(R.string.book_scan_progress_title),
                 tag = "BOOK_SCAN",
                 canCancel = false
             )
             try {
-                GlobalOperationService.updateProgress(0.15f, "本棚フォルダを確認中...", operationId)
+                GlobalOperationService.updateProgress(0.15f, context.getString(R.string.book_scan_checking_folders), operationId)
                 books = sortBooks(repository.scanBooks(), fileSort)
-                GlobalOperationService.updateProgress(1f, "走査完了", operationId)
+                GlobalOperationService.updateProgress(1f, context.getString(R.string.book_scan_complete), operationId)
             } finally {
                 GlobalOperationService.finishOperation(operationId)
                 isLoading = false
@@ -280,6 +289,7 @@ fun BookScreen(
                     }
                 },
                 onBookmarksChanged = onBookmarksChanged,
+                onNavigateToBookmarks = onNavigateToBookmarks,
                 onOpenBookSettings = onOpenBookSettings,
                 initialPage = startPageForSelectedBook
             )
@@ -288,26 +298,26 @@ fun BookScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AppConstants.BackgroundColor)
+                .background(colors.background)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black)
+                    .background(colors.topBar)
                     .windowInsetsPadding(WindowInsets.statusBars)
-                    .height(AppConstants.HeaderHeight)
+                    .height(dimensionResource(R.dimen.header_height))
                     .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 if (selectedBookIds.isNotEmpty()) {
                     IconButton(onClick = { selectedBookIds = emptySet() }) {
-                        Icon(Icons.Default.Close, "選択を解除", tint = Color.White)
+                        Icon(Icons.Default.Close, stringResource(R.string.btn_deselect), tint = colors.primaryText)
                     }
                     Text(
-                        "${selectedBookIds.size} 件選択中",
-                        color = Color.White,
-                        fontSize = AppConstants.SubtitleFontSize
+                        stringResource(R.string.trash_item_count, selectedBookIds.size),
+                        color = colors.primaryText,
+                        fontSize = textSizes.subtitle
                     )
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = {
@@ -317,34 +327,39 @@ fun BookScreen(
                         editor.apply()
                         favoriteVersion++
                         selectedBookIds = emptySet()
-                        Toast.makeText(context, if (shouldFavorite) "お気に入りに追加しました" else "お気に入りを解除しました", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (shouldFavorite) context.getString(R.string.msg_added_to_favorites) else context.getString(R.string.msg_removed_from_favorites), Toast.LENGTH_SHORT).show()
                     }) {
-                        Icon(Icons.Default.Favorite, "お気に入りに追加", tint = Color.Red)
+                        Icon(Icons.Default.Favorite, stringResource(R.string.label_favorites), tint = colors.danger)
                     }
                     IconButton(onClick = {
                         pendingDeleteBooks = books.filter { it.id in selectedBookIds }
                     }) {
-                        Icon(Icons.Default.Delete, "削除", tint = Color.White)
+                        Icon(Icons.Default.Delete, stringResource(R.string.btn_delete), tint = colors.primaryText)
                     }
                 } else {
                     IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, "メニュー", tint = Color.White)
+                        Icon(Icons.Default.Menu, stringResource(R.string.btn_open), tint = colors.primaryText)
                     }
                     Text(
-                        "本 / Zip / PDF",
-                        color = Color.White,
-                        fontSize = AppConstants.HeaderFontSize
+                        stringResource(R.string.label_books_title),
+                        color = colors.primaryText,
+                        fontSize = textSizes.header
                     )
                     Spacer(Modifier.weight(1f))
+                    IconButton(onClick = {
+                        onNavigateToBookmarks()
+                    }) {
+                        Icon(Icons.Default.Bookmark, stringResource(R.string.nav_book_bookmarks), tint = colors.accent)
+                    }
                     Box {
                         IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Default.Sort, "並び替え", tint = Color.White)
+                            Icon(Icons.Default.Sort, stringResource(R.string.label_sort), tint = colors.primaryText)
                         }
                         DropdownMenu(
                             expanded = showSortMenu,
                             onDismissRequest = { showSortMenu = false }
                         ) {
-                            fileSortOptionsForBookScreen.forEach { (label, value) ->
+                            fileSortOptionsForBookScreen(context).forEach { (label, value) ->
                                 DropdownMenuItem(
                                     text = { Text(label) },
                                     onClick = {
@@ -356,20 +371,8 @@ fun BookScreen(
                             }
                         }
                     }
-                    IconButton(onClick = { refresh() }, enabled = !isLoading) {
-                        if (isLoading) {
-                            CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Refresh, "再読み込み", tint = Color.White)
-                        }
-                    }
-                    IconButton(onClick = {
-                        onNavigateToBookmarks()
-                    }) {
-                        Icon(Icons.Default.Bookmark, "しおり", tint = Color.Cyan)
-                    }
                     IconButton(onClick = onOpenBookSettings) {
-                        Icon(Icons.Default.Settings, "設定", tint = Color.White)
+                        Icon(Icons.Default.Settings, stringResource(R.string.nav_settings), tint = colors.primaryText)
                     }
                 }
             }
@@ -390,37 +393,35 @@ fun BookScreen(
             }
 
             // パンくずリスト風の表示
-            if (selectedFolderPath != null) {
-                val folderName = books.find { it.folderPath == selectedFolderPath }?.folderName ?: "Unknown"
+                val folderName = books.find { it.folderPath == selectedFolderPath }?.folderName ?: stringResource(R.string.label_none)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.3f))
+                        .background(colors.surfaceVariant.copy(alpha = 0.3f))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "本 > ",
-                        color = Color.Gray,
-                        fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+                        text = "${stringResource(R.string.label_books_root)} > ",
+                        color = colors.mutedText,
+                        fontSize = textSizes.small,
                         modifier = Modifier.clickable { selectedFolderPath = null }
                     )
                     Text(
                         text = folderName,
-                        color = Color.White,
-                        fontSize = com.example.gallery.ui.AppConstants.SmallFontSize
+                        color = colors.primaryText,
+                        fontSize = textSizes.small
                     )
                 }
-            }
 
             if (!hasFullStorageAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                        Icon(Icons.Default.Settings, null, tint = Color.Gray, modifier = Modifier.size(64.dp))
+                        Icon(Icons.Default.Settings, null, tint = colors.mutedText, modifier = Modifier.size(64.dp))
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            "端末内のすべてのフォルダから本を探すには、「全ファイルへのアクセス」権限が必要です。",
-                            color = Color.White,
+                            stringResource(R.string.msg_storage_access_desc),
+                            color = colors.primaryText,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Spacer(Modifier.height(24.dp))
@@ -435,23 +436,23 @@ fun BookScreen(
                                 context.startActivity(intent)
                             }
                         }) {
-                            Text("設定を開いて許可する")
+                            Text(stringResource(R.string.book_grant_permission))
                         }
                     }
                 }
             } else if (isLoading && books.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator(color = colors.primaryText)
                         Spacer(Modifier.height(12.dp))
-                        Text("本を走査中...", color = Color.White)
+                        Text(stringResource(R.string.book_scan_progress_title), color = colors.primaryText)
                     }
                 }
             } else if (books.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("本が見つかりませんでした", color = Color.Gray)
-                        Text("フォルダの権限や保存場所を確認してください", color = Color.DarkGray, fontSize = com.example.gallery.ui.AppConstants.TinyFontSize)
+                        Text(stringResource(R.string.book_no_books), color = colors.mutedText)
+                        Text(stringResource(R.string.book_check_permission), color = colors.divider.copy(alpha = 1f), fontSize = textSizes.tiny)
                     }
                 }
             } else {
@@ -531,12 +532,12 @@ fun BookScreen(
     if (pendingDeleteBooks.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { pendingDeleteBooks = emptyList() },
-            containerColor = Color.DarkGray,
-            title = { Text("本を削除しますか？", color = Color.White) },
+            containerColor = colors.surfaceVariant,
+            title = { Text(stringResource(R.string.book_delete_confirm), color = colors.primaryText) },
             text = {
                 Text(
-                    "選択した本をアプリ内のゴミ箱フォルダへ移動します。",
-                    color = Color.White
+                    stringResource(R.string.msg_move_books_to_trash),
+                    color = colors.primaryText
                 )
             },
             confirmButton = {
@@ -550,15 +551,15 @@ fun BookScreen(
                         books = books.filterNot { target -> targets.any { it.id == target.id } }
                         selectedBookIds = emptySet()
                         pendingDeleteBooks = emptyList()
-                        Toast.makeText(context, "${successCount} 件を削除しました", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.msg_deleted_count, successCount), Toast.LENGTH_SHORT).show()
                     }
                 }) {
-                    Text("削除")
+                    Text(stringResource(R.string.btn_delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteBooks = emptyList() }) {
-                    Text("キャンセル")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -572,11 +573,11 @@ data class FolderData(
     val thumbnailPath: String?
 )
 
-private val fileSortOptionsForBookScreen = listOf(
-    "名前 昇順" to "NAME_ASC",
-    "名前 降順" to "NAME_DESC",
-    "新しい順" to "DATE_DESC",
-    "古い順" to "DATE_ASC"
+private fun fileSortOptionsForBookScreen(context: Context) = listOf(
+    context.getString(R.string.opt_name_asc) to "NAME_ASC",
+    context.getString(R.string.opt_name_desc) to "NAME_DESC",
+    context.getString(R.string.opt_date_desc) to "DATE_DESC",
+    context.getString(R.string.opt_date_asc) to "DATE_ASC"
 )
 
 private fun sortBooks(books: List<BookData>, mode: String): List<BookData> {
@@ -608,6 +609,8 @@ private fun pickFolderThumbnail(
 
 @Composable
 fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -619,7 +622,7 @@ fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) 
                     .fillMaxWidth()
                     .aspectRatio(0.7f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color.DarkGray)
+                    .background(colors.surfaceVariant)
             ) {
                 if (folder.thumbnailPath != null) {
                     AsyncImage(
@@ -633,18 +636,18 @@ fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) 
                 Icon(
                     imageVector = Icons.Default.Folder,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.8f),
+                    tint = colors.primaryText.copy(alpha = 0.8f),
                     modifier = Modifier.size(48.dp).align(Alignment.Center)
                 )
                 Surface(
-                    color = Color.Black.copy(alpha = 0.6f),
+                    color = colors.background.copy(alpha = 0.6f),
                     shape = RoundedCornerShape(4.dp),
                     modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)
                 ) {
                     Text(
                         text = "${folder.count}",
-                        color = Color.White,
-                        fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
+                        color = colors.primaryText,
+                        fontSize = textSizes.tiny,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
@@ -653,8 +656,8 @@ fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) 
         }
         Text(
             folder.name,
-            color = Color.White,
-            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+            color = colors.primaryText,
+            fontSize = textSizes.small,
             maxLines = 2,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
@@ -674,6 +677,8 @@ fun BookItem(
     onLongClick: () -> Unit,
     onDeleteRequest: () -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     var contentScale by remember { mutableStateOf(ContentScale.Crop) }
     var dragAmountX by remember { mutableFloatStateOf(0f) }
 
@@ -681,7 +686,7 @@ fun BookItem(
         modifier = Modifier
             .fillMaxWidth()
             .offset { IntOffset(dragAmountX.roundToInt(), 0) }
-            .background(if (isSelected) Color.Cyan.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(8.dp))
+            .background(if (isSelected) colors.accent.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(8.dp))
             .pointerInput(enableSwipeDelete, book.id) {
                 if (enableSwipeDelete) {
                     detectDragGestures(
@@ -706,7 +711,7 @@ fun BookItem(
                     .fillMaxWidth()
                     .aspectRatio(0.7f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color.DarkGray)
+                    .background(colors.surfaceVariant)
             ) {
                 if (book.thumbnailPath != null) {
                     AsyncImage(
@@ -725,8 +730,8 @@ fun BookItem(
                 if (isFavorite) {
                     Icon(
                         Icons.Default.Favorite,
-                        contentDescription = "お気に入り",
-                        tint = Color.Red,
+                        contentDescription = stringResource(R.string.label_favorites),
+                        tint = colors.danger,
                         modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).size(18.dp)
                     )
                 }
@@ -735,22 +740,22 @@ fun BookItem(
         }
         Text(
             book.title,
-            color = Color.White,
-            fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+            color = colors.primaryText,
+            fontSize = textSizes.small,
             maxLines = 2,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
         Text(
-            "${book.pageCount} ページ",
-            color = Color.Gray,
-            fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
+            stringResource(R.string.msg_page_count, book.pageCount),
+            color = colors.mutedText,
+            fontSize = textSizes.tiny,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
         val lastReadPage = prefs.getInt("lastReadPage:${book.id}", -1)
         if (readMark != "NONE" && lastReadPage >= 0) {
             val progress = ((lastReadPage + 1).toFloat() / book.pageCount.coerceAtLeast(1)).coerceIn(0f, 1f)
             val label = when (readMark) {
-                "ICON" -> "既読"
+                "ICON" -> stringResource(R.string.msg_read_status_done)
                 "PAGE" -> "${lastReadPage + 1}/${book.pageCount}"
                 "PERCENT" -> "${(progress * 100).toInt()}%"
                 else -> ""
@@ -758,13 +763,15 @@ fun BookItem(
             if (readMark == "PROGRESS_BAR") {
                 LinearProgressIndicator(
                     progress = { progress },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    color = colors.accent,
+                    trackColor = colors.divider
                 )
             } else if (label.isNotEmpty()) {
                 Text(
                     label,
-                    color = Color.Cyan,
-                    fontSize = com.example.gallery.ui.AppConstants.TinyFontSize,
+                    color = colors.accent,
+                    fontSize = textSizes.tiny,
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }

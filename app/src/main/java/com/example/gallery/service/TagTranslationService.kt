@@ -2,7 +2,6 @@ package com.example.gallery.service
 
 import android.content.Context
 import android.util.Log
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.data.local.GalleryDatabase
 import java.io.File
 import org.json.JSONObject

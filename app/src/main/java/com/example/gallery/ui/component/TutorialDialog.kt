@@ -28,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,16 +52,16 @@ import com.example.gallery.R
 import com.example.gallery.ui.AppRoutes
 import com.example.gallery.ui.theme.GalleryThemeTokens
 
-enum class TutorialTarget(val id: String, val label: String) {
-    OVERVIEW("overview", "アプリ全体"),
-    HOME("home", "ホーム / ギャラリー"),
-    SEARCH("search", "検索"),
-    FOLDERS("folders", "フォルダ"),
-    BOOKS("books", "ブックビューア"),
-    REFERENCES("references", "お絵描き資料"),
-    VIDEO_DOWNLOADER("video_downloader", "動画DL"),
-    TRASH("trash", "ゴミ箱"),
-    SETTINGS("settings", "設定")
+enum class TutorialTarget(val id: String, val labelRes: Int) {
+    OVERVIEW("overview", R.string.tutorial_overview_title),
+    HOME("home", R.string.tutorial_home_title),
+    SEARCH("search", R.string.tutorial_search_title),
+    FOLDERS("folders", R.string.tutorial_folders_title),
+    BOOKS("books", R.string.tutorial_books_title),
+    REFERENCES("references", R.string.tutorial_references_title),
+    VIDEO_DOWNLOADER("video_downloader", R.string.tutorial_video_downloader_title),
+    TRASH("trash", R.string.tutorial_trash_title),
+    SETTINGS("settings", R.string.tutorial_settings_title)
 }
 
 private data class TutorialPage(
@@ -121,9 +122,7 @@ fun TutorialDialog(
     onDismiss: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
-    val pages = remember(target, colors) {
-        tutorialPages(target, colors)
-    }
+    val pages = tutorialPages(target, colors)
     var page by remember(target) { mutableIntStateOf(0) }
     val current = pages[page]
 
@@ -171,7 +170,7 @@ fun TutorialDialog(
                 Text("${page + 1} / ${pages.size}", color = colors.mutedText)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onDismiss) {
-                        Text("閉じる")
+                        Text(stringResource(R.string.tutorial_close))
                     }
                     Button(
                         onClick = {
@@ -179,7 +178,7 @@ fun TutorialDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = current.color)
                     ) {
-                        Text(if (page == pages.lastIndex) "完了" else "次へ")
+                        Text(if (page == pages.lastIndex) stringResource(R.string.tutorial_done) else stringResource(R.string.tutorial_next))
                     }
                 }
             }
@@ -383,24 +382,8 @@ private fun tutorialPointerLabelRes(target: TutorialTarget, page: Int): Int {
     }
 }
 
-private fun tutorialPointerLabel(target: TutorialTarget, page: Int): String {
-    return when (target) {
-        TutorialTarget.HOME -> if (page == 0) "ギャラリーの一覧ボタン付近" else "ビューアの操作ボタン付近"
-        TutorialTarget.SEARCH -> "検索バーと条件ボタン付近"
-        TutorialTarget.FOLDERS -> if (page == 0) "フォルダ一覧付近" else "右上の一括編集ボタン付近"
-        TutorialTarget.BOOKS -> if (page == 0) "右上の更新・設定ボタン付近" else "ブックビューア操作エリア付近"
-        TutorialTarget.TRASH -> "右上の復元・削除ボタン付近"
-        TutorialTarget.SETTINGS -> "設定カードと右上ボタン付近"
-        TutorialTarget.VIDEO_DOWNLOADER -> "URL入力と保存ボタン付近"
-        TutorialTarget.REFERENCES -> "資料追加ボタン付近"
-        TutorialTarget.OVERVIEW -> "現在の画面の主要ボタン付近"
-    }
-}
-
 @Composable
 fun TutorialSetupDialog(
-    selectedIds: Set<String>,
-    onToggle: (String) -> Unit,
     onConfirm: () -> Unit,
     onSkip: () -> Unit
 ) {
@@ -410,25 +393,37 @@ fun TutorialSetupDialog(
             Column(
                 modifier = Modifier
                     .padding(20.dp)
-                    .heightIn(max = 560.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("チュートリアル設定", color = colors.primaryText, fontWeight = FontWeight.Bold, fontSize = GalleryThemeTokens.textSizes.header)
-                Text("表示したい画面のチュートリアルを選んでください。", color = colors.secondaryText)
-                allTutorialTargets().filterNot { it == TutorialTarget.OVERVIEW }.forEach { target ->
-                    TutorialTargetRow(
-                        target = target,
-                        checked = target.id in selectedIds,
-                        onClick = { onToggle(target.id) }
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(48.dp)
+                )
+                Text(
+                    text = stringResource(R.string.tutorial_setup_ask),
+                    color = colors.primaryText,
+                    style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = stringResource(R.string.tutorial_setup_sub_desc),
+                    color = colors.secondaryText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     OutlinedButton(onClick = onSkip, modifier = Modifier.weight(1f)) {
-                        Text("表示しない")
+                        Text(stringResource(R.string.tutorial_none))
                     }
                     Button(onClick = onConfirm, modifier = Modifier.weight(1f)) {
-                        Text("保存")
+                        Text(stringResource(R.string.tutorial_show))
                     }
                 }
             }
@@ -451,7 +446,11 @@ fun TutorialChooserDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("見るチュートリアル", color = colors.primaryText, fontWeight = FontWeight.Bold, fontSize = GalleryThemeTokens.textSizes.header)
+                Text(
+                    text = stringResource(R.string.tutorial_to_watch),
+                    color = colors.primaryText,
+                    style = MaterialTheme.typography.titleLarge
+                )
                 allTutorialTargets().forEach { target ->
                     TutorialTargetRow(
                         target = target,
@@ -461,7 +460,7 @@ fun TutorialChooserDialog(
                     )
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
-                    Text("閉じる")
+                    Text(stringResource(R.string.tutorial_close))
                 }
             }
         }
@@ -486,13 +485,14 @@ private fun TutorialTargetRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(tutorialIcon(target), contentDescription = null, tint = colors.accent)
-        Text(target.label, color = colors.primaryText, modifier = Modifier.weight(1f))
+        Text(stringResource(target.labelRes), color = colors.primaryText, modifier = Modifier.weight(1f))
         if (showCheckbox) {
             Checkbox(checked = checked, onCheckedChange = { onClick() })
         }
     }
 }
 
+@Composable
 private fun tutorialPages(target: TutorialTarget, colors: com.example.gallery.ui.theme.GalleryColors): List<TutorialPage> {
     val accent = colors.accent
     val success = colors.success
@@ -501,54 +501,54 @@ private fun tutorialPages(target: TutorialTarget, colors: com.example.gallery.ui
     return when (target) {
         TutorialTarget.OVERVIEW -> listOf(
             TutorialPage(
-                "Galleryへようこそ",
-                "画像、GIF、動画、本、お絵描き資料をまとめて管理できます。",
+                stringResource(R.string.tutorial_welcome_title),
+                stringResource(R.string.tutorial_welcome_desc),
                 Icons.Default.Home,
                 accent,
-                listOf("左端から右へスワイプ → サイドバーを開く", "下部ナビゲーション → 主要画面へ移動", "右上の設定 → 表示や操作を自分用に調整")
+                listOf(stringResource(R.string.tutorial_welcome_tip1), stringResource(R.string.tutorial_welcome_tip2), stringResource(R.string.tutorial_welcome_tip3))
             ),
             TutorialPage(
-                "画面ごとの入口",
-                "ホーム、フォルダ、本、動画、ゴミ箱、設定はそれぞれ役割が分かれています。",
+                stringResource(R.string.tutorial_entrance_title),
+                stringResource(R.string.tutorial_entrance_desc),
                 Icons.Default.Search,
                 success,
-                listOf("ホーム → すべてのメディアをまとめて見る", "フォルダ → 保存場所単位で整理", "設定 → 全体設定、テーマ、ブックビューアを調整")
+                listOf(stringResource(R.string.tutorial_entrance_tip1), stringResource(R.string.tutorial_entrance_tip2), stringResource(R.string.tutorial_entrance_tip3))
             )
         )
         TutorialTarget.HOME -> listOf(
-            TutorialPage("ホーム画面", "すべての画像、GIF、動画を一覧できます。", Icons.Default.Home, accent, listOf("画像をタップ → メディアビューアを開く", "長押し → 選択モードに入る", "右上の検索/並び替え → 表示を絞り込む")),
-            TutorialPage("メディアビューア", "タップでコントロールパネル、ダブルタップでズーム、長押しで拡大鏡を使えます。", Icons.Default.ImageSearch, accent, listOf("三点ボタン → タグ編集、設定、ファイル情報", "上方向ドラッグ → 関連情報や詳細", "タッチインジケーターON → タップ領域の枠を表示")),
-            TutorialPage("選択と一括編集", "一覧で長押しすると複数選択できます。", Icons.Default.AutoAwesome, success, listOf("右上の鉛筆アイコン → 一括タグ・評価編集", "ハート → お気に入り追加/解除", "三点メニュー → ゴミ箱移動やフォルダ移動"))
+            TutorialPage(stringResource(R.string.tutorial_home_title), stringResource(R.string.tutorial_home_desc), Icons.Default.Home, accent, listOf(stringResource(R.string.tutorial_home_tip1), stringResource(R.string.tutorial_home_tip2), stringResource(R.string.tutorial_home_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_viewer_title), stringResource(R.string.tutorial_viewer_desc), Icons.Default.ImageSearch, accent, listOf(stringResource(R.string.tutorial_viewer_tip1), stringResource(R.string.tutorial_viewer_tip2), stringResource(R.string.tutorial_viewer_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_bulk_title), stringResource(R.string.tutorial_bulk_desc), Icons.Default.AutoAwesome, success, listOf(stringResource(R.string.tutorial_bulk_tip1), stringResource(R.string.tutorial_bulk_tip2), stringResource(R.string.tutorial_bulk_tip3)))
         )
         TutorialTarget.SEARCH -> listOf(
-            TutorialPage("検索", "タグ、フォルダ、年齢制限、メディア種別を組み合わせて探せます。", Icons.Default.Search, accent, listOf("検索語を入力 → 名前やタグで絞り込み", "条件チップ → 必要な条件だけ追加", "結果をタップ → そのままビューアへ")),
-            TutorialPage("タグ検索", "AI解析済みタグや手動タグを使って関連メディアへ移動できます。", Icons.Default.AutoAwesome, success, listOf("タグをタップ → 同じタグのメディアを表示", "GIF/動画だけ → メディア種別で絞り込み", "お気に入りだけ → 保存済み資料を素早く確認"))
+            TutorialPage(stringResource(R.string.tutorial_search_title), stringResource(R.string.tutorial_search_desc), Icons.Default.Search, accent, listOf(stringResource(R.string.tutorial_search_tip1), stringResource(R.string.tutorial_search_tip2), stringResource(R.string.tutorial_search_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_tag_search_title), stringResource(R.string.tutorial_tag_search_desc), Icons.Default.AutoAwesome, success, listOf(stringResource(R.string.tutorial_tag_search_tip1), stringResource(R.string.tutorial_tag_search_tip2), stringResource(R.string.tutorial_tag_search_tip3)))
         )
         TutorialTarget.FOLDERS -> listOf(
-            TutorialPage("フォルダ画面", "保存場所単位でメディアを確認できます。", Icons.Default.Folder, soft, listOf("フォルダをタップ → 中身の一覧へ", "右上の並び替え → 表示順を変更", "戻る先がないとき → ホームへ戻る")),
-            TutorialPage("フォルダ内の操作", "フォルダ内でも選択、移動、一括編集ができます。", Icons.Default.Folder, accent, listOf("長押し → 複数選択", "右上の鉛筆アイコン → 一括編集", "三点メニュー → フォルダ移動や削除"))
+            TutorialPage(stringResource(R.string.tutorial_folders_title), stringResource(R.string.tutorial_folders_desc), Icons.Default.Folder, soft, listOf(stringResource(R.string.tutorial_folders_tip1), stringResource(R.string.tutorial_folders_tip2), stringResource(R.string.tutorial_folders_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_folders_ops_title), stringResource(R.string.tutorial_folders_ops_desc), Icons.Default.Folder, accent, listOf(stringResource(R.string.tutorial_folders_ops_tip1), stringResource(R.string.tutorial_folders_ops_tip2), stringResource(R.string.tutorial_folders_ops_tip3)))
         )
         TutorialTarget.BOOKS -> listOf(
-            TutorialPage("本画面", "ZIP/PDF形式の本を一覧し、しおりから続きへ移動できます。", Icons.AutoMirrored.Filled.MenuBook, danger, listOf("本をタップ → ブックビューアを開く", "右上の更新 → 本フォルダを再走査", "右上の設定 → ブックビューア設定へ")),
-            TutorialPage("ブックビューア", "綴じ方向、ページ効果、スクロール表示、タップ領域を設定できます。", Icons.Default.Settings, soft, listOf("左右端タップ → 前/次ページ", "長押し → 押している間だけ拡大鏡", "タッチインジケーターON → 割り当て領域を表示")),
-            TutorialPage("読書補助", "時計、バッテリー、既読マーク、スライドショーを使えます。", Icons.AutoMirrored.Filled.MenuBook, accent, listOf("既読マーク → 本一覧で読書状況を確認", "スライドショー → 三点メニューから開始", "ページめくり効果 → 設定で切り替え"))
+            TutorialPage(stringResource(R.string.tutorial_books_title), stringResource(R.string.tutorial_books_desc), Icons.AutoMirrored.Filled.MenuBook, danger, listOf(stringResource(R.string.tutorial_books_tip1), stringResource(R.string.tutorial_books_tip2), stringResource(R.string.tutorial_books_tip3))),
+            TutorialPage(stringResource(R.string.settings_book_viewer), stringResource(R.string.tutorial_book_viewer_desc), Icons.Default.Settings, soft, listOf(stringResource(R.string.tutorial_book_viewer_tip1), stringResource(R.string.tutorial_book_viewer_tip2), stringResource(R.string.tutorial_book_viewer_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_book_aux_title), stringResource(R.string.tutorial_book_aux_desc), Icons.AutoMirrored.Filled.MenuBook, accent, listOf(stringResource(R.string.tutorial_book_aux_tip1), stringResource(R.string.tutorial_book_aux_tip2), stringResource(R.string.tutorial_book_aux_tip3)))
         )
         TutorialTarget.REFERENCES -> listOf(
-            TutorialPage("お絵描き資料", "イラスト用の参考資料をプロジェクト単位で集められます。", Icons.Default.ImageSearch, accent, listOf("プロジェクト作成 → テーマごとに整理", "Web検索 → 参考画像を追加", "ギャラリーから追加 → 端末内の資料をまとめる")),
-            TutorialPage("資料の見返し", "必要な参考資料だけをまとめて確認できます。", Icons.Default.ImageSearch, success, listOf("詳細画面 → 資料一覧を確認", "不要な資料 → プロジェクト単位で整理", "作業中に見返す → サイドバーからすぐ移動"))
+            TutorialPage(stringResource(R.string.tutorial_references_title), stringResource(R.string.tutorial_ref_desc), Icons.Default.ImageSearch, accent, listOf(stringResource(R.string.tutorial_ref_tip1), stringResource(R.string.tutorial_ref_tip2), stringResource(R.string.tutorial_ref_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_ref_review_title), stringResource(R.string.tutorial_ref_review_desc), Icons.Default.ImageSearch, success, listOf(stringResource(R.string.tutorial_ref_review_tip1), stringResource(R.string.tutorial_ref_review_tip2), stringResource(R.string.tutorial_ref_review_tip3)))
         )
         TutorialTarget.VIDEO_DOWNLOADER -> listOf(
-            TutorialPage("動画ビューア", "動画画面では再生、前後移動、明るさ、音量、スクリーンショットをまとめて操作できます。", Icons.Default.VideoLibrary, accent, listOf("タップ → コントロールパネルを表示", "左右スワイプ → 前後の動画へ移動", "タッチインジケーターON → 画面割り当ての説明を表示")),
-            TutorialPage("動画DL", "共有URLや入力URLから保存候補を取得します。", Icons.Default.VideoLibrary, success, listOf("URL入力後 → ダウンロード候補を表示", "GIF投稿 → GIF保存を優先", "履歴 → 保存済み候補を再確認")),
-            TutorialPage("保存後の確認", "保存済み履歴からビューアで確認できます。", Icons.Default.VideoLibrary, accent, listOf("履歴サムネイルをタップ → 保存結果を確認", "重複時 → 再ダウンロード可能", "失敗時 → 候補を選び直す"))
+            TutorialPage(stringResource(R.string.tutorial_video_v_title), stringResource(R.string.tutorial_video_v_desc), Icons.Default.VideoLibrary, accent, listOf(stringResource(R.string.tutorial_video_v_tip1), stringResource(R.string.tutorial_video_v_tip2), stringResource(R.string.tutorial_video_v_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_video_downloader_title), stringResource(R.string.tutorial_video_dl_desc), Icons.Default.VideoLibrary, success, listOf(stringResource(R.string.tutorial_video_dl_tip1), stringResource(R.string.tutorial_video_dl_tip2), stringResource(R.string.tutorial_video_dl_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_video_dl_conf_title), stringResource(R.string.tutorial_video_dl_conf_desc), Icons.Default.VideoLibrary, accent, listOf(stringResource(R.string.tutorial_video_dl_conf_tip1), stringResource(R.string.tutorial_video_dl_conf_tip2), stringResource(R.string.tutorial_video_dl_conf_tip3)))
         )
         TutorialTarget.TRASH -> listOf(
-            TutorialPage("ゴミ箱", "削除済みの画像、動画、本を復元または完全削除できます。", Icons.Default.Delete, danger, listOf("右上のすべて復元 → 確認後にまとめて復元", "右上のすべて削除 → 確認後に完全削除", "本バッジ → ゴミ箱内の本を識別"))
+            TutorialPage(stringResource(R.string.trash_title), stringResource(R.string.tutorial_trash_desc), Icons.Default.Delete, danger, listOf(stringResource(R.string.tutorial_trash_tip1), stringResource(R.string.tutorial_trash_tip2), stringResource(R.string.tutorial_trash_tip3)))
         )
         TutorialTarget.SETTINGS -> listOf(
-            TutorialPage("設定トップ", "全体設定、テーマ、ブックビューア、設定データに分けて調整します。", Icons.Default.Settings, soft, listOf("全体設定 → 起動、保護、操作、進捗表示", "テーマ → 表示テーマ、色、文字サイズ", "設定データ → まとめて保存/読み込み")),
-            TutorialPage("テーマ編集", "プリセットを選んだあと、背景、文字、アクセントなどすべての色を編集できます。", Icons.Default.Settings, accent, listOf("テーマプリセット → 好みの雰囲気を適用", "各色の入力欄 → #RRGGBB / #AARRGGBBで指定", "文字サイズ → アプリ全体の直指定サイズをまとめて調整")),
-            TutorialPage("ビューア設定", "長押し拡大鏡、タッチインジケーター、コントロールパネル、ページ効果を反映します。", Icons.Default.Settings, success, listOf("長押し拡大鏡 → 指を離すと元に戻る", "進捗表示 → 最大/最小/円を選択", "ブックビューア → 綴じ方向やページめくりを調整"))
+            TutorialPage(stringResource(R.string.tutorial_settings_top_title), stringResource(R.string.tutorial_settings_top_desc), Icons.Default.Settings, soft, listOf(stringResource(R.string.tutorial_settings_top_tip1), stringResource(R.string.tutorial_settings_top_tip2), stringResource(R.string.tutorial_settings_top_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_settings_theme_title), stringResource(R.string.tutorial_settings_theme_desc), Icons.Default.Settings, accent, listOf(stringResource(R.string.tutorial_settings_theme_tip1), stringResource(R.string.tutorial_settings_theme_tip2), stringResource(R.string.tutorial_settings_theme_tip3))),
+            TutorialPage(stringResource(R.string.tutorial_settings_viewer_title), stringResource(R.string.tutorial_settings_viewer_desc), Icons.Default.Settings, success, listOf(stringResource(R.string.tutorial_settings_viewer_tip1), stringResource(R.string.tutorial_settings_viewer_tip2), stringResource(R.string.tutorial_settings_viewer_tip3)))
         )
     }
 }

@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.gallery"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.5.0"
+        versionCode = 3
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -64,7 +64,6 @@ dependencies {
     implementation(libs.coil.gif)
     implementation(libs.coil.video)
     implementation("io.coil-kt:coil-gif:2.7.0") // 強制的に最新のGIFサポートを追加
-    implementation("com.squareup:gifencoder:0.10.1")
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation("androidx.media3:media3-common:1.5.1")

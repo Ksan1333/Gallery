@@ -31,6 +31,8 @@ data class GalleryColors(
     val accentSoft: Color,
     val danger: Color,
     val success: Color,
+    val warning: Color,
+    val info: Color,
     val divider: Color,
     val disabled: Color
 )
@@ -111,6 +113,8 @@ object GalleryColorTokens {
             accentSoft = colorResource(R.color.accent_soft_dark),
             danger = colorResource(R.color.danger_dark),
             success = colorResource(R.color.success_dark),
+            warning = Color(0xFFFFB300),
+            info = Color(0xFF0288D1),
             divider = colorResource(R.color.divider_dark),
             disabled = colorResource(R.color.disabled_dark)
         )
@@ -133,6 +137,8 @@ object GalleryColorTokens {
             accentSoft = colorResource(R.color.accent_soft_light),
             danger = colorResource(R.color.danger_light),
             success = colorResource(R.color.success_light),
+            warning = Color(0xFFFBC02D),
+            info = Color(0xFF0288D1),
             divider = colorResource(R.color.divider_light),
             disabled = colorResource(R.color.disabled_light)
         )
@@ -206,6 +212,8 @@ val LocalGalleryColors = staticCompositionLocalOf {
         accentSoft = Color(0xFF163B5F),
         danger = Color(0xFFFF6B7A),
         success = Color(0xFF47D18C),
+        warning = Color(0xFFFFB300),
+        info = Color(0xFF0288D1),
         divider = Color(0x33FFFFFF),
         disabled = Color(0xFF6E7A86)
     )
@@ -237,3 +245,13 @@ object GalleryThemeTokens {
         @ReadOnlyComposable
         get() = LocalGalleryTextSizes.current
 }
+
+val galleryColors: GalleryColors
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalGalleryColors.current
+
+val galleryTextSizes: GalleryTextSizes
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalGalleryTextSizes.current

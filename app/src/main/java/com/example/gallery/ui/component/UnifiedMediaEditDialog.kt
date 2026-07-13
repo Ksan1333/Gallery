@@ -34,7 +34,7 @@ import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.gallery.data.repository.MediaRepository
-import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.TagTranslationService
 import kotlinx.coroutines.Dispatchers
@@ -49,14 +49,17 @@ fun UnifiedMediaEditDialog(
     repository: MediaRepository,
     onDismiss: () -> Unit
 ) {
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     var selectedAgeRating by rememberSaveable { mutableStateOf<String?>(null) }
     val tagCounts by repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
 
     // タグ検索用の状態
+    val tagSuffixGroup = stringResource(R.string.label_tag_suffix_group)
     var tagSearchQuery by remember { mutableStateOf("") }
-    val filteredTags = remember(tagCounts, tagSearchQuery) {
+    val filteredTags = remember(tagCounts, tagSearchQuery, tagSuffixGroup) {
         tagCounts
-            .filter { !it.tag.endsWith("系") }
+            .filter { !it.tag.endsWith(tagSuffixGroup) }
             .filter { it.tag.contains(tagSearchQuery, ignoreCase = true) ||
                       TagTranslationService.translate(it.tag).contains(tagSearchQuery, ignoreCase = true) }
             .map { it.tag }
@@ -85,21 +88,21 @@ fun UnifiedMediaEditDialog(
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = "一括タグ・評価編集 (${uris.size} 件)",
+                title = stringResource(R.string.edit_bulk_title_format, uris.size),
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                navigationContentDescription = "戻る",
+                navigationContentDescription = stringResource(R.string.btn_back),
                 onNavigationClick = onDismiss,
                 navigationEnabled = !isProcessing,
                 centered = true,
-                containerColor = Color.Black,
-                contentColor = Color.White,
-                disabledContentColor = Color.Gray,
+                containerColor = colors.topBar,
+                contentColor = colors.primaryText,
+                disabledContentColor = colors.disabled,
                 actions = {
                     TextButton(
                         onClick = {
                             isProcessing = true
                             scope.launch {
-                                GlobalOperationService.startOperation("アイテムを更新中...")
+                                GlobalOperationService.startOperation(context.getString(R.string.msg_updating_items))
                                 val total = uris.size
 
                                 uris.forEachIndexed { index, uri ->
@@ -118,12 +121,12 @@ fun UnifiedMediaEditDialog(
                         },
                         enabled = !isProcessing
                     ) {
-                        Text(stringResource(R.string.btn_save), color = if (!isProcessing) Color.White else colorResource(R.color.gray))
+                        Text(stringResource(R.string.btn_save), color = if (!isProcessing) colors.primaryText else colors.disabled)
                     }
                 }
             )
         },
-        containerColor = AppConstants.BackgroundColor,
+        containerColor = colors.background,
         // ナビゲーションバーを考慮するために WindowInsets を設定
         contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
     ) { padding ->
@@ -137,9 +140,9 @@ fun UnifiedMediaEditDialog(
             // 選択中の画像プレビュー
             if (!isProcessing && uris.isNotEmpty()) {
                 Text(
-                    text = "選択中のアイテム",
-                    color = Color.White,
-                    fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+                    text = stringResource(R.string.edit_selected_items),
+                    color = colors.primaryText,
+                    fontSize = textSizes.small,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                     modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
                 )
@@ -183,12 +186,12 @@ fun UnifiedMediaEditDialog(
 
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 item {
-                    Text(stringResource(R.string.edit_target_age), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
+                    Text(stringResource(R.string.edit_target_age), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = colors.primaryText)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(null to "変更なし", "SFW" to "健全", "R15" to "R-15", "R18" to "R-18").forEach { (code, label) ->
+                        listOf(null to stringResource(R.string.opt_no_change), "SFW" to stringResource(R.string.opt_age_sfw), "R15" to stringResource(R.string.opt_age_r15), "R18" to stringResource(R.string.opt_age_r18)).forEach { (code, label) ->
                             if (uris.size > 1 || code != null) {
                                 FilterChip(
                                     selected = selectedAgeRating == code,
@@ -196,9 +199,9 @@ fun UnifiedMediaEditDialog(
                                     label = { Text(label) },
                                     enabled = !isProcessing,
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                        selectedLabelColor = Color.White,
-                                        labelColor = Color.Gray
+                                        selectedContainerColor = colors.accent,
+                                        selectedLabelColor = colors.background,
+                                        labelColor = colors.mutedText
                                     )
                                 )
                             }
@@ -208,7 +211,7 @@ fun UnifiedMediaEditDialog(
 
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(stringResource(R.string.edit_tag_settings), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = Color.White)
+                    Text(stringResource(R.string.edit_tag_settings), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = colors.primaryText)
 
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextField(
@@ -217,7 +220,14 @@ fun UnifiedMediaEditDialog(
                             placeholder = { Text(stringResource(R.string.edit_new_tag)) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            enabled = !isProcessing
+                            enabled = !isProcessing,
+                            colors = TextFieldDefaults.colors(
+                                focusedTextColor = colors.primaryText,
+                                unfocusedTextColor = colors.primaryText,
+                                focusedContainerColor = colors.field,
+                                unfocusedContainerColor = colors.field,
+                                disabledContainerColor = colors.field
+                            )
                         )
                         IconButton(
                             onClick = {
@@ -229,12 +239,12 @@ fun UnifiedMediaEditDialog(
                             },
                             enabled = !isProcessing
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "追加", tint = if (!isProcessing) Color.White else colorResource(R.color.gray))
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.btn_create), tint = if (!isProcessing) colors.primaryText else colors.disabled)
                         }
                     }
 
                     if (selectedTags.isNotEmpty()) {
-                        Text(stringResource(R.string.edit_add_tags), fontSize = AppConstants.SmallFontSize, color = colorResource(R.color.gray))
+                        Text(stringResource(R.string.edit_add_tags), fontSize = textSizes.small, color = colors.mutedText)
                         FlowRow(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -245,7 +255,12 @@ fun UnifiedMediaEditDialog(
                                     onClick = { if (!isProcessing) selectedTags.remove(tag) },
                                     label = { Text(TagTranslationService.translate(tag)) },
                                     trailingIcon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    enabled = !isProcessing
+                                    enabled = !isProcessing,
+                                    colors = InputChipDefaults.inputChipColors(
+                                        selectedContainerColor = colors.accentSoft,
+                                        selectedLabelColor = colors.accent,
+                                        selectedTrailingIconColor = colors.accent
+                                    )
                                 )
                             }
                         }
@@ -254,20 +269,20 @@ fun UnifiedMediaEditDialog(
                     if (filteredTags.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.edit_select_existing_tags), fontSize = AppConstants.SmallFontSize, color = colorResource(R.color.gray), modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.edit_select_existing_tags), fontSize = textSizes.small, color = colors.mutedText, modifier = Modifier.weight(1f))
                             // タグ検索フィールド
                             OutlinedTextField(
                                 value = tagSearchQuery,
                                 onValueChange = { tagSearchQuery = it },
-                                placeholder = { Text(stringResource(R.string.edit_search_tags), fontSize = AppConstants.TinyFontSize) },
+                                placeholder = { Text(stringResource(R.string.edit_search_tags), fontSize = textSizes.tiny) },
                                 modifier = Modifier.width(150.dp).height(40.dp),
                                 singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = com.example.gallery.ui.AppConstants.SmallFontSize),
+                                textStyle = LocalTextStyle.current.copy(fontSize = textSizes.small),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White,
-                                    focusedBorderColor = Color.Cyan,
-                                    unfocusedBorderColor = Color.DarkGray
+                                    focusedTextColor = colors.primaryText,
+                                    unfocusedTextColor = colors.primaryText,
+                                    focusedBorderColor = colors.accent,
+                                    unfocusedBorderColor = colors.divider
                                 )
                             )
                         }
@@ -278,7 +293,7 @@ fun UnifiedMediaEditDialog(
                                 .fillMaxWidth()
                                 .heightIn(max = 200.dp)
                                 .padding(vertical = 4.dp)
-                                .background(Color.Black.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .background(colors.background.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                 .verticalScroll(rememberScrollState())
                         ) {
                             FlowRow(
@@ -294,13 +309,13 @@ fun UnifiedMediaEditDialog(
                                                 else selectedTags.add(tag)
                                             }
                                         },
-                                        label = { Text(TagTranslationService.translate(tag), fontSize = com.example.gallery.ui.AppConstants.SmallFontSize) },
+                                        label = { Text(TagTranslationService.translate(tag), fontSize = textSizes.small) },
                                         enabled = !isProcessing,
                                         colors = FilterChipDefaults.filterChipColors(
-                                            labelColor = if (!isProcessing) Color.White else Color.Gray,
-                                            selectedLabelColor = Color.White,
-                                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                        )
+                                    labelColor = if (!isProcessing) colors.primaryText else colors.disabled,
+                                    selectedLabelColor = colors.background,
+                                    selectedContainerColor = colors.accent.copy(alpha = 0.7f)
+                                )
                                     )
                                 }
                             }

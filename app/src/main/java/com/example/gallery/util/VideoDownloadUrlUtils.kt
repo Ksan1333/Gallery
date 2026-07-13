@@ -5,6 +5,16 @@ import java.util.Locale
 object VideoDownloadUrlUtils {
     private val xStatusIdRegex = Regex("""/status/(\d+)""")
 
+    fun extractXUserId(url: String): String? {
+        val lower = url.lowercase(Locale.US)
+        if (!isXStatusUrl(lower)) return null
+        return Regex("""(?:x\.com|twitter\.com)/([^/]+)/status""").find(lower)?.groupValues?.getOrNull(1)
+    }
+
+    fun extractXPostId(url: String): String? {
+        return xStatusIdRegex.find(url)?.groupValues?.getOrNull(1)
+    }
+
     fun isXStatusUrl(value: String): Boolean {
         val lower = value.lowercase(Locale.US)
         return (lower.contains("x.com") || lower.contains("twitter.com")) && lower.contains("/status/")
@@ -25,6 +35,14 @@ object VideoDownloadUrlUtils {
             urlCandidates += "https://api.fixupx.com/status/$statusId"
         }
         return urlCandidates.distinct()
+    }
+
+    fun buildXSyndicationApiUrls(baseUrl: String): List<String> {
+        val statusId = extractXPostId(baseUrl) ?: return emptyList()
+        return listOf(
+            "https://cdn.syndication.twimg.com/tweet-result?id=$statusId&lang=ja",
+            "https://cdn.syndication.twimg.com/tweet-result?id=$statusId&lang=en"
+        )
     }
 
     fun isDirectMediaUrl(value: String): Boolean {

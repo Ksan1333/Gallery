@@ -2,6 +2,7 @@ package com.example.gallery.service
 
 import android.content.Context
 import android.util.Log
+import com.example.gallery.R
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.util.ModelDownloader
 import com.example.gallery.util.ThumbnailUtils
@@ -76,11 +77,11 @@ object ThumbnailGenerationService {
 
                 withContext(Dispatchers.Main) {
                     GlobalOperationService.startOperation(
-                        "起動タスク実行中...",
+                        context.getString(R.string.msg_startup_tasks),
                         tag = OP_ID,
                         canCancel = false,
                     )
-                    GlobalOperationService.updateProgress(0f, "準備中...", OP_ID)
+                    GlobalOperationService.updateProgress(0f, context.getString(R.string.msg_initializing), OP_ID)
                 }
 
                 var completedTasks = 0
@@ -94,7 +95,7 @@ object ThumbnailGenerationService {
                     updateStartupProgress(
                         completedTasks = completedTasks,
                         totalTasks = totalTasks,
-                        text = "サムネイル作成中: ${index + 1} / ${thumbTargets.size}",
+                        text = context.getString(R.string.msg_generating_thumbnails, index + 1, thumbTargets.size),
                     )
                     if (index % 10 == 0) delay(10)
                 }
@@ -110,14 +111,14 @@ object ThumbnailGenerationService {
                         updateStartupProgress(
                             completedTasks = completedTasks,
                             totalTasks = totalTasks,
-                            text = "隗｣譫蝉ｸｭ: ${index + 1} / ${vectorTargets.size}",
+                            text = context.getString(R.string.msg_analyzing_vectors, index + 1, vectorTargets.size),
                         )
                         if (index % 5 == 0) delay(15)
                     }
                 }
                 _isStartupTasksCompleted.value = true
                 _progress.value = 1f
-                GlobalOperationService.updateProgress(1.0f, "準備完了", OP_ID)
+                GlobalOperationService.updateProgress(1.0f, context.getString(R.string.msg_ready), OP_ID)
                 delay(800)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in startup tasks", e)

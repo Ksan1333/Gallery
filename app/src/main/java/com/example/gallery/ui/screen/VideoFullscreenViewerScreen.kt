@@ -17,6 +17,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import com.example.gallery.R
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,14 +44,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Screenshot
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -83,6 +91,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -91,20 +101,60 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.compose.ui.res.stringResource
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.gallery.data.model.MediaData
+import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.AppDefaults
-import com.example.gallery.ui.component.TapZoneGuideOverlay
-import com.example.gallery.ui.component.tapZoneCountForLayout
 import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.component.GalleryVideoSeekBar
+import com.example.gallery.ui.component.TapZoneGuideOverlay
+import com.example.gallery.ui.component.isViewerOverflowActionName
+import com.example.gallery.ui.component.tapZoneCountForLayout
+import com.example.gallery.ui.component.resolveViewerAction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+private fun handleVideoViewerAction(
+    function: String,
+    context: Context,
+    onClose: () -> Unit,
+    onRotate: () -> Unit,
+    onScreenshot: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onPreviousVideo: () -> Unit,
+    onNextVideo: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onToggleVideoStrip: () -> Unit
+) {
+    val actionClose = context.getString(R.string.label_action_close_playback)
+    val actionSettings = context.getString(R.string.settings_title)
+    val actionRotate = context.getString(R.string.label_action_rotate)
+    val actionScreenshot = context.getString(R.string.label_action_screenshot)
+    val actionPrev = context.getString(R.string.label_action_previous_video)
+    val actionNext = context.getString(R.string.label_action_next_video)
+    val actionPlayPause = context.getString(R.string.label_action_play_pause)
+    val actionGif = context.getString(R.string.label_gif)
+
+    when (function) {
+        actionClose -> onClose()
+        actionSettings -> onNavigateToSettings()
+        actionRotate -> onRotate()
+        actionScreenshot -> onScreenshot()
+        actionPrev -> onPreviousVideo()
+        actionNext -> onNextVideo()
+        actionPlayPause -> onTogglePlayback()
+        actionGif -> onToggleVideoStrip()
+    }
+}
 
 private const val VIDEO_FULLSCREEN_SEEK_TRACE = "VIDEO_FULLSCREEN_SEEK"
 
@@ -114,9 +164,12 @@ fun VideoFullscreenViewerScreen(
     videoList: List<MediaData>,
     initialIndex: Int,
     onClose: () -> Unit,
+    onNavigateToSettings: () -> Unit,
     galleryState: GalleryState
 ) {
     val context = LocalContext.current
+    val colors = GalleryThemeTokens.colors
+    val textSizes = GalleryThemeTokens.textSizes
     val lifecycleOwner = LocalLifecycleOwner.current
     val activity = context as? Activity
     val window = activity?.window
@@ -143,8 +196,9 @@ fun VideoFullscreenViewerScreen(
     val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
     val controlPanelAutoHideMs = remember { globalSettingsPrefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS).coerceIn(1000, 10000) }
     val touchIndicatorEnabled = remember { globalSettingsPrefs.getBoolean("touchIndicator", false) }
-    val tapZonePrefs = remember { context.getSharedPreferences("book_viewer_settings", Context.MODE_PRIVATE) }
-    val tapZoneCount = tapZoneCountForLayout(tapZonePrefs.getString("tapZoneLayout", "THREE"))
+    val tapZoneLayout = globalSettingsPrefs.getString("tapZoneLayout", "THREE") ?: "THREE"
+    val tapZoneCount = tapZoneCountForLayout(tapZoneLayout)
+    val showClockBattery = globalSettingsPrefs.getBoolean("showClockBattery", false)
 
     var currentIndex by remember {
         mutableIntStateOf(initialIndex.coerceIn(0, (videoList.size - 1).coerceAtLeast(0)))
@@ -155,6 +209,7 @@ fun VideoFullscreenViewerScreen(
     var durationMs by remember(currentVideo?.uri) { mutableLongStateOf(0L) }
     var isControlsVisible by remember { mutableStateOf(true) }
     var isControlInteractionActive by remember { mutableStateOf(false) }
+    var isOverflowMenuOpen by remember { mutableStateOf(false) }
     var interactionToken by remember { mutableIntStateOf(0) }
     var requestedOrientation by remember { mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) }
     var playerVolume by remember(audioManager) {
@@ -221,6 +276,13 @@ fun VideoFullscreenViewerScreen(
                 )
                 .build()
                 .apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(C.USAGE_MEDIA)
+                            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                            .build(),
+                        true
+                    )
                     setSeekParameters(SeekParameters.EXACT)
                     addListener(object : Player.Listener {
                         override fun onPositionDiscontinuity(
@@ -285,13 +347,15 @@ fun VideoFullscreenViewerScreen(
         showControlsTemporarily()
         val video = currentVideo ?: return
         val capturePosition = positionMs
+        val successMsg = context.getString(R.string.msg_screenshot_saved)
+        val failMsg = context.getString(R.string.msg_screenshot_failed)
         scope.launch(Dispatchers.IO) {
             val bitmap = captureVideoFrame(context, video.uri, capturePosition)
             val saved = bitmap?.let { saveBitmapToPictures(context, it) } == true
             withContext(Dispatchers.Main) {
                 Toast.makeText(
                     context,
-                    if (saved) "Screenshot saved" else "Screenshot failed",
+                    if (saved) successMsg else failMsg,
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -321,9 +385,9 @@ fun VideoFullscreenViewerScreen(
         }
     }
 
-    LaunchedEffect(isControlsVisible, interactionToken, isVideoStripVisible, isControlInteractionActive) {
+    LaunchedEffect(isControlsVisible, interactionToken, isVideoStripVisible, isControlInteractionActive, isOverflowMenuOpen) {
         if (isControlsVisible) {
-            window?.navigationBarColor = AndroidColor.BLACK
+            window?.navigationBarColor = AndroidColor.TRANSPARENT
             window?.statusBarColor = AndroidColor.BLACK
             window?.decorView?.setBackgroundColor(AndroidColor.BLACK)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -336,9 +400,9 @@ fun VideoFullscreenViewerScreen(
             window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
             insetsController?.hide(WindowInsetsCompat.Type.systemBars())
         }
-        if (isControlsVisible && !isVideoStripVisible && !isControlInteractionActive) {
+        if (isControlsVisible && !isVideoStripVisible && !isControlInteractionActive && !isOverflowMenuOpen) {
             delay(controlPanelAutoHideMs.toLong())
-            if (!isControlInteractionActive) {
+            if (!isControlInteractionActive && !isOverflowMenuOpen) {
                 isControlsVisible = false
             }
         }
@@ -364,7 +428,7 @@ fun VideoFullscreenViewerScreen(
     }
 
     DisposableEffect(Unit) {
-        window?.navigationBarColor = AndroidColor.BLACK
+        window?.navigationBarColor = AndroidColor.TRANSPARENT
         window?.statusBarColor = AndroidColor.BLACK
         window?.decorView?.setBackgroundColor(AndroidColor.BLACK)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -405,6 +469,10 @@ fun VideoFullscreenViewerScreen(
     }
 
     BackHandler(onBack = { closeViewer() })
+
+    val volumeLabel = stringResource(R.string.label_volume)
+    val brightnessLabel = stringResource(R.string.label_brightness)
+    val currentAdjustmentFormat = stringResource(R.string.label_current_adjustment_format)
 
     Box(
         modifier = Modifier
@@ -490,7 +558,7 @@ fun VideoFullscreenViewerScreen(
                                         VIDEO_FULLSCREEN_SEEK_TRACE,
                                         "volume_adjust value=${(playerVolume * 100).roundToInt()} requested=$streamVolume actual=$actualStreamVolume max=$maxMediaVolume"
                                     )
-                                    showAdjustment("\u97f3\u91cf", playerVolume)
+                                    showAdjustment(volumeLabel, playerVolume)
                                     showControlsTemporarily()
                                     change.consume()
                                 } else if (activeGesture == "brightness") {
@@ -505,7 +573,7 @@ fun VideoFullscreenViewerScreen(
                                         VIDEO_FULLSCREEN_SEEK_TRACE,
                                         "brightness_adjust value=${(screenBrightness * 100).roundToInt()} actual=${window?.attributes?.screenBrightness}"
                                     )
-                                    showAdjustment("\u660e\u308b\u3055", screenBrightness)
+                                    showAdjustment(brightnessLabel, screenBrightness)
                                     showControlsTemporarily()
                                     change.consume()
                                 } else if (activeGesture == "frame") {
@@ -555,36 +623,24 @@ fun VideoFullscreenViewerScreen(
                 Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
             }
 
-            Text(
-                text = currentVideo
-                    ?.let { video ->
-                        video.fileName.ifBlank {
-                            Uri.parse(video.uri).lastPathSegment ?: video.uri.substringAfterLast('/')
+                Text(
+                    text = currentVideo
+                        ?.let { video ->
+                            video.fileName.ifBlank {
+                                Uri.parse(video.uri).lastPathSegment ?: video.uri.substringAfterLast('/')
+                            }
                         }
-                    }
-                    .orEmpty(),
-                color = Color.White.copy(alpha = 0.94f),
-                fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(start = 64.dp, end = 64.dp, top = 20.dp)
-            )
-
-            IconButton(
-                onClick = {
-                    isVideoStripVisible = !isVideoStripVisible
-                    showControlsTemporarily()
-                },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(10.dp)
-            ) {
-                Icon(Icons.Default.Collections, contentDescription = "Video list", tint = Color.White)
-            }
+                        .orEmpty(),
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = textSizes.subtitle,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(start = 64.dp, end = 64.dp, top = 20.dp)
+                )
 
             if (isVideoStripVisible) {
                 VideoFolderStrip(
@@ -635,7 +691,7 @@ fun VideoFullscreenViewerScreen(
                 Text(
                     text = "${formatFullscreenVideoTime(positionMs)} / ${formatFullscreenVideoTime(durationMs)}",
                     color = Color.White.copy(alpha = 0.9f),
-                    fontSize = com.example.gallery.ui.AppConstants.SmallFontSize,
+                    fontSize = textSizes.small,
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color.Black.copy(alpha = 0.32f))
@@ -645,25 +701,123 @@ fun VideoFullscreenViewerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp, bottom = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    PlainOverlayIconButton(
-                        icon = Icons.Default.Screenshot,
-                        contentDescription = "Screenshot",
-                        onClick = { saveScreenshot() },
-                        iconSize = 22.dp,
-                        buttonSize = 42.dp
-                    )
-                    PlainOverlayIconButton(
-                        icon = Icons.Default.ScreenRotation,
-                        contentDescription = "Rotate",
-                        onClick = { rotateOrientation() },
-                        iconSize = 22.dp,
-                        buttonSize = 42.dp
-                    )
+                    val barSlots = listOf("ボトム左", "ボトム中央左", "ボトム中央", "ボトム中央右", "ボトム右")
+                    val legacyBarSlots = listOf("位置 1", "位置 2", "位置 3", "位置 4", "位置 5")
+                    val videoPrefs = remember { context.getSharedPreferences("video_viewer_settings", Context.MODE_PRIVATE) }
+                    val actionClose = stringResource(R.string.label_action_close_playback)
+                    val actionSettings = stringResource(R.string.settings_title)
+                    val actionRotate = stringResource(R.string.label_action_rotate)
+                    val actionScreenshot = stringResource(R.string.label_action_screenshot)
+                    val actionPrev = stringResource(R.string.label_action_previous_video)
+                    val actionNext = stringResource(R.string.label_action_next_video)
+                    val actionPlayPause = stringResource(R.string.label_action_play_pause)
+                    val actionGif = stringResource(R.string.label_gif)
+
+                    val videoActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGif) {
+                        listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGif)
+                    }
+                    val defaultBarAssignments = remember(actionClose, actionPrev, actionScreenshot, actionNext) {
+                        listOf(actionClose, actionPrev, actionScreenshot, actionNext, "3点ボタン")
+                    }
+                    val barAssignments = remember(videoPrefs, interactionToken, videoActionCatalog, defaultBarAssignments) {
+                        val saved = barSlots.mapIndexed { index, slot ->
+                            videoPrefs.getString("video_bar.$slot", null)
+                                ?: videoPrefs.getString("video_bar.${legacyBarSlots[index]}", null)
+                                ?: "なし"
+                        }.filter { it != "なし" }
+                        saved.ifEmpty { defaultBarAssignments }
+                    }
+                    val menuAssignments = remember(barAssignments) {
+                        videoActionCatalog.filterNot { action -> barAssignments.contains(action) }
+                    }
+
+                    barAssignments.forEach { function ->
+                        if (isViewerOverflowActionName(function) || function !in videoActionCatalog) {
+                            return@forEach
+                        }
+                        val action = resolveViewerAction(function, isPlaying = isPlaying)
+                        if (action != null) {
+                            PlainOverlayIconButton(
+                                icon = action.icon,
+                                contentDescription = action.label,
+                                onClick = {
+                                    handleVideoViewerAction(
+                                        function = function,
+                                        context = context,
+                                        onClose = ::closeViewer,
+                                        onRotate = ::rotateOrientation,
+                                        onScreenshot = ::saveScreenshot,
+                                        onNavigateToSettings = onNavigateToSettings,
+                                        onPreviousVideo = { moveVideo(-1) },
+                                        onNextVideo = { moveVideo(1) },
+                                        onTogglePlayback = {
+                                            isPlaying = !isPlaying
+                                            exoPlayer?.playWhenReady = isPlaying
+                                        },
+                                        onToggleVideoStrip = { isVideoStripVisible = !isVideoStripVisible }
+                                    )
+                                },
+                                iconSize = 24.dp,
+                                buttonSize = 44.dp
+                            )
+                        }
+                    }
+
+                    if (menuAssignments.isNotEmpty() && barAssignments.any(::isViewerOverflowActionName)) {
+                        var showMoreMenu by remember { mutableStateOf(false) }
+                        Box {
+                            PlainOverlayIconButton(
+                                icon = Icons.Default.MoreVert,
+                                contentDescription = "Menu",
+                                onClick = {
+                                    showMoreMenu = true
+                                    isOverflowMenuOpen = true
+                                },
+                                iconSize = 24.dp,
+                                buttonSize = 44.dp
+                            )
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = {
+                                    showMoreMenu = false
+                                    isOverflowMenuOpen = false
+                                },
+                                modifier = Modifier.background(Color.Black.copy(alpha = 0.85f))
+                            ) {
+                                for (function in menuAssignments) {
+                                    val action = resolveViewerAction(function, isPlaying = isPlaying)
+                                    if (action != null) {
+                                        DropdownMenuItem(
+                                            text = { Text(action.label, color = Color.White) },
+                                            leadingIcon = { Icon(action.icon, null, tint = action.color ?: Color.White) },
+                                            onClick = {
+                                                handleVideoViewerAction(
+                                                    function = function,
+                                                    context = context,
+                                                    onClose = ::closeViewer,
+                                                    onRotate = ::rotateOrientation,
+                                                    onScreenshot = ::saveScreenshot,
+                                                    onNavigateToSettings = onNavigateToSettings,
+                                                    onPreviousVideo = { moveVideo(-1) },
+                                                    onNextVideo = { moveVideo(1) },
+                                                    onTogglePlayback = {
+                                                        isPlaying = !isPlaying
+                                                        exoPlayer?.playWhenReady = isPlaying
+                                                    },
+                                                    onToggleVideoStrip = { isVideoStripVisible = !isVideoStripVisible }
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                VideoSeekBar(
+                GalleryVideoSeekBar(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     onSeekStart = {
@@ -701,6 +855,15 @@ fun VideoFullscreenViewerScreen(
                             contentDescription = "Previous video",
                             onClick = { moveVideo(-1) }
                         )
+                        FrameStepOverlayButton(
+                            direction = -1,
+                            onClick = {
+                                isPlaying = false
+                                exoPlayer?.pause()
+                                seekTo(positionMs - frameStepMs, pausePlayback = false)
+                                showControlsTemporarily()
+                            }
+                        )
                         PlainOverlayIconButton(
                             icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
@@ -709,6 +872,15 @@ fun VideoFullscreenViewerScreen(
                                 exoPlayer?.playWhenReady = isPlaying
                             },
                             iconSize = 42.dp
+                        )
+                        FrameStepOverlayButton(
+                            direction = 1,
+                            onClick = {
+                                isPlaying = false
+                                exoPlayer?.pause()
+                                seekTo(positionMs + frameStepMs, pausePlayback = false)
+                                showControlsTemporarily()
+                            }
                         )
                         PlainOverlayIconButton(
                             icon = Icons.Default.SkipNext,
@@ -722,13 +894,42 @@ fun VideoFullscreenViewerScreen(
 
         if (touchIndicatorEnabled) {
             TapZoneGuideOverlay(
-                labels = videoTapZoneGuideLabels(tapZoneCount),
+                labels = videoTapZoneGuideLabels(context, tapZoneCount),
                 modifier = Modifier.matchParentSize()
             )
         }
 
+        if (showClockBattery) {
+            var clockText by remember { mutableStateOf("") }
+            LaunchedEffect(Unit) {
+                val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                while (true) {
+                    val batteryIntent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                    val level = batteryIntent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                    val scaleValue = batteryIntent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+                    val battery = if (level >= 0 && scaleValue > 0) "${(level * 100 / scaleValue)}%" else "--%"
+                    clockText = "${formatter.format(java.util.Date())}  $battery"
+                    delay(30_000)
+                }
+            }
+            Surface(
+                color = Color.Black.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = if (isControlsVisible) 96.dp else 16.dp, end = 16.dp)
+            ) {
+                Text(
+                    text = clockText,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    fontSize = textSizes.tiny
+                )
+            }
+        }
+
         adjustmentLabel?.let { label ->
-            val isBrightness = label == "\u660e\u308b\u3055"
+            val isBrightness = label == brightnessLabel
             VerticalAdjustmentBar(
                 value = adjustmentValue,
                 modifier = Modifier
@@ -744,9 +945,9 @@ fun VideoFullscreenViewerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "\u73fe\u5728\u306e$label ${(adjustmentValue * 100).roundToInt()}%",
+                    text = currentAdjustmentFormat.format(label, (adjustmentValue * 100).roundToInt()),
                     color = Color.White,
-                    fontSize = com.example.gallery.ui.AppConstants.SubtitleFontSize,
+                    fontSize = textSizes.subtitle,
                     fontWeight = FontWeight.SemiBold
                 )
                 Box(
@@ -792,115 +993,52 @@ private fun VerticalAdjustmentBar(
     }
 }
 
-@Composable
-private fun VideoSeekBar(
-    positionMs: Long,
-    durationMs: Long,
-    onSeekStart: () -> Unit,
-    onSeek: (Long) -> Unit,
-    onSeekEnd: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var width by remember { mutableIntStateOf(0) }
-    val progress = if (durationMs > 0) {
-        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val thumbProgress = progress.coerceIn(0.001f, 1f)
-
-    Box(
-        modifier = modifier
-            .onGloballyPositioned { width = it.size.width }
-            .pointerInput(durationMs, width) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    onSeekStart()
-
-                    fun seekToX(x: Float) {
-                        val ratio = (x / width.coerceAtLeast(1)).coerceIn(0f, 1f)
-                        onSeek((durationMs.coerceAtLeast(1L) * ratio).toLong())
-                    }
-
-                    seekToX(down.position.x)
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        seekToX(change.position.x)
-                        change.consume()
-                    }
-                    onSeekEnd()
-                }
-            },
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(2.dp)
-                .clip(RoundedCornerShape(1.dp))
-                .background(Color.White.copy(alpha = 0.24f))
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(progress)
-                .height(2.dp)
-                .clip(RoundedCornerShape(1.dp))
-                .background(Color.White.copy(alpha = 0.92f))
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(thumbProgress)
-                .height(18.dp),
-            contentAlignment = Alignment.CenterEnd
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-            )
-        }
-    }
-}
-
 private fun formatFullscreenVideoTime(ms: Long): String {
     val safeMs = ms.coerceAtLeast(0)
     val totalSeconds = safeMs / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     val millis = safeMs % 1000
-    return "%d:%02d.%03d".format(minutes, seconds, millis)
+    return "%d:%02d.%03d".format(Locale.US, minutes, seconds, millis)
 }
 
-private fun videoTapZoneLabels(zoneCount: Int): List<String> {
+private fun videoTapZoneLabels(context: Context, zoneCount: Int): List<String> {
+    val prev = AppConstants.ACTION_PREV
+    val next = AppConstants.ACTION_NEXT
+    val back = AppConstants.ACTION_PLAY_PAUSE // TODO: Check logic
+    val brightness = context.getString(R.string.label_brightness)
+    val screenshot = AppConstants.ACTION_SCREENSHOT
+    val playPause = AppConstants.ACTION_PLAY_PAUSE
+    val settings = AppConstants.ACTION_SETTINGS
+    val list = context.getString(R.string.nav_folders)
+    val volume = context.getString(R.string.label_volume)
+    val forward = context.getString(R.string.viewer_skip)
+
     return when (zoneCount) {
-        11 -> listOf("前の動画", "戻す", "戻す", "明るさ", "スクショ", "再生/停止", "設定", "一覧", "音量", "進める", "次の動画")
-        4 -> listOf("前の動画", "明るさ", "音量", "次の動画")
-        else -> listOf("前の動画", "再生/停止", "次の動画")
+        11 -> listOf(prev, back, back, brightness, screenshot, playPause, settings, list, volume, forward, next)
+        4 -> listOf(prev, brightness, volume, next)
+        else -> listOf(prev, playPause, next)
     }
 }
 
-private fun videoTapZoneGuideLabels(zoneCount: Int): List<String> {
+private fun videoTapZoneGuideLabels(context: Context, zoneCount: Int): List<String> {
+    val prev = context.getString(R.string.label_action_previous_video)
+    val next = context.getString(R.string.label_action_next_video)
+    val back10 = context.getString(R.string.skip_10) + context.getString(R.string.btn_reset)
+    val forward10 = context.getString(R.string.skip_10) + context.getString(R.string.btn_decide)
+    val brightness = context.getString(R.string.label_brightness)
+    val screenshot = context.getString(R.string.label_action_screenshot)
+    val playPause = context.getString(R.string.label_action_play_pause)
+    val settings = context.getString(R.string.settings_title)
+    val list = context.getString(R.string.nav_folders)
+    val volume = context.getString(R.string.label_volume)
+
     return when (zoneCount) {
-        11 -> listOf(
-            "前の動画",
-            "10秒戻す",
-            "次の動画",
-            "明るさ",
-            "スクリーンショット",
-            "再生/一時停止",
-            "設定",
-            "一覧",
-            "音量",
-            "10秒進む",
-            "次の動画"
-        )
-        7 -> listOf("前の動画", "次の動画", "10秒戻す", "再生/一時停止", "10秒進む", "明るさ", "音量")
-        5 -> listOf("10秒戻す", "前の動画", "再生/一時停止", "次の動画", "10秒進む")
-        4 -> listOf("前の動画", "再生/一時停止", "音量", "次の動画")
-        else -> listOf("前の動画", "再生/一時停止", "次の動画")
+        11 -> listOf(prev, back10, next, brightness, screenshot, playPause, settings, list, volume, forward10, next)
+        7 -> listOf(prev, next, back10, playPause, forward10, brightness, volume)
+        5 -> listOf(back10, prev, playPause, next, forward10)
+        4 -> listOf(prev, playPause, volume, next)
+        else -> listOf(prev, playPause, next)
     }
 }
 
@@ -989,6 +1127,33 @@ private fun PlainOverlayIconButton(
             contentDescription = contentDescription,
             tint = Color.White,
             modifier = Modifier.size(iconSize)
+        )
+    }
+}
+
+@Composable
+private fun FrameStepOverlayButton(
+    direction: Int,
+    onClick: () -> Unit
+) {
+    val colors = GalleryThemeTokens.colors
+    Box(contentAlignment = Alignment.Center) {
+        PlainOverlayIconButton(
+            icon = if (direction < 0) Icons.Default.FastRewind else Icons.Default.FastForward,
+            contentDescription = if (direction < 0) "Previous frame" else "Next frame",
+            onClick = onClick,
+            buttonSize = 38.dp,
+            iconSize = 22.dp
+        )
+        Text(
+            text = "1f",
+            color = colors.primaryText,
+            fontSize = GalleryThemeTokens.textSizes.tiny,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .background(Color.Black.copy(alpha = 0.46f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 4.dp, vertical = 1.dp)
         )
     }
 }
