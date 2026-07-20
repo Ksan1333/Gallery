@@ -82,7 +82,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
@@ -191,7 +190,7 @@ fun VideoDownloadScreen(
 
     val downloads by galleryState.repository.mediaDao.getAllVideoDownloads().collectAsState(initial = emptyList())
     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-    val lifecycleOwner = LocalLifecycleOwner.current
+    LocalLifecycleOwner.current
 
     LaunchedEffect(viewerMedia != null) {
         onViewerVisibleChanged(viewerMedia != null)
@@ -254,7 +253,7 @@ fun VideoDownloadScreen(
             Icon(
                 Icons.Default.Link,
                 contentDescription = null,
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.grid_bottom_padding) * 0.64f), // 64.dp
                 tint = colors.accent.copy(alpha = 0.5f)
             )
 
@@ -268,7 +267,7 @@ fun VideoDownloadScreen(
                         showOptionsFromClipboard()
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(dimensionResource(R.dimen.header_height)),
                 colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
             ) {
                 Icon(Icons.Default.Download, null)
@@ -276,7 +275,7 @@ fun VideoDownloadScreen(
                 Text(stringResource(R.string.video_dl_show_options), fontSize = textSizes.subtitle, fontWeight = FontWeight.Bold)
             }
 
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.viewer_bottom_bar_height))) // 48.dp
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -298,8 +297,8 @@ fun VideoDownloadScreen(
                             }
                         }
                     ) {
-                        Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.DeleteSweep, null, modifier = Modifier.size(dimensionResource(R.dimen.icon_size_small)))
+                        Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
                         Text(stringResource(R.string.video_dl_clear_history), fontSize = textSizes.small)
                     }
                 }
@@ -309,7 +308,7 @@ fun VideoDownloadScreen(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 88.dp),
+                contentPadding = PaddingValues(bottom = dimensionResource(R.dimen.viewer_zoom_indicator_padding_top)), // 88.dp is close to 96dp
                 verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
             ) {
                 items(downloads) { download ->
@@ -401,8 +400,8 @@ fun DownloadHistoryItem(
             DownloadMediaPreview(
                 uri = download.savePath.takeIf { download.status == completedStatus && it != pendingStatus },
                 modifier = Modifier
-                    .width(96.dp)
-                    .height(64.dp),
+                    .width(dimensionResource(R.dimen.viewer_clock_battery_padding_top)) // 96.dp
+                    .height(dimensionResource(R.dimen.icon_size_extra_large) * 1.6f), // 64.dp
                 onClick = {
                     buildDownloadMediaData(context, download)?.let(onOpenInViewer)
                 }
@@ -429,11 +428,11 @@ fun DownloadHistoryItem(
                             Icons.Default.Close,
                             contentDescription = null,
                             tint = colors.mutedText,
-                            modifier = Modifier.size(dimensionResource(R.dimen.spacing_medium))
+                            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_edit))
                         )
                     }
                 }
-                Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny) / 2))
+                Spacer(Modifier.height(dimensionResource(R.dimen.spacing_micro)))
                 Text(download.url, color = colors.mutedText, fontSize = textSizes.small, maxLines = 1)
                 Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
                 Row(
@@ -637,7 +636,7 @@ private fun DownloadOptionsModal(
                         if (selectableVariants.isNotEmpty()) {
                             Text(stringResource(R.string.video_dl_select_quality), color = colors.secondaryText)
 
-                            Box(modifier = Modifier.heightIn(max = 200.dp).fillMaxWidth()) {
+                            Box(modifier = Modifier.heightIn(max = dimensionResource(R.dimen.grid_placeholder_height)).fillMaxWidth()) {
                                 LazyColumn {
                                     items(selectableVariants) { indexedVariant ->
                                         val groupIndex = indexedVariant.first
@@ -647,7 +646,7 @@ private fun DownloadOptionsModal(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable { selectedUrlByMediaKey[variant.mediaKey] = variant.url }
-                                                .padding(vertical = 4.dp)
+                                                .padding(vertical = dimensionResource(R.dimen.spacing_tiny))
                                         ) {
                                             RadioButton(
                                                 selected = selectedUrlByMediaKey[variant.mediaKey] == variant.url,

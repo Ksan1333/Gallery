@@ -287,7 +287,7 @@ class AnalysisService : Service() {
     }
 
     private fun currentCooldownProfile(): CooldownProfile {
-        val prefs = getSharedPreferences("global_settings", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("global_settings", MODE_PRIVATE)
         return when (
             prefs.getString(
                 AppDefaults.AI_ANALYSIS_SPEED_MODE_KEY,

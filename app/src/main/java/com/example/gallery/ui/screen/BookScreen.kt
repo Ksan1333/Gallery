@@ -32,7 +32,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.Saver
 import android.widget.Toast
@@ -55,6 +54,7 @@ import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.component.OperationProgressIndicator
 import com.example.gallery.ui.screen.BookViewerScreen
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.galleryTypography
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.roundToInt
@@ -99,7 +99,7 @@ fun BookScreen(
     val readMark = bookSettingsPrefs.getString("readMark", "NONE") ?: "NONE"
     val enableSwipeDeleteBook = bookSettingsPrefs.getBoolean("enableSwipeDeleteBook", false)
     val gridBottomPadding =
-        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + dimensionResource(R.dimen.viewer_clock_battery_padding_top)
     var books by remember { mutableStateOf<List<BookData>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -107,7 +107,6 @@ fun BookScreen(
     var favoriteVersion by remember { mutableIntStateOf(0) }
     var pendingDeleteBooks by remember { mutableStateOf<List<BookData>>(emptyList()) }
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
 
     // しおりからの自動遷移処理
     LaunchedEffect(initialJumpBookId, books) {
@@ -306,7 +305,7 @@ fun BookScreen(
                     .background(colors.topBar)
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .height(dimensionResource(R.dimen.header_height))
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = dimensionResource(R.dimen.spacing_medium)),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -316,8 +315,7 @@ fun BookScreen(
                     }
                     Text(
                         stringResource(R.string.trash_item_count, selectedBookIds.size),
-                        color = colors.primaryText,
-                        fontSize = textSizes.subtitle
+                        style = galleryTypography.bodySecondary.copy(color = colors.primaryText)
                     )
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = {
@@ -342,8 +340,7 @@ fun BookScreen(
                     }
                     Text(
                         stringResource(R.string.label_books_title),
-                        color = colors.primaryText,
-                        fontSize = textSizes.header
+                        style = galleryTypography.header
                     )
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = {
@@ -380,11 +377,11 @@ fun BookScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = dimensionResource(R.dimen.spacing_base), vertical = dimensionResource(R.dimen.spacing_small)),
                     contentAlignment = Alignment.Center
                 ) {
                     OperationProgressIndicator(
-                        label = "本を走査中",
+                        label = stringResource(R.string.book_scan_progress),
                         progress = null,
                         displayMode = "MAX",
                         minimumStyle = "BAR"
@@ -398,33 +395,31 @@ fun BookScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(colors.surfaceVariant.copy(alpha = 0.3f))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = dimensionResource(R.dimen.spacing_medium), vertical = dimensionResource(R.dimen.spacing_small)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "${stringResource(R.string.label_books_root)} > ",
-                        color = colors.mutedText,
-                        fontSize = textSizes.small,
+                        style = galleryTypography.smallMuted,
                         modifier = Modifier.clickable { selectedFolderPath = null }
                     )
                     Text(
                         text = folderName,
-                        color = colors.primaryText,
-                        fontSize = textSizes.small
+                        style = galleryTypography.small.copy(color = colors.primaryText)
                     )
                 }
 
             if (!hasFullStorageAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                        Icon(Icons.Default.Settings, null, tint = colors.mutedText, modifier = Modifier.size(64.dp))
-                        Spacer(Modifier.height(16.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(dimensionResource(R.dimen.spacing_extra_large))) {
+                        Icon(Icons.Default.Settings, null, tint = colors.mutedText, modifier = Modifier.size(dimensionResource(R.dimen.grid_bottom_padding) * 0.64f)) // 64.dp
+                        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_medium)))
                         Text(
                             stringResource(R.string.msg_storage_access_desc),
                             color = colors.primaryText,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_large)))
                         Button(onClick = {
                             try {
                                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
@@ -444,15 +439,22 @@ fun BookScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = colors.primaryText)
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_base)))
                         Text(stringResource(R.string.book_scan_progress_title), color = colors.primaryText)
                     }
                 }
-            } else if (books.isEmpty()) {
+            }
+else if (books.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(stringResource(R.string.book_no_books), color = colors.mutedText)
-                        Text(stringResource(R.string.book_check_permission), color = colors.divider.copy(alpha = 1f), fontSize = textSizes.tiny)
+                        Text(
+                            stringResource(R.string.book_no_books),
+                            style = galleryTypography.bodyMuted
+                        )
+                        Text(
+                            stringResource(R.string.book_check_permission),
+                            style = galleryTypography.tiny.copy(color = colors.divider.copy(alpha = 1f))
+                        )
                     }
                 }
             } else {
@@ -470,13 +472,13 @@ fun BookScreen(
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         contentPadding = PaddingValues(
-                            start = 12.dp,
-                            top = 12.dp,
-                            end = 12.dp,
+                            start = dimensionResource(R.dimen.spacing_base),
+                            top = dimensionResource(R.dimen.spacing_base),
+                            end = dimensionResource(R.dimen.spacing_base),
                             bottom = gridBottomPadding
                         ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
+                        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
                     ) {
                         items(folderGroups) { folder ->
                             FolderItem(folder = folder, showThumbnail = showThumbnail, onClick = { selectedFolderPath = folder.path })
@@ -491,13 +493,13 @@ fun BookScreen(
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         contentPadding = PaddingValues(
-                            start = 12.dp,
-                            top = 12.dp,
-                            end = 12.dp,
+                            start = dimensionResource(R.dimen.spacing_base),
+                            top = dimensionResource(R.dimen.spacing_base),
+                            end = dimensionResource(R.dimen.spacing_base),
                             bottom = gridBottomPadding
                         ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
+                        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
                     ) {
                         items(folderBooks) { book ->
                             val isSelected = book.id in selectedBookIds
@@ -610,18 +612,17 @@ private fun pickFolderThumbnail(
 @Composable
 fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
         if (showThumbnail) {
-            Box(
+                    Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(0.7f)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
                     .background(colors.surfaceVariant)
             ) {
                 if (folder.thumbnailPath != null) {
@@ -637,29 +638,27 @@ fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) 
                     imageVector = Icons.Default.Folder,
                     contentDescription = null,
                     tint = colors.primaryText.copy(alpha = 0.8f),
-                    modifier = Modifier.size(48.dp).align(Alignment.Center)
+                    modifier = Modifier.size(dimensionResource(R.dimen.viewer_bottom_bar_height)).align(Alignment.Center)
                 )
                 Surface(
                     color = colors.background.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(4.dp),
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(dimensionResource(R.dimen.spacing_tiny))
                 ) {
                     Text(
                         text = "${folder.count}",
-                        color = colors.primaryText,
-                        fontSize = textSizes.tiny,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        style = galleryTypography.tiny.copy(color = colors.primaryText),
+                        modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny), vertical = dimensionResource(R.dimen.spacing_micro))
                     )
                 }
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
         }
         Text(
             folder.name,
-            color = colors.primaryText,
-            fontSize = textSizes.small,
+            style = galleryTypography.small.copy(color = colors.primaryText),
             maxLines = 2,
-            modifier = Modifier.padding(horizontal = 4.dp)
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny))
         )
     }
 }
@@ -678,7 +677,6 @@ fun BookItem(
     onDeleteRequest: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
     var contentScale by remember { mutableStateOf(ContentScale.Crop) }
     var dragAmountX by remember { mutableFloatStateOf(0f) }
 
@@ -686,7 +684,7 @@ fun BookItem(
         modifier = Modifier
             .fillMaxWidth()
             .offset { IntOffset(dragAmountX.roundToInt(), 0) }
-            .background(if (isSelected) colors.accent.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(8.dp))
+            .background(if (isSelected) colors.accent.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
             .pointerInput(enableSwipeDelete, book.id) {
                 if (enableSwipeDelete) {
                     detectDragGestures(
@@ -710,7 +708,7 @@ fun BookItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(0.7f)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
                     .background(colors.surfaceVariant)
             ) {
                 if (book.thumbnailPath != null) {
@@ -732,24 +730,22 @@ fun BookItem(
                         Icons.Default.Favorite,
                         contentDescription = stringResource(R.string.label_favorites),
                         tint = colors.danger,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).size(18.dp)
+                        modifier = Modifier.align(Alignment.BottomStart).padding(dimensionResource(R.dimen.spacing_tiny)).size(dimensionResource(R.dimen.icon_size_small))
                     )
                 }
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
         }
         Text(
             book.title,
-            color = colors.primaryText,
-            fontSize = textSizes.small,
+            style = galleryTypography.small.copy(color = colors.primaryText),
             maxLines = 2,
-            modifier = Modifier.padding(horizontal = 4.dp)
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny))
         )
         Text(
             stringResource(R.string.msg_page_count, book.pageCount),
-            color = colors.mutedText,
-            fontSize = textSizes.tiny,
-            modifier = Modifier.padding(horizontal = 4.dp)
+            style = galleryTypography.tiny,
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny))
         )
         val lastReadPage = prefs.getInt("lastReadPage:${book.id}", -1)
         if (readMark != "NONE" && lastReadPage >= 0) {
@@ -763,16 +759,15 @@ fun BookItem(
             if (readMark == "PROGRESS_BAR") {
                 LinearProgressIndicator(
                     progress = { progress },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = dimensionResource(R.dimen.spacing_tiny)),
                     color = colors.accent,
                     trackColor = colors.divider
                 )
             } else if (label.isNotEmpty()) {
                 Text(
                     label,
-                    color = colors.accent,
-                    fontSize = textSizes.tiny,
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    style = galleryTypography.tiny.copy(color = colors.accent),
+                    modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny))
                 )
             }
         }

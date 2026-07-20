@@ -60,6 +60,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -398,11 +399,11 @@ fun HomeSearchScreen(
                 .fillMaxSize()
                 .background(colors.background)
                 .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = dimensionResource(R.dimen.spacing_medium)),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
         ) {
             item {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
                 OutlinedTextField(
                     value = draftQuery,
                     onValueChange = { draftQuery = it },
@@ -425,7 +426,7 @@ fun HomeSearchScreen(
             if (searchHistory.isNotEmpty()) {
                 item {
                     SearchSection(title = stringResource(R.string.search_history)) {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
                             lazyItems(searchHistory) { entry ->
                                 FilterChip(
                                     selected = false,
@@ -446,16 +447,16 @@ fun HomeSearchScreen(
 
             item {
                 SearchSection(title = stringResource(R.string.search_match_mode)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
                         FilterChip(
                             selected = draftMatchMode == GallerySearchMatchMode.AND,
                             onClick = { draftMatchMode = GallerySearchMatchMode.AND },
-                            label = { Text(AppConstants.MATCH_AND) }
+                            label = { Text(stringResource(R.string.label_match_and)) }
                         )
                         FilterChip(
                             selected = draftMatchMode == GallerySearchMatchMode.OR,
                             onClick = { draftMatchMode = GallerySearchMatchMode.OR },
-                            label = { Text(AppConstants.MATCH_OR) }
+                            label = { Text(stringResource(R.string.label_match_or)) }
                         )
                     }
                 }
@@ -475,7 +476,7 @@ fun HomeSearchScreen(
                             },
                             contentDescription = null,
                             tint = colors.accent,
-                            modifier = Modifier.padding(end = 8.dp)
+                            modifier = Modifier.padding(end = dimensionResource(R.dimen.spacing_small))
                         )
                         Text(stringResource(R.string.search_favorites_only))
                     }
@@ -484,7 +485,7 @@ fun HomeSearchScreen(
 
             item {
                 SearchSection(title = stringResource(R.string.search_media_type)) {
-                    ThreeColumnGrid(maxHeight = 72) {
+                    ThreeColumnGrid(maxHeight = dimensionResource(R.dimen.search_section_chips_max_height)) {
                         items(GallerySearchMediaType.entries, key = { it.name }) { type ->
                             SelectableGridCell(
                                 label = type.searchLabel(context),
@@ -498,7 +499,7 @@ fun HomeSearchScreen(
 
             item {
                 SearchSection(title = stringResource(R.string.search_storage)) {
-                    ThreeColumnGrid(maxHeight = 72) {
+                    ThreeColumnGrid(maxHeight = dimensionResource(R.dimen.search_section_chips_max_height)) {
                         item(key = "__all_storage") {
                             SelectableGridCell(
                                 label = stringResource(R.string.label_all_media),
@@ -520,7 +521,7 @@ fun HomeSearchScreen(
 
             item {
                 SearchSection(title = stringResource(R.string.search_age_rating)) {
-                    ThreeColumnGrid(maxHeight = 72) {
+                    ThreeColumnGrid(maxHeight = dimensionResource(R.dimen.search_section_chips_max_height)) {
                         items(searchAgeRatings, key = { it.name }) { rating ->
                             SelectableGridCell(
                                 label = rating.searchLabel(context),
@@ -534,7 +535,7 @@ fun HomeSearchScreen(
 
             item {
                 SearchSection(title = stringResource(R.string.search_folder)) {
-                    ThreeColumnGrid(maxHeight = 156) {
+                    ThreeColumnGrid(maxHeight = dimensionResource(R.dimen.search_section_folders_max_height)) {
                         item(key = "__all_folders") {
                             SelectableGridCell(
                                 label = stringResource(R.string.label_all_media),
@@ -559,10 +560,10 @@ fun HomeSearchScreen(
                         Text(
                             text = stringResource(R.string.search_no_tags),
                             color = colors.secondaryText,
-                            modifier = Modifier.padding(vertical = 12.dp)
+                            modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_base))
                         )
                     } else {
-                        ThreeColumnGrid(maxHeight = 360) {
+                        ThreeColumnGrid(maxHeight = dimensionResource(R.dimen.search_section_tags_max_height)) {
                             items(visibleTags, key = { it.tag }) { option ->
                                 val tag = option.tag
                                 val selected = tag in draftTags
@@ -581,7 +582,7 @@ fun HomeSearchScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(dimensionResource(R.dimen.spacing_medium)))
             }
         }
     }
@@ -598,8 +599,8 @@ private fun SearchSection(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_base)),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
         ) {
             Text(
                 text = title,
@@ -613,7 +614,7 @@ private fun SearchSection(
 
 @Composable
 private fun ThreeColumnGrid(
-    maxHeight: Int,
+    maxHeight: androidx.compose.ui.unit.Dp,
     content: LazyGridScope.() -> Unit
 ) {
     val gridState = rememberLazyGridState()
@@ -663,7 +664,7 @@ private fun ThreeColumnGrid(
         columns = GridCells.Fixed(3),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = maxHeight.dp)
+            .heightIn(max = maxHeight)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
@@ -675,8 +676,8 @@ private fun ThreeColumnGrid(
                 }
             }
             .nestedScroll(nestedScrollConnection),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small)),
+        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small)),
         content = content
     )
 }
@@ -691,15 +692,15 @@ private fun SelectableGridCell(
     val colors = GalleryThemeTokens.colors
     Surface(
         color = if (selected) colors.accentSoft else colors.surface,
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, if (selected) colors.accent else colors.divider),
+        shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium)),
+        border = BorderStroke(dimensionResource(R.dimen.spacing_hairline), if (selected) colors.accent else colors.divider),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = dimensionResource(R.dimen.search_grid_cell_min_height))
             .clickable(onClick = onClick)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_small), vertical = dimensionResource(R.dimen.spacing_small)),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -737,22 +738,22 @@ private fun SearchBottomBar(
     val colors = GalleryThemeTokens.colors
     Surface(
         color = colors.surface,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, colors.divider)
+        shadowElevation = dimensionResource(R.dimen.card_elevation_default),
+        border = BorderStroke(dimensionResource(R.dimen.spacing_hairline), colors.divider)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = dimensionResource(R.dimen.spacing_medium), vertical = dimensionResource(R.dimen.popup_padding_h)),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
         ) {
             Text(
                 text = stringResource(R.string.search_result_count, resultCount),
                 color = colors.accent,
                 style = MaterialTheme.typography.titleLarge
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
                 OutlinedButton(
                     onClick = onClear,
                     modifier = Modifier.weight(1f)

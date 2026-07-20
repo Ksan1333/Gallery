@@ -7,10 +7,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.AnalysisService
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -61,11 +61,11 @@ fun AnalysisProgressScreen(
             verticalArrangement = Arrangement.Center
         ) {
             CircularProgressIndicator(color = colors.primaryText)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_medium)))
             Text(stringResource(R.string.analysis_bg_running), color = colors.primaryText)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
             Text(stringResource(R.string.analysis_keep_moving), color = colors.mutedText, fontSize = textSizes.small)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_large)))
             Button(onClick = onComplete) {
                 Text(stringResource(R.string.analysis_back_to_gallery))
             }

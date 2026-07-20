@@ -8,7 +8,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.*
@@ -79,6 +78,7 @@ import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.ui.AppDefaults
 import com.example.gallery.ui.state.*
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.GalleryAlphaTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -143,7 +143,6 @@ private const val SCROLL_RESTORE_TRACE = "GALLERY_SCROLL_RESTORE_TRACE"
 private const val SELECTION_TRACE = "GALLERY_SELECTION_TRACE"
 private const val SCROLLBAR_TRACE = "GALLERY_SCROLLBAR_TRACE"
 private const val GRID_LAYOUT_TRACE = "GALLERY_GRID_LAYOUT_TRACE"
-private const val SIMILAR_GROUP_THRESHOLD = 0.6f
 private const val DENSE28_ROWS_PER_YEAR = 6
 private const val DENSE28_THUMB_SIZE = 48
 private const val DENSE28_THUMB_LOAD_ROWS = 12
@@ -324,7 +323,7 @@ fun GalleryGridView(
     onScrollRestored: (Int) -> Unit = {},
     topBarActions: @Composable RowScope.() -> Unit = {},
     showTopSection: Boolean = true,
-    extraBottomPadding: androidx.compose.ui.unit.Dp = dimensionResource(R.dimen.grid_bottom_padding),
+    extraBottomPadding: Dp = dimensionResource(R.dimen.grid_bottom_padding),
     selectOnTap: Boolean = false
 ) {
     // 列数の選択肢 (28:年, 7:月, 4/3/1:日)
@@ -462,10 +461,18 @@ fun GalleryGridView(
             globalSettingsPrefs.getBoolean(PreferenceManager.SIMILAR_IMAGE_GROUPING, true)
         )
     }
+    var similarImageThreshold by remember(globalSettingsPrefs) {
+        mutableStateOf(
+            globalSettingsPrefs.getInt(PreferenceManager.SIMILAR_IMAGE_THRESHOLD, 60) / 100f
+        )
+    }
     DisposableEffect(globalSettingsPrefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
             if (key == PreferenceManager.SIMILAR_IMAGE_GROUPING) {
                 similarImageGroupingEnabled = prefs.getBoolean(key, true)
+            }
+            if (key == PreferenceManager.SIMILAR_IMAGE_THRESHOLD) {
+                similarImageThreshold = prefs.getInt(key, 60) / 100f
             }
         }
         globalSettingsPrefs.registerOnSharedPreferenceChangeListener(listener)
@@ -689,7 +696,7 @@ fun GalleryGridView(
                         val ratio = item.height.toFloat() / item.width.toFloat()
                         when (galleryState.deviceFilter) {
                             DeviceFilter.SMARTPHONE -> {
-                                item.height > item.width && kotlin.math.abs(ratio - deviceAspectRatio) < 0.2f
+                                item.height > item.width && abs(ratio - deviceAspectRatio) < 0.2f
                             }
                             DeviceFilter.PC -> {
                                 item.width > item.height && (item.width.toFloat() / item.height.toFloat()) > 1.3f
@@ -720,13 +727,13 @@ fun GalleryGridView(
     var similarMediaGroups by remember {
         mutableStateOf<List<MediaRepository.SimilarMediaGroup>>(emptyList())
     }
-    LaunchedEffect(sortedList, vectorReadyCount, similarImageGroupingEnabled) {
+    LaunchedEffect(sortedList, vectorReadyCount, similarImageGroupingEnabled, similarImageThreshold) {
         similarMediaGroups = if (
             similarImageGroupingEnabled && vectorReadyCount >= 2 && sortedList.size >= 2
         ) {
             galleryState.repository.findAdjacentSimilarMediaGroups(
                 mediaItems = sortedList,
-                threshold = SIMILAR_GROUP_THRESHOLD
+                threshold = similarImageThreshold
             )
         } else {
             emptyList()
@@ -1259,8 +1266,8 @@ private fun GalleryGridContent(
     thumbSize: Int,
     imageLoader: ImageLoader,
     getTopBarOffset: () -> Float,
-    totalTopBarHeight: androidx.compose.ui.unit.Dp,
-    totalBottomPadding: androidx.compose.ui.unit.Dp,
+    totalTopBarHeight: Dp,
+    totalBottomPadding: Dp,
     isSelectionMode: Boolean,
     isScrollbarDragging: Boolean,
     selectedUris: SnapshotStateMap<String, Boolean>,
@@ -1281,7 +1288,7 @@ private fun GalleryGridContent(
     val rawIsGridScrolling by remember { derivedStateOf { gridState.isScrollInProgress } }
     val context = LocalContext.current
     val selectionLongPressMs = remember(context) {
-        context.getSharedPreferences("global_settings", android.content.Context.MODE_PRIVATE)
+        context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
             .getInt("selectionLongPressMs", AppDefaults.SELECTION_LONG_PRESS_MS)
             .coerceIn(150, 2000)
             .toLong()
@@ -1319,7 +1326,7 @@ private fun GalleryGridContent(
             val curIdx = gridState.firstVisibleItemIndex
             val curTime = System.currentTimeMillis()
             if (rawIsGridScrolling && curTime > lastTime) {
-                val dIdx = kotlin.math.abs(curIdx - lastIdx).toFloat()
+                val dIdx = abs(curIdx - lastIdx).toFloat()
                 val dt = (curTime - lastTime) / 1000f
                 scrollVelocity.floatValue = if (dt > 0.01f) dIdx / dt else 0f
             } else {
@@ -1411,7 +1418,7 @@ private fun GalleryGridContent(
 
         if (!allowNearest || itemBoundsInRoot.isEmpty()) return null
         val nearest = itemBoundsInRoot.minByOrNull { (_, bounds) ->
-            kotlin.math.abs(position.y - bounds.center.y)
+            abs(position.y - bounds.center.y)
         }
         return nearest?.key
     }
@@ -1747,7 +1754,7 @@ private fun GalleryGridContent(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(end = 32.dp)
+            .padding(end = dimensionResource(R.dimen.grid_side_padding))
             .graphicsLayer { translationY = getTopBarOffset() }
             .onGloballyPositioned { coordinates ->
                 if (!isScrollbarDragging) {
@@ -2099,6 +2106,7 @@ private fun GridItemRenderer(
                     shouldLoadThumbnail = gridIndex in denseThumbnailStartIndex..denseThumbnailEndIndex,
                     isGridScrolling = isGridScrolling,
                     isSelected = selectedUris.containsKey(item.data.uri),
+                    isFavorite = metadataMap[item.data.uri]?.isFavorite == true,
                     isHighlighted = highlightUri == item.data.uri,
                     onClick = { onMediaClick(item) }
                 )
@@ -2182,11 +2190,15 @@ private fun SimilarGroupGridItem(
     } else {
         1f
     }
-    val popupWidthDp = (configuration.screenWidthDp - 32).coerceIn(240, 336)
-    val popupWidth = popupWidthDp.dp
+    val popupWidth = (configuration.screenWidthDp.dp - 32.dp).coerceIn(
+        dimensionResource(R.dimen.similar_group_popup_width_min),
+        dimensionResource(R.dimen.similar_group_popup_width_max)
+    )
     val visibleRows = minOf(2, (group.items.size + 3) / 4).coerceAtLeast(1)
-    val popupTileSizeDp = ((popupWidthDp - 32) / 4).coerceAtLeast(48)
-    val popupGridHeightDp = visibleRows * popupTileSizeDp + (visibleRows - 1) * 4
+    val popupTileSize = ((popupWidth - 32.dp) / 4).coerceAtLeast(
+        dimensionResource(R.dimen.similar_group_popup_tile_size_min)
+    )
+    val popupGridHeight = visibleRows.toFloat() * popupTileSize.value + (visibleRows - 1) * 4
     val popupScrollState = rememberScrollState()
 
     DisposableEffect(gridIndex) {
@@ -2223,7 +2235,7 @@ private fun SimilarGroupGridItem(
             }
 
             Surface(
-                color = colors.background.copy(alpha = 0.82f),
+                color = colors.background.copy(alpha = GalleryAlphaTokens.Badge),
                 contentColor = colors.primaryText,
                 shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
                 modifier = Modifier.align(Alignment.TopEnd).padding(dimensionResource(R.dimen.spacing_tiny))
@@ -2240,7 +2252,7 @@ private fun SimilarGroupGridItem(
 
             if (selectedCount > 0) {
                 Box(
-                    modifier = Modifier.fillMaxSize().background(colors.background.copy(alpha = 0.34f)),
+                    modifier = Modifier.fillMaxSize().background(colors.background.copy(alpha = GalleryAlphaTokens.OverlaySelection)),
                     contentAlignment = Alignment.TopStart
                 ) {
                     Surface(
@@ -2275,7 +2287,7 @@ private fun SimilarGroupGridItem(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(popupGridHeightDp.dp)
+                        .height(popupGridHeight.dp)
                         .verticalScroll(popupScrollState),
                     verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))
                 ) {
@@ -2321,6 +2333,7 @@ private fun DenseMediaGridItem(
     shouldLoadThumbnail: Boolean,
     isGridScrolling: Boolean,
     isSelected: Boolean,
+    isFavorite: Boolean,
     isHighlighted: Boolean,
     onClick: () -> Unit
 ) {
@@ -2349,7 +2362,7 @@ private fun DenseMediaGridItem(
                 onClick = onClick
             )
             .background(backgroundColor)
-            .highlightFrame(isHighlighted, colors.accent, 1.dp, 0.dp)
+            .highlightFrame(isHighlighted, colors.accent, dimensionResource(R.dimen.spacing_hairline), 0.dp)
     ) {
         if (shouldDrawThumbnail) {
             AsyncImage(
@@ -2365,6 +2378,17 @@ private fun DenseMediaGridItem(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(colors.background.copy(alpha = 0.45f))
+            )
+        }
+        if (isFavorite) {
+            Icon(
+                imageVector = Icons.Default.Favorite,
+                contentDescription = null,
+                tint = colors.danger,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(dimensionResource(R.dimen.spacing_hairline))
+                    .size(dimensionResource(R.dimen.icon_size_favorite_micro))
             )
         }
     }
@@ -2394,13 +2418,9 @@ private fun MediaGridItemWrapper(
     onDragSelectionEnd: () -> Unit
 ) {
     // メタデータの細かな再計算を避け、リスト参照ではなく直接値を取得する。
-    val isFavorite = if (columnCount < 28) {
-        remember(metadataMap, item.data.uri) {
-            derivedStateOf { metadataMap[item.data.uri]?.isFavorite == true }
-        }.value
-    } else {
-        false
-    }
+    val isFavorite = remember(metadataMap, item.data.uri) {
+        derivedStateOf { metadataMap[item.data.uri]?.isFavorite == true }
+    }.value
 
     MediaGridItem(
         media = item.data,
@@ -2569,7 +2589,7 @@ private fun MediaGridItem(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(colors.background.copy(alpha = if (isDenseGrid) 0.45f else 0.3f)),
+                    .background(colors.background.copy(alpha = if (isDenseGrid) GalleryAlphaTokens.Clock else GalleryAlphaTokens.LowContrast)),
                 contentAlignment = Alignment.TopEnd
             ) {
                 if (!isDenseGrid) {
@@ -2595,7 +2615,7 @@ private fun MediaGridItem(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(dimensionResource(R.dimen.spacing_tiny) / 2)
-                        .background(colors.background.copy(alpha = 0.6f), RoundedCornerShape(dimensionResource(R.dimen.radius_small) / 2))
+                        .background(colors.background.copy(alpha = GalleryAlphaTokens.Muted), RoundedCornerShape(dimensionResource(R.dimen.radius_small) / 2))
                         .padding(horizontal = dimensionResource(R.dimen.spacing_tiny) / 2, vertical = 0.dp)
                 )
             }
@@ -2650,13 +2670,14 @@ private fun GalleryTopSection(
                     onBackClick != null -> Icons.AutoMirrored.Filled.ArrowBack
                     else -> null
                 },
-                onNavigationClick = onMenuClick ?: onBackClick,
+                navigationContentDescription = stringResource(if (onMenuClick != null) R.string.btn_open else R.string.btn_back),
+                onNavigationClick = { (onMenuClick ?: onBackClick)?.invoke() },
                 containerColor = colors.topBar,
                 contentColor = colors.primaryText,
                 actions = topBarActions
             )
         }
-        Box(modifier = Modifier.fillMaxWidth().height(dimensionResource(R.dimen.header_height)).background(colors.background.copy(alpha = 0.95f))) {
+        Box(modifier = Modifier.fillMaxWidth().height(dimensionResource(R.dimen.header_height)).background(colors.background.copy(alpha = GalleryAlphaTokens.Recommendation))) {
             if (isSelectionMode) {
                 SelectionModeBar(
                     selectedCount,
@@ -2727,8 +2748,8 @@ private fun GalleryScrollbar(
     gridState: LazyStaggeredGridState,
     columnCount: Int,
     positionLabelItems: List<GridItem>,
-    totalTopBarHeight: androidx.compose.ui.unit.Dp,
-    totalBottomPadding: androidx.compose.ui.unit.Dp,
+    totalTopBarHeight: Dp,
+    totalBottomPadding: Dp,
     isActive: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -2794,7 +2815,159 @@ private fun GalleryScrollbar(
     var containerHeight by remember { mutableIntStateOf(0) }
     var labelHeight by remember { mutableIntStateOf(0) }
 
-    Box(modifier = modifier.fillMaxHeight().width(dimensionResource(R.dimen.scrollbar_container_width)).padding(top = totalTopBarHeight + dimensionResource(R.dimen.spacing_small), bottom = totalBottomPadding + dimensionResource(R.dimen.spacing_small)).zIndex(5f)) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(dimensionResource(R.dimen.scrollbar_container_width))
+            .padding(top = totalTopBarHeight + dimensionResource(R.dimen.spacing_small), bottom = totalBottomPadding + dimensionResource(R.dimen.spacing_small))
+            .zIndex(5f)
+            .onSizeChanged { containerHeight = it.height }
+            .pointerInput(columnCount) {
+                awaitEachGesture {
+                    fun currentTotalItems() = totalItemsState.value
+                    fun targetIndexForTouchY(y: Float, grabOffset: Float): Int {
+                        val total = currentTotalItems()
+                        if (total <= 1) return 0
+                        val railHeight = size.height.toFloat().coerceAtLeast(1f)
+                        val thumbHeight = railHeight * thumbHeightRatioState.value
+                        val travelHeight = (railHeight - thumbHeight).coerceAtLeast(1f)
+                        val effectiveY = (y - grabOffset).coerceIn(0f, travelHeight)
+                        return ((effectiveY / travelHeight) * (total - 1)).roundToInt().coerceIn(0, total - 1)
+                    }
+
+                    fun isTopTouch(y: Float): Boolean {
+                        return y <= 1f
+                    }
+
+                    fun isBottomTouch(y: Float): Boolean {
+                        return y >= size.height - 1f
+                    }
+
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    val initialItemCount = currentTotalItems().coerceAtLeast(1)
+                    val railHeight = size.height.toFloat().coerceAtLeast(1f)
+                    val initialThumbRatio = (visibleItemsSizeState.value.toFloat() / initialItemCount)
+                        .coerceIn(0.1f, 1f)
+                    val initialThumbHeight = railHeight * initialThumbRatio
+                    val initialTravelHeight = (railHeight - initialThumbHeight).coerceAtLeast(0f)
+                    val initialThumbTop = initialTravelHeight * scrollPositionState.value
+                    val thumbHitSlop = 16.dp.toPx()
+                    val startsOnThumb = down.position.y in
+                        (initialThumbTop - thumbHitSlop)..(initialThumbTop + initialThumbHeight + thumbHitSlop)
+                    val longPressTimeoutMs = minOf(viewConfiguration.longPressTimeoutMillis, 380L)
+                    val dragActivated = startsOnThumb || withTimeoutOrNull(longPressTimeoutMs) {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                                ?: return@withTimeoutOrNull false
+                            if (!change.pressed) {
+                                return@withTimeoutOrNull false
+                            }
+                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop * 2.5f) {
+                                return@withTimeoutOrNull false
+                            }
+                            change.consume()
+                        }
+                    } == null
+                    if (!dragActivated) {
+                        Log.d(SCROLLBAR_TRACE, "short_touch ignored y=${down.position.y.roundToInt()} timeoutMs=$longPressTimeoutMs")
+                        return@awaitEachGesture
+                    }
+                    isPressed = true; isActive(true)
+                    var lastTouchY = down.position.y
+                    val grabOffsetY = if (startsOnThumb) {
+                        (down.position.y - initialThumbTop).coerceIn(0f, initialThumbHeight)
+                    } else {
+                        initialThumbHeight / 2f
+                    }
+                    val initialIdx = if (startsOnThumb) {
+                        gridState.firstVisibleItemIndex.coerceIn(0, initialItemCount - 1)
+                    } else {
+                        targetIndexForTouchY(lastTouchY, grabOffsetY)
+                    }
+                    scrollbarTargetIndex = initialIdx
+                    var lastLiveRequestAt = 0L
+                    var lastLiveRequestedIndex = gridState.firstVisibleItemIndex
+                    val liveFollowIntervalMs = if (columnCount >= 7) 70L else 45L
+                    val liveFollowMinDelta = maxOf(columnCount / 2, 1)
+                    fun requestLiveFollow(target: Int, force: Boolean = false) {
+                        val now = System.currentTimeMillis()
+                        val deltaFromLast = abs(target - lastLiveRequestedIndex)
+                        val sincePreviousMs = now - lastLiveRequestAt
+                        if (!force) {
+                            val enoughTimePassed = sincePreviousMs >= liveFollowIntervalMs
+                            val enoughDistanceMoved = deltaFromLast >= liveFollowMinDelta
+                            if (!enoughTimePassed && !enoughDistanceMoved) {
+                                return
+                            }
+                        }
+                        gridState.requestScrollToItem(target)
+                        Log.d(
+                            SCROLLBAR_TRACE,
+                            "follow target=$target force=$force total=${currentTotalItems()} first=${gridState.firstVisibleItemIndex}"
+                        )
+                        lastLiveRequestAt = now
+                        lastLiveRequestedIndex = target
+                    }
+                    Log.d(
+                        SCROLLBAR_TRACE,
+                        "drag_start directThumb=$startsOnThumb y=${lastTouchY.roundToInt()} target=$initialIdx " +
+                            "grabOffset=${grabOffsetY.roundToInt()} total=${currentTotalItems()} columns=$columnCount"
+                    )
+                    if (!startsOnThumb) {
+                        requestLiveFollow(initialIdx, force = true)
+                    }
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            lastTouchY = change.position.y
+                            if (!change.pressed) break
+                            change.consume()
+                            val latestTotal = currentTotalItems()
+                            val newIdx = targetIndexForTouchY(lastTouchY, grabOffsetY)
+                            val isEdgeTarget = newIdx == 0 || newIdx == latestTotal - 1
+                            if (isEdgeTarget || newIdx != scrollbarTargetIndex) {
+                                scrollbarTargetIndex = newIdx
+                                requestLiveFollow(newIdx, force = isEdgeTarget)
+                            }
+                        }
+                        val finalTotal = currentTotalItems()
+                        val finalTarget = when {
+                            isBottomTouch(lastTouchY) -> (finalTotal - 1).coerceAtLeast(0)
+                            isTopTouch(lastTouchY) -> 0
+                            else -> targetIndexForTouchY(lastTouchY, grabOffsetY)
+                        }
+                        if (finalTarget >= 0 && (!startsOnThumb || finalTarget != initialIdx)) {
+                            gridState.requestScrollToItem(finalTarget)
+                            if (finalTotal > 0 && finalTarget == finalTotal - 1) {
+                                scope.launch {
+                                    repeat(2) {
+                                        delay(120)
+                                        val latestTotal = totalItemsState.value
+                                        if (latestTotal > 0) {
+                                            gridState.requestScrollToItem(latestTotal - 1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Log.d(
+                            SCROLLBAR_TRACE,
+                            "drag_end y=${lastTouchY.roundToInt()} target=$finalTarget total=$finalTotal"
+                        )
+                    } finally {
+                        isPressed = false
+                        scrollbarTargetIndex = -1
+                        scope.launch {
+                            delay(180)
+                            isActive(false)
+                        }
+                    }
+                }
+            }
+    ) {
         val positionLabel = currentPositionLabelState.value
         val colors = GalleryThemeTokens.colors
         AnimatedVisibility(
@@ -2815,7 +2988,7 @@ private fun GalleryScrollbar(
             Surface(
                 modifier = Modifier.onSizeChanged { labelHeight = it.height },
                 shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
-                color = colors.background.copy(alpha = 0.78f),
+                color = colors.background.copy(alpha = GalleryAlphaTokens.Tooltip),
                 tonalElevation = 4.dp
             ) {
                 Text(
@@ -2827,164 +3000,23 @@ private fun GalleryScrollbar(
             }
         }
 
-        Box(modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight().width(dimensionResource(R.dimen.scrollbar_touch_area_width)).onSizeChanged { containerHeight = it.height }.pointerInput(Unit) {
-        awaitPointerEventScope {
-            while (true) {
-                if (totalItemsState.value == 0) {
-                    awaitFirstDown()
-                    continue
+        Box(
+            modifier = Modifier
+                .width(thumbWidth)
+                .fillMaxHeight()
+                .align(Alignment.TopEnd)
+                .graphicsLayer {
+                    val scrollPos = scrollPositionState.value
+                    val heightRatio = thumbHeightRatioState.value
+                    val currentThumbHeight = containerHeight * heightRatio
+                    translationY = (containerHeight - currentThumbHeight) * scrollPos
+                    translationX = -thumbOffsetPx
+                    scaleY = heightRatio
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
                 }
-                fun currentTotalItems(): Int = totalItemsState.value
-
-                fun targetIndexForTouchY(y: Float, grabOffsetY: Float): Int {
-                    val itemCount = currentTotalItems()
-                    if (itemCount <= 1) return 0
-                    val railHeight = size.height.toFloat().coerceAtLeast(1f)
-                    val thumbRatio = (visibleItemsSizeState.value.toFloat() / itemCount)
-                        .coerceIn(0.1f, 1f)
-                    val thumbHeight = railHeight * thumbRatio
-                    val travelHeight = (railHeight - thumbHeight).coerceAtLeast(1f)
-                    val progress = ((y - grabOffsetY) / travelHeight).coerceIn(0f, 1f)
-                    return (progress * (itemCount - 1)).roundToInt().coerceIn(0, itemCount - 1)
-                }
-
-                fun isBottomTouch(y: Float): Boolean {
-                    return y >= size.height.toFloat() - 1f
-                }
-
-                fun isTopTouch(y: Float): Boolean {
-                    return y <= 1f
-                }
-
-                val down = awaitFirstDown(requireUnconsumed = false)
-                down.consume()
-                val initialItemCount = currentTotalItems().coerceAtLeast(1)
-                val railHeight = size.height.toFloat().coerceAtLeast(1f)
-                val initialThumbRatio = (visibleItemsSizeState.value.toFloat() / initialItemCount)
-                    .coerceIn(0.1f, 1f)
-                val initialThumbHeight = railHeight * initialThumbRatio
-                val initialTravelHeight = (railHeight - initialThumbHeight).coerceAtLeast(0f)
-                val initialThumbTop = initialTravelHeight * scrollPositionState.value
-                val thumbHitSlop = 16.dp.toPx()
-                val startsOnThumb = down.position.y in
-                    (initialThumbTop - thumbHitSlop)..(initialThumbTop + initialThumbHeight + thumbHitSlop)
-                val longPressTimeoutMs = minOf(viewConfiguration.longPressTimeoutMillis, 380L)
-                val dragActivated = startsOnThumb || withTimeoutOrNull(longPressTimeoutMs) {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id }
-                            ?: return@withTimeoutOrNull false
-                        if (!change.pressed) {
-                            return@withTimeoutOrNull false
-                        }
-                        if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop * 2.5f) {
-                            return@withTimeoutOrNull false
-                        }
-                        change.consume()
-                    }
-                } == null
-                if (!dragActivated) {
-                    Log.d(SCROLLBAR_TRACE, "short_touch ignored y=${down.position.y.roundToInt()} timeoutMs=$longPressTimeoutMs")
-                    continue
-                }
-                isPressed = true; isActive(true)
-                var lastTouchY = down.position.y
-                val grabOffsetY = if (startsOnThumb) {
-                    (down.position.y - initialThumbTop).coerceIn(0f, initialThumbHeight)
-                } else {
-                    initialThumbHeight / 2f
-                }
-                val initialIdx = if (startsOnThumb) {
-                    gridState.firstVisibleItemIndex.coerceIn(0, initialItemCount - 1)
-                } else {
-                    targetIndexForTouchY(lastTouchY, grabOffsetY)
-                }
-                scrollbarTargetIndex = initialIdx
-                var lastLiveRequestAt = 0L
-                var lastLiveRequestedIndex = gridState.firstVisibleItemIndex
-                val liveFollowIntervalMs = if (columnCount >= 7) 70L else 45L
-                val liveFollowMinDelta = maxOf(columnCount / 2, 1)
-                fun requestLiveFollow(target: Int, force: Boolean = false) {
-                    val now = System.currentTimeMillis()
-                    val deltaFromLast = kotlin.math.abs(target - lastLiveRequestedIndex)
-                    val sincePreviousMs = now - lastLiveRequestAt
-                    if (!force) {
-                        val enoughTimePassed = sincePreviousMs >= liveFollowIntervalMs
-                        val enoughDistanceMoved = deltaFromLast >= liveFollowMinDelta
-                        if (!enoughTimePassed && !enoughDistanceMoved) {
-                            return
-                        }
-                    }
-                    gridState.requestScrollToItem(target)
-                    Log.d(
-                        SCROLLBAR_TRACE,
-                        "follow target=$target force=$force total=${currentTotalItems()} first=${gridState.firstVisibleItemIndex}"
-                    )
-                    lastLiveRequestAt = now
-                    lastLiveRequestedIndex = target
-                }
-                Log.d(
-                    SCROLLBAR_TRACE,
-                    "drag_start directThumb=$startsOnThumb y=${lastTouchY.roundToInt()} target=$initialIdx " +
-                        "grabOffset=${grabOffsetY.roundToInt()} total=${currentTotalItems()} columns=$columnCount"
-                )
-                if (!startsOnThumb) {
-                    requestLiveFollow(initialIdx, force = true)
-                }
-                try {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        lastTouchY = change.position.y
-                        if (!change.pressed) break
-                        change.consume()
-                        val latestTotal = currentTotalItems()
-                        val newIdx = targetIndexForTouchY(lastTouchY, grabOffsetY)
-                        val isEdgeTarget = newIdx == 0 || newIdx == latestTotal - 1
-                        if (isEdgeTarget || newIdx != scrollbarTargetIndex) {
-                            scrollbarTargetIndex = newIdx
-                            requestLiveFollow(newIdx, force = isEdgeTarget)
-                        }
-                    }
-                    val finalTotal = currentTotalItems()
-                    val finalTarget = when {
-                        isBottomTouch(lastTouchY) -> (finalTotal - 1).coerceAtLeast(0)
-                        isTopTouch(lastTouchY) -> 0
-                        else -> targetIndexForTouchY(lastTouchY, grabOffsetY)
-                    }
-                    if (finalTarget >= 0 && (!startsOnThumb || finalTarget != initialIdx)) {
-                        gridState.requestScrollToItem(finalTarget)
-                        if (finalTotal > 0 && finalTarget == finalTotal - 1) {
-                            scope.launch {
-                                repeat(2) {
-                                    delay(120)
-                                    val latestTotal = totalItemsState.value
-                                    if (latestTotal > 0) {
-                                        gridState.requestScrollToItem(latestTotal - 1)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Log.d(
-                        SCROLLBAR_TRACE,
-                        "drag_end y=${lastTouchY.roundToInt()} target=$finalTarget total=$finalTotal"
-                    )
-                } finally {
-                    isPressed = false
-                    scrollbarTargetIndex = -1
-                    scope.launch {
-                        delay(180)
-                        isActive(false)
-                    }
-                }
-            }
-        }
-    }) {
-        Box(modifier = Modifier.width(thumbWidth).fillMaxHeight().align(Alignment.TopEnd).graphicsLayer {
-            val scrollPos = scrollPositionState.value; val heightRatio = thumbHeightRatioState.value; val currentThumbHeight = containerHeight * heightRatio
-            translationY = (containerHeight - currentThumbHeight) * scrollPos; translationX = -thumbOffsetPx; scaleY = heightRatio; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-        }.clip(CircleShape).background(if (isPressed) colors.accent else colors.primaryText.copy(alpha = 0.8f)))
-        }
+                .clip(CircleShape)
+                .background(if (isPressed) colors.accent else colors.primaryText.copy(alpha = 0.8f))
+        )
     }
 }
+

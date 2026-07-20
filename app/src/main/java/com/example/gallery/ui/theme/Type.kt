@@ -57,3 +57,68 @@ fun galleryTypography(textSizes: GalleryTextSizes): Typography = Typography(
         letterSpacing = 0.5.sp
     )
 )
+
+fun buildGalleryTypography(colors: GalleryColors, textSizes: GalleryTextSizes): GalleryTypography {
+    return GalleryTypography(
+        title = TextStyle(
+            fontWeight = FontWeight.Bold,
+            fontSize = textSizes.title,
+            color = colors.primaryText
+        ),
+        header = TextStyle(
+            fontWeight = FontWeight.Bold,
+            fontSize = textSizes.header,
+            color = colors.primaryText
+        ),
+        body = TextStyle(
+            fontWeight = FontWeight.Normal,
+            fontSize = textSizes.body,
+            color = colors.primaryText
+        ),
+        bodySecondary = TextStyle(
+            fontWeight = FontWeight.Normal,
+            fontSize = textSizes.subtitle,
+            color = colors.secondaryText
+        ),
+        bodyMuted = TextStyle(
+            fontWeight = FontWeight.Normal,
+            fontSize = textSizes.subtitle,
+            color = colors.mutedText
+        ),
+        small = TextStyle(
+            fontWeight = FontWeight.Normal,
+            fontSize = textSizes.small,
+            color = colors.secondaryText
+        ),
+        smallMuted = TextStyle(
+            fontWeight = FontWeight.Normal,
+            fontSize = textSizes.small,
+            color = colors.mutedText
+        ),
+        tiny = TextStyle(
+            fontWeight = FontWeight.Normal,
+            fontSize = textSizes.tiny,
+            color = colors.mutedText
+        ),
+        accent = TextStyle(
+            fontWeight = FontWeight.Medium,
+            fontSize = textSizes.body,
+            color = colors.accent
+        ),
+        danger = TextStyle(
+            fontWeight = FontWeight.Medium,
+            fontSize = textSizes.body,
+            color = colors.danger
+        ),
+        success = TextStyle(
+            fontWeight = FontWeight.Medium,
+            fontSize = textSizes.body,
+            color = colors.success
+        ),
+        label = TextStyle(
+            fontWeight = FontWeight.Medium,
+            fontSize = textSizes.extraSmall,
+            color = colors.secondaryText
+        )
+    )
+}

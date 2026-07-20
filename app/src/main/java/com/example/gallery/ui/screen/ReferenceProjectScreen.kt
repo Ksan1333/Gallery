@@ -17,11 +17,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.example.gallery.data.local.entity.ReferenceProjectEntity
 import com.example.gallery.data.repository.ReferenceRepository
 import com.example.gallery.ui.AppConstants
@@ -70,8 +70,8 @@ fun ReferenceProjectScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
+                verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
             ) {
                 items(projects) { project ->
                     ReferenceProjectCard(
@@ -135,19 +135,19 @@ private fun ReferenceProjectCard(
             .fillMaxWidth()
             .clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = colors.card),
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_medium)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = if (project.status == AppConstants.STATUS_FINISHED) Icons.Default.Check else Icons.Default.Brush,
                 contentDescription = null,
                 tint = if (project.status == AppConstants.STATUS_FINISHED) colors.mutedText else colors.accent,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_large))
             )
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(dimensionResource(R.dimen.spacing_medium)))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = project.title,

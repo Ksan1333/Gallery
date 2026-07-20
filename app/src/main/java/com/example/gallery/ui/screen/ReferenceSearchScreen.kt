@@ -21,10 +21,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.gallery.data.repository.ReferenceRepository
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -86,14 +86,14 @@ fun ReferenceSearchScreen(
                     .fillMaxWidth()
                     .background(colors.topBar)
                     .statusBarsPadding()
-                    .height(56.dp)
-                    .padding(horizontal = 4.dp),
+                    .height(dimensionResource(R.dimen.header_height))
+                    .padding(horizontal = dimensionResource(R.dimen.spacing_tiny)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.btn_back), tint = colors.primaryText)
                 }
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -118,7 +118,7 @@ fun ReferenceSearchScreen(
                         unfocusedBorderColor = colors.divider
                     )
                 )
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
                 IconButton(onClick = {
                     val wv = webView
                     if (wv != null) {

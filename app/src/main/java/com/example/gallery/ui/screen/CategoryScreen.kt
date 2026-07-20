@@ -107,10 +107,12 @@ fun CategoryScreen(
     onBulkMove: ((List<String>) -> Unit)? = null,
     onScrollConsumed: () -> Unit = {},
     onNavigateToTag: ((String) -> Unit)? = null,
-    onCategoryLongClick: (CategoryData) -> Unit = {},
+    onCategoryLongClick: ((CategoryData) -> Unit)? = null,
     onReorder: (List<String>) -> Unit = {},
-    onCreateCategoryGroup: ((List<String>) -> Unit)? = null,
+    onCreateCategoryGroup: ((List<String>, String?) -> Unit)? = null,
     onUngroupCategory: ((String) -> Unit)? = null,
+    onUngroupCategoryMember: ((String, String) -> Unit)? = null,
+    onRenameCategoryGroup: ((String, String) -> Unit)? = null,
     showThumbnails: Boolean = true,
     initialColumnIndex: Int? = null,
     showCategoryTopBar: Boolean = true,
@@ -162,10 +164,29 @@ fun CategoryScreen(
     val currentOnReorder by rememberUpdatedState(onReorder)
 
     val previewCategories = remember { mutableStateListOf<CategoryData>() }
-    LaunchedEffect(categories) {
+
+    // Consolidate sync logic to avoid race conditions and stale capture
+    LaunchedEffect(categories, draggedCategoryId) {
         if (draggedCategoryId == null) {
-            previewCategories.clear()
-            previewCategories.addAll(categories)
+            val currentIds = previewCategories.map { it.id }
+            val nextIds = categories.map { it.id }
+            
+            if (currentIds != nextIds || previewCategories.size != categories.size) {
+                // If we just finished dragging, give parent state a tiny bit more time
+                if (currentIds.isNotEmpty()) {
+                    kotlinx.coroutines.delay(100)
+                }
+                previewCategories.clear()
+                previewCategories.addAll(categories)
+                android.util.Log.d("CategoryScreen", "previewCategories synced (full): size=${previewCategories.size}")
+            } else {
+                // Same IDs/Order, just update content (count, thumbnail, etc.)
+                categories.forEachIndexed { index, cat ->
+                    if (previewCategories[index] != cat) {
+                        previewCategories[index] = cat
+                    }
+                }
+            }
         }
     }
 
@@ -208,7 +229,7 @@ fun CategoryScreen(
                         .background(colors.topBar)
                         .windowInsetsPadding(WindowInsets.statusBars)
                         .height(dimensionResource(R.dimen.header_height))
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = dimensionResource(R.dimen.spacing_medium)),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -252,15 +273,19 @@ fun CategoryScreen(
                                 val selectedCategories = previewCategories.filter { it.id in selectedCategoryIds }
                                 if (
                                     onCreateCategoryGroup != null &&
-                                    selectedCategories.size >= 2 &&
-                                    selectedCategories.all { it.groupId == null }
+                                    selectedCategories.size >= 2
                                 ) {
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.folder_group_create), color = colors.primaryText) },
                                         leadingIcon = { Icon(Icons.Default.CreateNewFolder, null, tint = colors.primaryText) },
                                         onClick = {
                                             showSelectionMenu = false
-                                            onCreateCategoryGroup(selectedCategories.map { it.id })
+                                            val allFolderIds = selectedCategories.flatMap {
+                                                if (it.groupMembers.isNotEmpty()) it.groupMembers.map { m -> m.id }
+                                                else listOf(it.id)
+                                            }
+                                            val targetGroup = selectedCategories.singleOrNull { it.groupId != null }?.groupId
+                                            onCreateCategoryGroup(allFolderIds, targetGroup)
                                             selectedCategoryIds.clear()
                                             isCategorySelectionMode = false
                                         }
@@ -291,7 +316,7 @@ fun CategoryScreen(
                                         tint = colors.primaryText
                                     )
                                 }
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
                             }
                             Text(title, color = colors.primaryText, fontSize = textSizes.header)
                         }
@@ -328,13 +353,13 @@ fun CategoryScreen(
                             columns = GridCells.Fixed(columnOptions[currentColumnIndex]),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(
-                                start = 12.dp,
-                                top = 8.dp,
-                                end = 12.dp,
-                                bottom = 180.dp
+                                start = dimensionResource(R.dimen.spacing_base),
+                                top = dimensionResource(R.dimen.spacing_small),
+                                end = dimensionResource(R.dimen.spacing_base),
+                                bottom = dimensionResource(R.dimen.viewer_bottom_padding_ui)
                             ),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
+                            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium)),
                             flingBehavior = ScrollableDefaults.flingBehavior()
                         ) {
                             items(previewCategories, key = { it.id }) { category ->
@@ -358,13 +383,6 @@ fun CategoryScreen(
                                                             screenLayoutCoordinates?.windowToLocal(
                                                                 rect.topLeft
                                                             ) ?: Offset.Zero
-
-                                                        if (!selectedCategoryIds.contains(category.id)) {
-                                                            if (!isCategorySelectionMode) {
-                                                                isCategorySelectionMode = true
-                                                            }
-                                                            selectedCategoryIds.add(category.id)
-                                                        }
                                                     }
                                                 },
                                                 onDrag = { change, dragAmount ->
@@ -381,11 +399,7 @@ fun CategoryScreen(
                                                             val fromIndex = previewCategories.indexOfFirst { it.id == category.id }
                                                             val toIndex = previewCategories.indexOfFirst { it.id == targetId }
 
-                                                            // Swap if near center of the target to avoid flickering
-                                                            val swapThreshold = targetBounds.width * 0.25f
-                                                            val isNearTargetCenter = (currentCenter - targetBounds.center).getDistance() < swapThreshold
-
-                                                            if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex && isNearTargetCenter) {
+                                                            if (fromIndex != -1 && toIndex != -1 && fromIndex != toIndex) {
                                                                 val item = previewCategories.removeAt(fromIndex)
                                                                 previewCategories.add(toIndex, item)
                                                                 // Update center to new position to avoid immediate re-swap
@@ -443,7 +457,7 @@ fun CategoryScreen(
                                             }
                                         },
                                         onLongClick = {
-                                            if (!isCategorySelectionMode) {
+                                            if (!isCategorySelectionMode && category.groupMembers.isEmpty()) {
                                                 isCategorySelectionMode = true
                                                 selectedCategoryIds.add(category.id)
                                             }
@@ -464,6 +478,21 @@ fun CategoryScreen(
                                                     {
                                                         expandedGroupId = null
                                                         ungroup(groupId)
+                                                    }
+                                                }
+                                            },
+                                            onUngroupMember = category.groupId?.let { groupId ->
+                                                onUngroupCategoryMember?.let { ungroupMember ->
+                                                    { memberId ->
+                                                        expandedGroupId = null
+                                                        ungroupMember(groupId, memberId)
+                                                    }
+                                                }
+                                            },
+                                            onRename = category.groupId?.let { groupId ->
+                                                onRenameCategoryGroup?.let { rename ->
+                                                    { newName ->
+                                                        rename(groupId, newName)
                                                     }
                                                 }
                                             }
@@ -607,28 +636,97 @@ private fun FolderGroupPopup(
     category: CategoryData,
     onDismiss: () -> Unit,
     onFolderClick: (CategoryData) -> Unit,
-    onUngroup: (() -> Unit)?
+    onUngroup: (() -> Unit)?,
+    onUngroupMember: ((String) -> Unit)? = null,
+    onRename: ((String) -> Unit)? = null
 ) {
     val colors = GalleryThemeTokens.colors
     val scrollState = rememberScrollState()
+
+    var showUngroupConfirm by remember { mutableStateOf(false) }
+    var pendingUngroupMemberId by remember { mutableStateOf<String?>(null) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var newGroupName by remember { mutableStateOf(category.title) }
+
+    if (showUngroupConfirm) {
+        AlertDialog(
+            onDismissRequest = { showUngroupConfirm = false; pendingUngroupMemberId = null },
+            title = { Text(stringResource(R.string.folder_group_ungroup)) },
+            text = { Text(if (pendingUngroupMemberId == null) "グループを解除しますか？" else "このフォルダをグループから解除しますか？") },
+            confirmButton = {
+                Button(onClick = {
+                    if (pendingUngroupMemberId == null) {
+                        onUngroup?.invoke()
+                    } else {
+                        onUngroupMember?.invoke(pendingUngroupMemberId!!)
+                    }
+                    showUngroupConfirm = false
+                    pendingUngroupMemberId = null
+                }) { Text(stringResource(R.string.btn_ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUngroupConfirm = false; pendingUngroupMemberId = null }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
+    }
+
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text(stringResource(R.string.folder_group_dialog_title)) },
+            text = {
+                OutlinedTextField(
+                    value = newGroupName,
+                    onValueChange = { newGroupName = it },
+                    label = { Text(stringResource(R.string.folder_group_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = newGroupName.isNotBlank(),
+                    onClick = {
+                        onRename?.invoke(newGroupName.trim())
+                        showRenameDialog = false
+                    }
+                ) { Text(stringResource(R.string.btn_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
+    }
+
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
         modifier = Modifier
-            .width(320.dp)
+            .width(dimensionResource(R.dimen.popup_width_default))
             .background(colors.card)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = dimensionResource(R.dimen.spacing_base), vertical = dimensionResource(R.dimen.spacing_small))
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(category.title, color = colors.primaryText, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(category.title, color = colors.primaryText, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        if (onRename != null) {
+                            IconButton(onClick = { showRenameDialog = true; newGroupName = category.title }, modifier = Modifier.size(dimensionResource(R.dimen.icon_size_medium)).padding(start = dimensionResource(R.dimen.spacing_tiny))) {
+                                Icon(Icons.Default.Edit, null, tint = colors.mutedText, modifier = Modifier.size(dimensionResource(R.dimen.icon_size_edit)))
+                            }
+                        }
+                    }
                     Text(
                         stringResource(R.string.folder_group_count, category.groupMembers.size),
                         color = colors.secondaryText,
@@ -636,7 +734,7 @@ private fun FolderGroupPopup(
                     )
                 }
                 if (onUngroup != null) {
-                    IconButton(onClick = onUngroup) {
+                    IconButton(onClick = { showUngroupConfirm = true; pendingUngroupMemberId = null }) {
                         Icon(
                             Icons.Default.CallSplit,
                             contentDescription = stringResource(R.string.folder_group_ungroup),
@@ -651,12 +749,12 @@ private fun FolderGroupPopup(
                     .fillMaxWidth()
                     .heightIn(max = 360.dp)
                     .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
             ) {
                 category.groupMembers.chunked(2).forEach { rowMembers ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
                     ) {
                         rowMembers.forEach { member ->
                             Column(
@@ -664,16 +762,33 @@ private fun FolderGroupPopup(
                                     .weight(1f)
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable { onFolderClick(member) }
-                                    .padding(4.dp)
+                                    .padding(dimensionResource(R.dimen.spacing_tiny))
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
                                         .background(colors.surfaceVariant)
                                 ) {
                                     GroupThumbnailItem(member.thumbnail)
+                                    if (onUngroupMember != null) {
+                                        IconButton(
+                                            onClick = { showUngroupConfirm = true; pendingUngroupMemberId = member.id },
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .size(dimensionResource(R.dimen.icon_size_large))
+                                                .padding(dimensionResource(R.dimen.spacing_tiny))
+                                                .background(colors.card.copy(alpha = 0.6f), RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CallSplit,
+                                                null,
+                                                tint = colors.primaryText,
+                                                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_edit))
+                                            )
+                                        }
+                                    }
                                 }
                                 Text(
                                     member.title,
@@ -701,12 +816,12 @@ private fun FolderGroupPopup(
 private fun FolderGroupThumbnail(members: List<CategoryData>) {
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_micro))
     ) {
         members.take(4).chunked(2).forEach { rowMembers ->
             Row(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_micro))
             ) {
                 rowMembers.forEach { member ->
                     Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -765,7 +880,7 @@ fun CategoryCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_large)))
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -778,7 +893,7 @@ fun CategoryCard(
                 }
             )
             .then(
-                if (isDragTarget) Modifier.border(2.dp, colors.primaryText, RoundedCornerShape(12.dp))
+                if (isDragTarget) Modifier.border(2.dp, colors.primaryText, RoundedCornerShape(dimensionResource(R.dimen.radius_large)))
                 else Modifier
             )
             .graphicsLayer {
@@ -790,14 +905,14 @@ fun CategoryCard(
                     translationY = dragOffset.y
                 }
             }
-            .padding(4.dp)
+            .padding(dimensionResource(R.dimen.spacing_tiny))
     ) {
         if (showThumbnail) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
                     .background(colors.surfaceVariant)
             ) {
                 if (data.groupMembers.isNotEmpty()) {
@@ -805,12 +920,12 @@ fun CategoryCard(
                     Surface(
                         color = colors.background.copy(alpha = 0.84f),
                         contentColor = colors.primaryText,
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(dimensionResource(R.dimen.spacing_micro))
                     ) {
                         Text(
                             stringResource(R.string.folder_group_count, data.groupMembers.size),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny), vertical = dimensionResource(R.dimen.spacing_micro)),
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -830,24 +945,24 @@ fun CategoryCard(
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Image, null, tint = colors.primaryText.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
+                        Icon(Icons.Default.Image, null, tint = colors.primaryText.copy(alpha = 0.5f), modifier = Modifier.size(dimensionResource(R.dimen.icon_size_large)))
                     }
                 }
                 if (isSelected) {
                     Box(modifier = Modifier.fillMaxSize().background(colors.accent.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.CheckCircle, null, tint = colors.background, modifier = Modifier.size(40.dp))
+                        Icon(Icons.Default.CheckCircle, null, tint = colors.background, modifier = Modifier.size(dimensionResource(R.dimen.icon_size_extra_large)))
                     }
                 }
                 if (data.indicatorColor != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).size(16.dp).clip(CircleShape).background(data.indicatorColor).border(1.5.dp, colors.background.copy(alpha = 0.8f), CircleShape))
+                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(dimensionResource(R.dimen.spacing_micro)).size(dimensionResource(R.dimen.icon_size_edit)).clip(CircleShape).background(data.indicatorColor).border(1.5.dp, colors.background.copy(alpha = 0.8f), CircleShape))
                 }
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(text = data.title, color = colors.primaryText, fontSize = textSizes.scrollbarLabel, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
-        Text(text = stringResource(R.string.trash_media_item_format, data.count), color = colors.mutedText, fontSize = textSizes.extraSmall, modifier = Modifier.padding(horizontal = 4.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
+        Text(text = data.title, color = colors.primaryText, fontSize = textSizes.scrollbarLabel, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny)))
+        Text(text = stringResource(R.string.trash_media_item_format, data.count), color = colors.mutedText, fontSize = textSizes.extraSmall, modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny)))
         if (data.subTitle != null) {
-            Text(text = data.subTitle, color = colors.accent.copy(alpha = 0.8f), fontSize = textSizes.tiny, modifier = Modifier.padding(horizontal = 4.dp))
+            Text(text = data.subTitle, color = colors.accent.copy(alpha = 0.8f), fontSize = textSizes.tiny, modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny)))
         }
     }
 }

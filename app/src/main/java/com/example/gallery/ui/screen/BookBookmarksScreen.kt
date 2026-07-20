@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.asImageBitmap
 import coil.compose.AsyncImage
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import com.example.gallery.data.repository.BookRepository
@@ -91,9 +92,9 @@ fun BookBookmarksScreen(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_base)),
+                horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
+                verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
             ) {
                 items(bookmarkItems) { item ->
                     BookmarkGridItem(
@@ -119,7 +120,7 @@ data class BookmarkFullItem(
 @Composable
 private fun BookmarkGridItem(
     item: BookmarkFullItem,
-    repository: com.example.gallery.data.repository.BookRepository,
+    repository: BookRepository,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -145,7 +146,7 @@ private fun BookmarkGridItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
                 .background(colors.surfaceVariant)
         ) {
             if (pageBitmap != null) {
@@ -157,7 +158,7 @@ private fun BookmarkGridItem(
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.primaryText.copy(alpha = 0.3f), modifier = Modifier.size(24.dp))
+                    CircularProgressIndicator(color = colors.primaryText.copy(alpha = 0.3f), modifier = Modifier.size(dimensionResource(R.dimen.icon_size_medium)))
                 }
             }
             // しおりアイコン
@@ -165,44 +166,44 @@ private fun BookmarkGridItem(
                 imageVector = Icons.Default.Bookmark,
                 contentDescription = null,
                 tint = colors.accent,
-                modifier = Modifier.padding(4.dp).size(20.dp).align(Alignment.TopEnd)
+                modifier = Modifier.padding(dimensionResource(R.dimen.spacing_tiny)).size(dimensionResource(R.dimen.icon_size_check)).align(Alignment.TopEnd)
             )
             // ページ番号
             Surface(
                 color = colors.background.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(4.dp),
-                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
+                shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
+                modifier = Modifier.align(Alignment.BottomStart).padding(dimensionResource(R.dimen.spacing_tiny))
             ) {
                 Text(
                     text = "P.${item.page + 1}",
                     color = colors.primaryText,
                     fontSize = textSizes.tiny,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny), vertical = dimensionResource(R.dimen.spacing_micro))
                 )
             }
             // 削除ボタン
             IconButton(
                 onClick = { onDelete() },
-                modifier = Modifier.align(Alignment.BottomEnd).size(32.dp).padding(4.dp)
+                modifier = Modifier.align(Alignment.BottomEnd).size(dimensionResource(R.dimen.icon_size_large)).padding(dimensionResource(R.dimen.spacing_tiny))
             ) {
-                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.btn_deselect), tint = colors.primaryText.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.btn_deselect), tint = colors.primaryText.copy(alpha = 0.7f), modifier = Modifier.size(dimensionResource(R.dimen.icon_size_edit)))
             }
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
         Text(
             item.title,
             color = colors.primaryText,
             fontSize = textSizes.extraSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 4.dp)
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny))
         )
         TextButton(
             onClick = onDelete,
             modifier = Modifier.align(Alignment.End)
         ) {
-            Icon(Icons.Default.Delete, contentDescription = null, tint = colors.primaryText.copy(alpha = 0.75f), modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Default.Delete, contentDescription = null, tint = colors.primaryText.copy(alpha = 0.75f), modifier = Modifier.size(dimensionResource(R.dimen.icon_size_deselect)))
+            Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
             Text(stringResource(R.string.btn_deselect), color = colors.primaryText.copy(alpha = 0.85f), fontSize = textSizes.tiny)
         }
     }

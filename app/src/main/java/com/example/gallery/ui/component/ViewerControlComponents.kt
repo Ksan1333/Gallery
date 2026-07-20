@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -16,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import com.example.gallery.ui.AppConstants
+import com.example.gallery.ui.AppRoutes
 import com.example.gallery.ui.theme.GalleryThemeTokens
 
 data class ViewerAction(
@@ -59,6 +62,19 @@ fun resolveViewerActionLabel(name: String): String {
         AppConstants.ACTION_MENU -> stringResource(R.string.label_action_menu)
         AppConstants.ACTION_OVERFLOW -> stringResource(R.string.label_3dot_menu)
         "なし" -> stringResource(R.string.label_action_none)
+        // Navigation Routes
+        AppRoutes.HOME -> stringResource(R.string.nav_home)
+        AppRoutes.FOLDERS -> stringResource(R.string.nav_folders)
+        AppRoutes.VIDEOS -> stringResource(R.string.nav_videos)
+        AppRoutes.BOOKS -> stringResource(R.string.nav_books)
+        AppRoutes.TRASH -> stringResource(R.string.nav_trash)
+        AppRoutes.REFERENCES -> stringResource(R.string.nav_references)
+        AppRoutes.VIDEO_DOWNLOADER -> stringResource(R.string.nav_video_dl)
+        AppRoutes.FAVORITE_ARTISTS -> stringResource(R.string.nav_fav_creators)
+        AppRoutes.FAVORITE_SITES -> stringResource(R.string.nav_fav_sites)
+        AppRoutes.BOOK_BOOKMARKS -> stringResource(R.string.nav_book_bookmarks)
+        AppRoutes.SETTINGS -> stringResource(R.string.nav_settings)
+        AppRoutes.ABOUT -> stringResource(R.string.nav_about)
         else -> name
     }
 }
@@ -82,8 +98,8 @@ fun resolveViewerAction(
     val prevLabel = stringResource(R.string.label_action_prev)
     val nextLabel = stringResource(R.string.label_action_next)
     val favoriteLabel = stringResource(R.string.label_action_favorite)
-    val slideshowLabel = stringResource(R.string.label_action_slideshow)
-    val gifLabel = stringResource(R.string.label_action_gif)
+    stringResource(R.string.label_action_slideshow)
+    stringResource(R.string.label_action_gif)
     val ascii2dLabel = stringResource(R.string.label_action_ascii2d)
     val wallpaperLabel = stringResource(R.string.label_action_wallpaper)
     val thumbLabel = stringResource(R.string.label_action_folder_thumbnail)
@@ -129,6 +145,19 @@ fun resolveViewerAction(
         AppConstants.ACTION_THUMBNAIL -> ViewerAction(name, Icons.Default.FolderSpecial, thumbLabel)
         AppConstants.ACTION_TAG -> ViewerAction(name, Icons.Default.LocalOffer, tagLabel)
         AppConstants.ACTION_OVERFLOW -> ViewerAction(name, Icons.Default.MoreVert, stringResource(R.string.label_3dot_menu))
+        // Navigation Icons
+        AppRoutes.HOME -> ViewerAction(name, Icons.Default.Home, stringResource(R.string.nav_home))
+        AppRoutes.FOLDERS -> ViewerAction(name, Icons.AutoMirrored.Filled.List, stringResource(R.string.nav_folders))
+        AppRoutes.VIDEOS -> ViewerAction(name, Icons.Default.PlayCircle, stringResource(R.string.nav_videos))
+        AppRoutes.BOOKS -> ViewerAction(name, Icons.AutoMirrored.Filled.MenuBook, stringResource(R.string.nav_books))
+        AppRoutes.TRASH -> ViewerAction(name, Icons.Default.Delete, stringResource(R.string.nav_trash))
+        AppRoutes.REFERENCES -> ViewerAction(name, Icons.Default.Brush, stringResource(R.string.nav_references))
+        AppRoutes.VIDEO_DOWNLOADER -> ViewerAction(name, Icons.Default.Download, stringResource(R.string.nav_video_dl))
+        AppRoutes.FAVORITE_ARTISTS -> ViewerAction(name, Icons.Default.Star, stringResource(R.string.nav_fav_creators))
+        AppRoutes.FAVORITE_SITES -> ViewerAction(name, Icons.Default.Language, stringResource(R.string.nav_fav_sites))
+        AppRoutes.BOOK_BOOKMARKS -> ViewerAction(name, Icons.Default.Bookmark, stringResource(R.string.nav_book_bookmarks))
+        AppRoutes.SETTINGS -> ViewerAction(name, Icons.Default.Settings, stringResource(R.string.nav_settings))
+        AppRoutes.ABOUT -> ViewerAction(name, Icons.Default.Info, stringResource(R.string.nav_about))
         else -> null
     }
 }

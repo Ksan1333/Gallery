@@ -1,5 +1,6 @@
 package com.example.gallery.ui.screen
 
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
@@ -18,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.util.FolderGroupStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -28,17 +31,29 @@ fun FolderPickerScreen(
     onFolderSelected: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val colors = GalleryThemeTokens.colors
     val textSizes = GalleryThemeTokens.textSizes
     val scope = rememberCoroutineScope()
-    var folderData by remember { mutableStateOf<List<CategoryData>>(emptyList()) }
+
+    val globalPrefs = remember(context) { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
+    val folderGroups = remember(globalPrefs) { FolderGroupStore.load(globalPrefs) }
+    val folderOrders by galleryState.repository.getAllFolderOrders().collectAsState(initial = emptyList())
+    val orderMap = remember(folderOrders) { folderOrders.associate { it.id to it.position } }
+
+    var baseCategories by remember { mutableStateOf<List<CategoryData>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
 
+    val displayedCategories = remember(baseCategories, folderGroups, orderMap) {
+        val sorted = baseCategories.sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.title }))
+        buildFolderGroupCategories(sorted, folderGroups)
+    }
+
     fun loadFolders() {
         scope.launch(Dispatchers.IO) {
-            isLoading = true
+            withContext(Dispatchers.Main) { isLoading = true }
             val allMedia = galleryState.repository.getAllMedia()
             val categories = allMedia.groupBy { it.folderName }
                 .map { (name, images) ->
@@ -48,10 +63,10 @@ fun FolderPickerScreen(
                         count = images.size,
                         thumbnail = images.firstOrNull()?.uri
                     )
-                }.sortedBy { it.title }
+                }
 
             withContext(Dispatchers.Main) {
-                folderData = categories
+                baseCategories = categories
                 isLoading = false
             }
         }
@@ -86,7 +101,7 @@ fun FolderPickerScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(folderData, key = { it.id }) { category ->
+                    items(displayedCategories, key = { it.id }) { category ->
                         CategoryCard(data = category, onClick = { onFolderSelected(category.id) })
                     }
                 }

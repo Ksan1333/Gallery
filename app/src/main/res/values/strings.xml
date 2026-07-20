@@ -66,6 +66,7 @@
     <string name="settings_video_auto_play">自動再生</string>
     <string name="settings_video_loop">ループ再生</string>
     <string name="settings_video_default_mute">デフォルトでミュート</string>
+    <string name="settings_video_direct_viewer">直接ビュワーを開く</string>
     <string name="settings_video_seek_interval">スキップ秒数</string>
     <string name="settings_video_resize_mode">画面への合わせ方</string>
     <string name="settings_show_date_headers">日付の見出しを表示</string>
@@ -422,7 +423,11 @@
     <string name="settings_transition_effect">ページ遷移の効果</string>
     <string name="settings_screen_allocation">スクリーン割り当て</string>
     <string name="settings_read_mark">既読マーク</string>
+    <string name="settings_seek_anchors">シークアンカー（記憶点）</string>
+    <string name="desc_seek_anchors">シーク開始位置にボタンを表示し、簡単に戻れるようにします。磁石のように近くでスナップします。</string>
+    <string name="settings_max_seek_anchors">アンカー記憶数</string>
     <string name="settings_show_clock_battery">時計とバッテリー残量を表示</string>
+    <string name="settings_home_show_videos">ホームに動画を表示</string>
     <string name="settings_text_size">文字サイズ</string>
     <string name="settings_text_size_desc">アプリ全体の文字サイズをまとめて調整します。</string>
     <string name="settings_current_value">現在: %1$d%%</string>
@@ -633,6 +638,8 @@
     <string name="label_volume">音量</string>
     <string name="label_brightness">明るさ</string>
     <string name="label_current_adjustment_format">現在の%1$s: %2$d%%</string>
+    <string name="label_match_and">AND</string>
+    <string name="label_match_or">OR</string>
 
     <string name="label_action_play_pause">再生/停止</string>
     <string name="label_action_previous_video">前へ</string>
@@ -653,7 +660,6 @@
     <string name="label_action_zoom">ズーム</string>
     <string name="label_action_search">検索</string>
     <string name="label_action_save">保存</string>
-    <string name="label_action_none">なし</string>
 
     <string name="label_action_prev_page">前ページ</string>
     <string name="label_action_next_page">次ページ</string>
@@ -724,6 +730,7 @@
     <string name="tutorial_to_watch">見るチュートリアル</string>
     <string name="trash_permanently_delete">完全に削除</string>
     <string name="trash_move_to">ゴミ箱へ</string>
+    <string name="label_trash_suffix"> (ゴミ箱)</string>
 
     <!-- Search Screen -->
     <string name="search_title">検索</string>
@@ -771,9 +778,10 @@
     <string name="desc_smoothing">画像の拡大・縮小時の補完品質を設定します。\n・最近傍法: 最速。輪郭はカクつきやすいです。\n・平均画素法: 縮小時のちらつきを抑えます。\n・バイリニア補間: 軽く自然な標準設定です。\n・バイキュービック補間: やや重い分、線が滑らかです。\n・Lanczos3: 細部を残しやすい高品質設定です。</string>
     <string name="desc_fullscreen">ステータスバーやナビゲーションバーの表示設定です</string>
     <string name="desc_orientation">画面の向きを固定、または自動回転に設定します</string>
+    <string name="desc_home_show_videos">ホームギャラリー（すべて）の画面に動画ファイルを含めるかどうかを設定します。</string>
     <string name="desc_show_clock_battery">ビュワー表示中に時計とバッテリー残量を表示します</string>
     <string name="desc_show_date_headers">一覧画面で日付ごとのセクション見出しを表示します</string>
-    <string name="desc_similar_image_grouping">日時順で隣接し、AIベクトルが60%以上一致する画像をまとめて表示します</string>
+    <string name="desc_similar_image_grouping">日時順で隣接し、AIベクトルが一定率以上一致する画像をまとめて表示します</string>
     <string name="desc_menu_opacity">操作パネルの背景の不透明度を設定します</string>
     <string name="desc_transition_speed">画面切り替え時のアニメーション速度です</string>
     <string name="desc_slideshow_interval">スライドショーで次の画像に切り替わるまでの時間です</string>
@@ -786,6 +794,7 @@
     <string name="desc_show_hidden_files">ドット(.)で始まる隠しファイルやフォルダを表示します</string>
     <string name="desc_control_panel_hide">操作パネルを自動で隠すまでの時間です</string>
     <string name="desc_selection_long_press">グリッドで長押し選択に入るまでの時間です</string>
+    <string name="desc_video_direct_viewer">動画を選択した際にプレビューを表示せず、直接全画面ビュワーを起動します。</string>
     <string name="settings_search_history_limit">検索履歴の保存件数</string>
     <string name="desc_search_history_limit">検索画面に表示する過去の検索条件の件数です</string>
     <string name="desc_magnifier_scale">拡大鏡のズーム倍率を設定します</string>
@@ -811,6 +820,8 @@
     <string name="desc_touch_indicator">タップした位置に波紋を表示します</string>
     <string name="desc_touch_assignment">画面の各エリアをタップした時の動作を設定します。長押しで項目を掴んで移動してください。</string>
     <string name="desc_bottom_bar_assignment">ビュワー下部のボトムバーに表示するボタンだけを配置します。</string>
+    <string name="settings_section_cache">キャッシュ</string>
+    <string name="desc_clear_cache">アプリ専用の一時保存領域（サムネイル、動画バッファ、作業用一時ファイル）を削除します。\n※ライブラリ（タグ・AI解析結果）や設定、元の写真・動画ファイルは削除されません。</string>
 
     <string name="label_selection_long_press">長押し選択の間隔</string>
     <string name="label_seek_interval">送り秒数</string>
@@ -847,6 +858,30 @@
     <string name="label_action_bookmark">しおり</string>
     <string name="label_action_prev">前へ</string>
     <string name="label_action_next">次へ</string>
+    <string name="label_action_none">なし</string>
+
+    <!-- Tap Zone Labels -->
+    <string name="tap_zone_top_start">左上</string>
+    <string name="tap_zone_top_center">上</string>
+    <string name="tap_zone_top_end">右上</string>
+    <string name="tap_zone_left_upper">左上側</string>
+    <string name="tap_zone_left_lower">左下側</string>
+    <string name="tap_zone_left">左</string>
+    <string name="tap_zone_center">中央</string>
+    <string name="tap_zone_right">右</string>
+    <string name="tap_zone_right_upper">右上側</string>
+    <string name="tap_zone_right_lower">右下側</string>
+    <string name="tap_zone_bottom_start">左下</string>
+    <string name="tap_zone_bottom_center">下</string>
+    <string name="tap_zone_bottom_end">右下</string>
+    <string name="tap_zone_top">上</string>
+    <string name="tap_zone_bottom">下</string>
+
+    <string name="label_slot_bottom_left">ボトム左</string>
+    <string name="label_slot_bottom_center_left">ボトム中央左</string>
+    <string name="label_slot_bottom_center">ボトム中央</string>
+    <string name="label_slot_bottom_center_right">ボトム中央右</string>
+    <string name="label_slot_bottom_right">ボトム右</string>
 
     <string name="label_slot_top_start">左上</string>
     <string name="label_slot_top_center">上</string>
@@ -859,7 +894,7 @@
     <string name="label_slot_right_upper">右上側</string>
     <string name="label_slot_right_lower">右下側</string>
     <string name="label_slot_bottom_start">左下</string>
-    <string name="label_slot_bottom_center">下</string>
+    <string name="label_slot_bottom_inner_center">下</string>
     <string name="label_slot_bottom_end">右下</string>
     <string name="label_slot_top">上</string>
     <string name="label_slot_bottom">下</string>

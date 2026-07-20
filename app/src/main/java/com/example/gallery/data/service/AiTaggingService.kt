@@ -236,8 +236,7 @@ class AiTaggingService(
             output?.close()
             when (result) {
                 is Array<*> -> {
-                    val first = result.firstOrNull()
-                    when (first) {
+                    when (val first = result.firstOrNull()) {
                         is FloatArray -> first
                         is Array<*> -> first.firstOrNull() as? FloatArray ?: FloatArray(0)
                         else -> FloatArray(0)

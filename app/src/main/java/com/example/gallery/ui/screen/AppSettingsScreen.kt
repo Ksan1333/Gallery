@@ -11,14 +11,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -67,8 +66,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -104,6 +103,7 @@ import com.example.gallery.R
 import com.example.gallery.data.local.PreferenceManager
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.AppDefaults
+import com.example.gallery.ui.AppRoutes
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.component.resolveViewerActionLabel
 import com.example.gallery.ui.component.tapZoneCountForLayout
@@ -112,6 +112,12 @@ import com.example.gallery.ui.theme.GalleryColorTokens
 import com.example.gallery.ui.theme.GalleryColors
 import com.example.gallery.ui.theme.GalleryThemeMode
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.GalleryThemePresets
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
+import com.example.gallery.ui.theme.GalleryPaletteSwatches
+import com.example.gallery.ui.theme.galleryTypography
 import com.example.gallery.util.GalleryBackupManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -130,7 +136,7 @@ private const val CUSTOM_PALETTE_ENABLED_PREF = "custom_palette_enabled"
 private const val CUSTOM_PALETTE_PREFIX = "custom_palette_"
 private const val THEME_PRESET_PREF = "themePreset"
 
-enum class SettingsPage { MENU, GLOBAL, THEME, MEDIA_VIEWER, BOOK_VIEWER, VIDEO_VIEWER }
+enum class SettingsPage { MENU, GLOBAL, THEME, MEDIA_VIEWER, VIDEO_VIEWER, BOOK_VIEWER }
 
 @Composable
 fun AppSettingsScreen(
@@ -150,6 +156,12 @@ fun AppSettingsScreen(
     var resetToken by remember { mutableIntStateOf(0) }
     var pendingResetPage by remember { mutableStateOf<SettingsPage?>(null) }
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+
+    // Reset scroll when page changes
+    LaunchedEffect(currentPage, resetToken) {
+        listState.scrollToItem(0)
+    }
 
     val window = (context as? Activity)?.window
     val insetsController = remember(window) {
@@ -183,8 +195,8 @@ fun AppSettingsScreen(
         SettingsPage.GLOBAL -> stringResource(R.string.settings_global)
         SettingsPage.THEME -> stringResource(R.string.settings_theme)
         SettingsPage.MEDIA_VIEWER -> stringResource(R.string.settings_media_viewer)
-        SettingsPage.BOOK_VIEWER -> stringResource(R.string.settings_book_viewer)
         SettingsPage.VIDEO_VIEWER -> stringResource(R.string.settings_video_viewer)
+        SettingsPage.BOOK_VIEWER -> stringResource(R.string.settings_book_viewer)
     }
 
     fun handleBack() {
@@ -268,43 +280,55 @@ fun AppSettingsScreen(
         containerColor = colors.background
     ) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(colors.background)
                 .padding(padding)
                 .padding(horizontal = dimensionResource(R.dimen.spacing_medium)),
-            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
+            contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            item {
-                key(currentPage, resetToken) {
-                    when (currentPage) {
-                        SettingsPage.MENU -> SettingsMenu(
-                            resetKey = resetToken,
+            when (currentPage) {
+                SettingsPage.MENU -> {
+                    item {
+                        SettingsMenu(
                             onGlobalClick = { currentPage = SettingsPage.GLOBAL },
                             onThemeClick = { currentPage = SettingsPage.THEME },
                             onMediaViewerClick = { currentPage = SettingsPage.MEDIA_VIEWER },
                             onBookViewerClick = { currentPage = SettingsPage.BOOK_VIEWER },
-                            onVideoViewerClick = { currentPage = SettingsPage.VIDEO_VIEWER },
-                            onImported = {
-                                applyRuntimeSettings(context, onThemeModeChange, onCustomPaletteChange, onTextScaleChange)
-                                resetToken++
-                            }
+                            onVideoViewerClick = { currentPage = SettingsPage.VIDEO_VIEWER }
                         )
-
-                        SettingsPage.GLOBAL -> GlobalSettingsSection()
-                        SettingsPage.THEME -> ThemeSettingsSection(
-                            themeMode = themeMode,
-                            customPalette = customPalette,
-                            textScale = textScale,
-                            onThemeModeChange = onThemeModeChange,
-                            onCustomPaletteChange = onCustomPaletteChange,
-                            onTextScaleChange = onTextScaleChange
-                        )
-
-                        SettingsPage.MEDIA_VIEWER -> MediaViewerSettingsSection()
-                        SettingsPage.BOOK_VIEWER -> BookViewerSettingsSection()
-                        SettingsPage.VIDEO_VIEWER -> VideoViewerSettingsSection()
                     }
+                }
+
+                SettingsPage.GLOBAL -> {
+                    globalSettingsItems(scope, listState)
+                }
+
+                SettingsPage.THEME -> {
+                    themeSettingsItems(
+                        themeMode = themeMode,
+                        customPalette = customPalette,
+                        textScale = textScale,
+                        onThemeModeChange = onThemeModeChange,
+                        onCustomPaletteChange = onCustomPaletteChange,
+                        onTextScaleChange = onTextScaleChange,
+                        scope = scope,
+                        listState = listState
+                    )
+                }
+
+                SettingsPage.MEDIA_VIEWER -> {
+                    mediaViewerSettingsItems(context, scope, listState)
+                }
+
+                SettingsPage.VIDEO_VIEWER -> {
+                    videoViewerSettingsItems(context, scope, listState)
+                }
+
+                SettingsPage.BOOK_VIEWER -> {
+                    bookViewerSettingsItems(context, scope, listState)
                 }
             }
         }
@@ -337,13 +361,11 @@ fun AppSettingsScreen(
 
 @Composable
 private fun SettingsMenu(
-    resetKey: Int,
     onGlobalClick: () -> Unit,
     onThemeClick: () -> Unit,
     onMediaViewerClick: () -> Unit,
-    onBookViewerClick: () -> Unit,
     onVideoViewerClick: () -> Unit,
-    onImported: () -> Unit
+    onBookViewerClick: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
         SettingsMenuItem(
@@ -365,16 +387,16 @@ private fun SettingsMenu(
             onClick = onMediaViewerClick
         )
         SettingsMenuItem(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
-            title = stringResource(R.string.settings_book_viewer),
-            description = stringResource(R.string.settings_book_viewer_desc),
-            onClick = onBookViewerClick
-        )
-        SettingsMenuItem(
             icon = Icons.Default.PlayArrow,
             title = stringResource(R.string.settings_video_viewer),
             description = stringResource(R.string.settings_video_viewer_desc),
             onClick = onVideoViewerClick
+        )
+        SettingsMenuItem(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = stringResource(R.string.settings_book_viewer),
+            description = stringResource(R.string.settings_book_viewer_desc),
+            onClick = onBookViewerClick
         )
     }
 }
@@ -382,6 +404,7 @@ private fun SettingsMenu(
 @Composable
 private fun SettingsMenuItem(icon: ImageVector, title: String, description: String, onClick: () -> Unit) {
     val colors = GalleryThemeTokens.colors
+    GalleryThemeTokens.textSizes
     Surface(
         color = colors.card,
         shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium)),
@@ -391,16 +414,16 @@ private fun SettingsMenuItem(icon: ImageVector, title: String, description: Stri
             .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = dimensionResource(R.dimen.spacing_base)),
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_settings_horizontal), vertical = dimensionResource(R.dimen.spacing_base)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
         ) {
             Icon(icon, contentDescription = null, tint = colors.accent, modifier = Modifier.size(dimensionResource(R.dimen.icon_size_settings_menu)))
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = colors.primaryText, fontWeight = FontWeight.Bold)
-                Text(description, color = colors.secondaryText, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_micro))) {
+                Text(title, style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.primaryText)
+                Text(description, style = galleryTypography.body, color = colors.secondaryText, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Text(stringResource(R.string.btn_open), color = colors.accent)
+            Text(stringResource(R.string.btn_open), style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.accent)
         }
     }
 }
@@ -442,66 +465,79 @@ private fun resetSettingsPage(
 }
 
 @Composable
-private fun GlobalSettingsSection() {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
-    var smoothing by remember { mutableStateOf(prefs.getString("smoothing", "BILINEAR") ?: "BILINEAR") }
-    var fullscreenMode by remember { mutableStateOf(prefs.getString("fullscreenMode", "DISABLED") ?: "DISABLED") }
-    var orientation by remember { mutableStateOf(prefs.getString("orientation", "AUTO") ?: "AUTO") }
-    var startupScreen by remember { mutableStateOf(prefs.getString("startupScreen", "home") ?: "home") }
-    var transitionSpeed by remember { mutableIntStateOf(prefs.getInt("transitionSpeedMs", 250)) }
-    var slideshowInterval by remember { mutableIntStateOf(prefs.getInt("slideshowIntervalMs", 5000)) }
-    var slideshowSpeed by remember { mutableIntStateOf(prefs.getInt("slideshowSpeedMs", 250)) }
-    var controlPanelAutoHideMs by remember { mutableIntStateOf(prefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS)) }
-    var selectionLongPressMs by remember { mutableIntStateOf(prefs.getInt("selectionLongPressMs", AppDefaults.SELECTION_LONG_PRESS_MS)) }
-    var searchHistoryLimit by remember { mutableIntStateOf(prefs.getInt("searchHistoryLimit", 5).coerceIn(1, 10)) }
-    var menuOpacity by remember { mutableIntStateOf(prefs.getInt("menuOpacityPercent", 0)) }
-    var magnifierScale by remember { mutableIntStateOf(prefs.getInt("magnifierScalePercent", 200)) }
-    var longPressMagnifier by remember { mutableStateOf(prefs.getBoolean("longPressMagnifier", false)) }
-    var doubleTapFastZoom by remember { mutableStateOf(prefs.getBoolean("doubleTapFastZoom", true)) }
-    var showClockBattery by remember { mutableStateOf(prefs.getBoolean("showClockBattery", false)) }
-    var showDateHeaders by remember { mutableStateOf(prefs.getBoolean("showDateHeaders", true)) }
-    var similarImageGrouping by remember {
-        mutableStateOf(prefs.getBoolean(PreferenceManager.SIMILAR_IMAGE_GROUPING, true))
+private fun SettingsTOC(
+    sections: List<Pair<String, Int>>,
+    scope: kotlinx.coroutines.CoroutineScope,
+    listState: androidx.compose.foundation.lazy.LazyListState
+) {
+    val colors = GalleryThemeTokens.colors
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(sections) { (label, index) ->
+            SuggestionChip(
+                onClick = {
+                    scope.launch {
+                        listState.animateScrollToItem(index)
+                    }
+                },
+                label = { Text(label, style = galleryTypography.label) },
+                colors = SuggestionChipDefaults.suggestionChipColors(
+                    containerColor = colors.accentSoft.copy(alpha = 0.5f),
+                    labelColor = colors.accent
+                ),
+                border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.5f))
+            )
+        }
     }
-    var confirmDelete by remember { mutableStateOf(prefs.getBoolean("confirmDelete", true)) }
-    var showHiddenFiles by remember { mutableStateOf(prefs.getBoolean("showHiddenFiles", false)) }
-    var randomPlayback by remember { mutableStateOf(prefs.getBoolean("randomPlayback", false)) }
-    var continuousPlayback by remember { mutableStateOf(prefs.getBoolean("continuousPlayback", true)) }
-    var defaultAgeFilter by remember { mutableStateOf(prefs.getString("defaultAgeFilter", AppConstants.RATING_SFW) ?: AppConstants.RATING_SFW) }
-    var startupPasswordEnabled by remember { mutableStateOf(prefs.getBoolean("startupPasswordEnabled", false)) }
-    var password by remember { mutableStateOf(prefs.getString("startupPassword", "") ?: "") }
-    var lowMemoryMode by remember { mutableStateOf(prefs.getBoolean("lowMemoryMode", false)) }
-    var progressDisplayMode by remember { mutableStateOf(prefs.getString("progressDisplayMode", "MAX") ?: "MAX") }
-    var progressMiniStyle by remember { mutableStateOf(prefs.getString("progressMiniStyle", "BAR") ?: "BAR") }
-    var aiAnalysisSpeedMode by remember {
-        mutableStateOf(
-            prefs.getString(
-                AppDefaults.AI_ANALYSIS_SPEED_MODE_KEY,
-                AppDefaults.AI_ANALYSIS_SPEED_BALANCED
-            ) ?: AppDefaults.AI_ANALYSIS_SPEED_BALANCED
-        )
-    }
-    var aiTaggerModel by remember {
-        mutableStateOf(
-            prefs.getString(
-                AppDefaults.AI_TAGGER_MODEL_KEY,
-                AppDefaults.AI_TAGGER_MODEL_NORMAL
-            ) ?: AppDefaults.AI_TAGGER_MODEL_NORMAL
-        )
-    }
+}
 
-    fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
-    fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
-    fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+private fun androidx.compose.foundation.lazy.LazyListScope.globalSettingsItems(
+    scope: kotlinx.coroutines.CoroutineScope,
+    listState: androidx.compose.foundation.lazy.LazyListState
+) {
+    item {
+        val sections = listOf(
+            stringResource(R.string.settings_section_viewer_display) to 0,
+            stringResource(R.string.settings_section_playback) to 1,
+            stringResource(R.string.settings_section_operation) to 2,
+            stringResource(R.string.settings_section_progress) to 3,
+            stringResource(R.string.settings_section_launch_protection) to 4,
+            stringResource(R.string.label_bottom_bar_assignment) to 5,
+            stringResource(R.string.settings_section_cache) to 6
+        )
+        SettingsTOC(sections, scope, listState)
+        Spacer(Modifier.height(8.dp))
 
-    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+        var smoothing by remember { mutableStateOf(prefs.getString("smoothing", "BILINEAR") ?: "BILINEAR") }
+        var fullscreenMode by remember { mutableStateOf(prefs.getString("fullscreenMode", "DISABLED") ?: "DISABLED") }
+        var orientation by remember { mutableStateOf(prefs.getString("orientation", "AUTO") ?: "AUTO") }
+        var showClockBattery by remember { mutableStateOf(prefs.getBoolean("showClockBattery", false)) }
+        var homeShowVideos by remember { mutableStateOf(prefs.getBoolean("homeShowVideos", false)) }
+        var showDateHeaders by remember { mutableStateOf(prefs.getBoolean("showDateHeaders", true)) }
+        var similarImageGrouping by remember {
+            mutableStateOf(prefs.getBoolean(PreferenceManager.SIMILAR_IMAGE_GROUPING, true))
+        }
+        var similarImageThreshold by remember {
+            mutableIntStateOf(prefs.getInt(PreferenceManager.SIMILAR_IMAGE_THRESHOLD, 60))
+        }
+        var menuOpacity by remember { mutableIntStateOf(prefs.getInt("menuOpacityPercent", 0)) }
+
+        fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+        fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+
         SettingsSectionCard(stringResource(R.string.settings_section_viewer_display), stringResource(R.string.settings_section_viewer_display_desc)) {
             SettingsChoiceRow(stringResource(R.string.settings_smoothing), smoothingOptions, smoothing, description = stringResource(R.string.desc_smoothing)) { smoothing = it; saveString("smoothing", it) }
             SettingsChoiceRow(stringResource(R.string.settings_fullscreen), fullscreenOptions, fullscreenMode, description = stringResource(R.string.desc_fullscreen)) { fullscreenMode = it; saveString("fullscreenMode", it) }
             SettingsChoiceRow(stringResource(R.string.settings_orientation), orientationOptions, orientation, description = stringResource(R.string.desc_orientation)) { orientation = it; saveString("orientation", it) }
             SwitchSetting(stringResource(R.string.settings_show_clock_battery), showClockBattery, description = stringResource(R.string.desc_show_clock_battery)) { showClockBattery = it; saveBoolean("showClockBattery", it) }
             SwitchSetting(stringResource(R.string.settings_show_date_headers), showDateHeaders, description = stringResource(R.string.desc_show_date_headers)) { showDateHeaders = it; saveBoolean("showDateHeaders", it) }
+            SwitchSetting(stringResource(R.string.settings_home_show_videos), homeShowVideos, description = stringResource(R.string.desc_home_show_videos)) { homeShowVideos = it; saveBoolean("homeShowVideos", it) }
             SwitchSetting(
                 stringResource(R.string.settings_similar_image_grouping),
                 similarImageGrouping,
@@ -510,8 +546,34 @@ private fun GlobalSettingsSection() {
                 similarImageGrouping = it
                 saveBoolean(PreferenceManager.SIMILAR_IMAGE_GROUPING, it)
             }
+            if (similarImageGrouping) {
+                SliderSetting(
+                    stringResource(R.string.settings_similar_image_grouping) + " (%)",
+                    similarImageThreshold,
+                    1f..100f,
+                    98,
+                    stringResource(R.string.unit_percent),
+                    description = stringResource(R.string.desc_similar_image_grouping)
+                ) {
+                    similarImageThreshold = it
+                    saveInt(PreferenceManager.SIMILAR_IMAGE_THRESHOLD, it)
+                }
+            }
             SliderSetting(stringResource(R.string.settings_menu_opacity), menuOpacity, 0f..100f, 9, stringResource(R.string.unit_percent), description = stringResource(R.string.desc_menu_opacity)) { menuOpacity = it; saveInt("menuOpacityPercent", it) }
         }
+    }
+
+    item {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+        var transitionSpeed by remember { mutableIntStateOf(prefs.getInt("transitionSpeedMs", 250)) }
+        var slideshowInterval by remember { mutableIntStateOf(prefs.getInt("slideshowIntervalMs", 5000)) }
+        var slideshowSpeed by remember { mutableIntStateOf(prefs.getInt("slideshowSpeedMs", 250)) }
+        var randomPlayback by remember { mutableStateOf(prefs.getBoolean("randomPlayback", false)) }
+        var continuousPlayback by remember { mutableStateOf(prefs.getBoolean("continuousPlayback", true)) }
+        fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+
         SettingsSectionCard(stringResource(R.string.settings_section_playback), stringResource(R.string.settings_section_playback_desc)) {
             SliderSetting(stringResource(R.string.settings_transition_speed), transitionSpeed, 0f..2000f, 19, stringResource(R.string.unit_ms), description = stringResource(R.string.desc_transition_speed)) { transitionSpeed = it; saveInt("transitionSpeedMs", it) }
             SliderSetting(stringResource(R.string.settings_slideshow_interval), slideshowInterval, 1000f..30000f, 28, stringResource(R.string.unit_ms), description = stringResource(R.string.desc_slideshow_interval)) { slideshowInterval = it; saveInt("slideshowIntervalMs", it) }
@@ -519,6 +581,23 @@ private fun GlobalSettingsSection() {
             SwitchSetting(stringResource(R.string.settings_random_playback), randomPlayback, description = stringResource(R.string.desc_random_playback)) { randomPlayback = it; saveBoolean("randomPlayback", it) }
             SwitchSetting(stringResource(R.string.settings_continuous_playback), continuousPlayback, description = stringResource(R.string.desc_continuous_playback)) { continuousPlayback = it; saveBoolean("continuousPlayback", it) }
         }
+    }
+
+    item {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+        var magnifierScale by remember { mutableIntStateOf(prefs.getInt("magnifierScalePercent", 200)) }
+        var longPressMagnifier by remember { mutableStateOf(prefs.getBoolean("longPressMagnifier", false)) }
+        var doubleTapFastZoom by remember { mutableStateOf(prefs.getBoolean("doubleTapFastZoom", true)) }
+        var confirmDelete by remember { mutableStateOf(prefs.getBoolean("confirmDelete", true)) }
+        var showHiddenFiles by remember { mutableStateOf(prefs.getBoolean("showHiddenFiles", false)) }
+        var controlPanelAutoHideMs by remember { mutableIntStateOf(prefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS)) }
+        var selectionLongPressMs by remember { mutableIntStateOf(prefs.getInt("selectionLongPressMs", AppDefaults.SELECTION_LONG_PRESS_MS)) }
+        var searchHistoryLimit by remember { mutableIntStateOf(prefs.getInt("searchHistoryLimit", 5).coerceIn(1, 10)) }
+
+        fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+
         SettingsSectionCard(stringResource(R.string.settings_section_operation), stringResource(R.string.settings_section_operation_desc)) {
             SwitchSetting(stringResource(R.string.settings_long_press_magnifier), longPressMagnifier, description = stringResource(R.string.desc_long_press_magnifier)) { longPressMagnifier = it; saveBoolean("longPressMagnifier", it) }
             SwitchSetting(stringResource(R.string.settings_double_tap_zoom), doubleTapFastZoom, description = stringResource(R.string.desc_double_tap_zoom)) { doubleTapFastZoom = it; saveBoolean("doubleTapFastZoom", it) }
@@ -529,6 +608,33 @@ private fun GlobalSettingsSection() {
             SliderSetting(stringResource(R.string.settings_search_history_limit), searchHistoryLimit, 1f..10f, 9, stringResource(R.string.unit_count), description = stringResource(R.string.desc_search_history_limit)) { searchHistoryLimit = it; saveInt("searchHistoryLimit", it.coerceIn(1, 10)) }
             SliderSetting(stringResource(R.string.settings_magnifier_scale), magnifierScale, 100f..300f, 19, stringResource(R.string.unit_percent), description = stringResource(R.string.desc_magnifier_scale)) { magnifierScale = it; saveInt("magnifierScalePercent", it) }
         }
+    }
+
+    item {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+        var progressDisplayMode by remember { mutableStateOf(prefs.getString("progressDisplayMode", "MAX") ?: "MAX") }
+        var progressMiniStyle by remember { mutableStateOf(prefs.getString("progressMiniStyle", "BAR") ?: "BAR") }
+        var defaultAgeFilter by remember { mutableStateOf(prefs.getString("defaultAgeFilter", AppConstants.RATING_SFW) ?: AppConstants.RATING_SFW) }
+        var aiAnalysisSpeedMode by remember {
+            mutableStateOf(
+                prefs.getString(
+                    AppDefaults.AI_ANALYSIS_SPEED_MODE_KEY,
+                    AppDefaults.AI_ANALYSIS_SPEED_BALANCED
+                ) ?: AppDefaults.AI_ANALYSIS_SPEED_BALANCED
+            )
+        }
+        var aiTaggerModel by remember {
+            mutableStateOf(
+                prefs.getString(
+                    AppDefaults.AI_TAGGER_MODEL_KEY,
+                    AppDefaults.AI_TAGGER_MODEL_NORMAL
+                ) ?: AppDefaults.AI_TAGGER_MODEL_NORMAL
+            )
+        }
+
+        fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+
         SettingsSectionCard(stringResource(R.string.settings_section_progress), stringResource(R.string.settings_section_progress_desc)) {
             SettingsChoiceRow(stringResource(R.string.settings_ai_analysis_speed), aiAnalysisSpeedOptions, aiAnalysisSpeedMode, description = stringResource(R.string.settings_ai_analysis_speed_desc)) { aiAnalysisSpeedMode = it; saveString(AppDefaults.AI_ANALYSIS_SPEED_MODE_KEY, it) }
             SettingsChoiceRow(stringResource(R.string.settings_ai_tagger_model), aiTaggerModelOptions, aiTaggerModel, description = stringResource(R.string.settings_ai_tagger_model_desc)) { aiTaggerModel = it; saveString(AppDefaults.AI_TAGGER_MODEL_KEY, it) }
@@ -536,6 +642,20 @@ private fun GlobalSettingsSection() {
             SettingsChoiceRow(stringResource(R.string.settings_mini_progress_style), progressMiniStyleOptions, progressMiniStyle, description = stringResource(R.string.desc_mini_progress_style)) { progressMiniStyle = it; saveString("progressMiniStyle", it) }
             SettingsChoiceRow(stringResource(R.string.settings_default_age_filter), ageFilterOptions, defaultAgeFilter, description = stringResource(R.string.desc_default_age_filter)) { defaultAgeFilter = it; saveString("defaultAgeFilter", it) }
         }
+    }
+
+    item {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+        var startupScreen by remember { mutableStateOf(prefs.getString("startupScreen", "home") ?: "home") }
+        var startupPasswordEnabled by remember { mutableStateOf(prefs.getBoolean("startupPasswordEnabled", false)) }
+        var password by remember { mutableStateOf(prefs.getString("startupPassword", "") ?: "") }
+        var lowMemoryMode by remember { mutableStateOf(prefs.getBoolean("lowMemoryMode", false)) }
+
+        fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+        fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+
         SettingsSectionCard(stringResource(R.string.settings_section_launch_protection), stringResource(R.string.settings_section_launch_protection_desc)) {
             SettingsChoiceRow(stringResource(R.string.settings_startup_screen), startupScreenOptions, startupScreen, columns = 1, description = stringResource(R.string.desc_startup_screen)) { startupScreen = it; saveString("startupScreen", it) }
             SwitchSetting(stringResource(R.string.auth_startup_password), startupPasswordEnabled, description = stringResource(R.string.desc_startup_password)) { startupPasswordEnabled = it; saveBoolean("startupPasswordEnabled", it) }
@@ -552,6 +672,52 @@ private fun GlobalSettingsSection() {
                 modifier = Modifier.fillMaxWidth()
             )
             SwitchSetting(stringResource(R.string.settings_low_memory_mode), lowMemoryMode, description = stringResource(R.string.desc_low_memory_mode)) { lowMemoryMode = it; saveBoolean("lowMemoryMode", it) }
+        }
+    }
+
+    item {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+
+        val navBarSlots = listOf(
+            AppConstants.SLOT_BOTTOM_LEFT,
+            AppConstants.SLOT_BOTTOM_CENTER_LEFT,
+            AppConstants.SLOT_BOTTOM_CENTER,
+            AppConstants.SLOT_BOTTOM_CENTER_RIGHT,
+            AppConstants.SLOT_BOTTOM_RIGHT
+        )
+        val navBarFunctions = listOf(
+            AppRoutes.HOME,
+            AppRoutes.FOLDERS,
+            AppRoutes.VIDEOS,
+            AppRoutes.BOOKS,
+            AppRoutes.TRASH,
+            AppRoutes.REFERENCES,
+            AppRoutes.VIDEO_DOWNLOADER,
+            AppRoutes.FAVORITE_ARTISTS,
+            AppRoutes.FAVORITE_SITES,
+            AppRoutes.BOOK_BOOKMARKS,
+            AppRoutes.SETTINGS,
+            AppRoutes.ABOUT,
+            AppConstants.ACTION_OVERFLOW
+        )
+
+        AssignmentEditor(
+            title = stringResource(R.string.label_bottom_bar_assignment),
+            prefs = prefs,
+            keyPrefix = "nav_bar",
+            slots = navBarSlots,
+            functions = navBarFunctions,
+            duplicateAllowed = false,
+            layoutType = AssignmentLayoutType.BAR,
+            defaultAssignments = defaultBarAssignmentsFor("nav", false, navBarSlots),
+            description = stringResource(R.string.desc_bottom_bar_assignment)
+        )
+    }
+
+    item {
+        val context = LocalContext.current
+        SettingsSectionCard(stringResource(R.string.settings_section_cache), stringResource(R.string.desc_clear_cache)) {
             val cacheClearedMsg = stringResource(R.string.msg_cache_cleared)
             OutlinedButton(
                 onClick = {
@@ -562,44 +728,31 @@ private fun GlobalSettingsSection() {
             ) {
                 Icon(Icons.Default.DeleteSweep, null)
                 Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
-                Text(stringResource(R.string.settings_clear_cache))
+                Text(stringResource(R.string.settings_clear_cache), style = galleryTypography.body.copy(fontWeight = FontWeight.Bold))
             }
         }
     }
 }
 
-@Composable
-private fun ThemeSettingsSection(
+private fun androidx.compose.foundation.lazy.LazyListScope.themeSettingsItems(
     themeMode: GalleryThemeMode,
     customPalette: GalleryColors?,
     textScale: Float,
     onThemeModeChange: (GalleryThemeMode) -> Unit,
     onCustomPaletteChange: (GalleryColors?) -> Unit,
-    onTextScaleChange: (Float) -> Unit
+    onTextScaleChange: (Float) -> Unit,
+    scope: kotlinx.coroutines.CoroutineScope,
+    listState: androidx.compose.foundation.lazy.LazyListState
 ) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
-    val fallbackPalette = if (themeMode == GalleryThemeMode.LIGHT) GalleryColorTokens.Light else GalleryColorTokens.Dark
-    var themePreset by remember { mutableStateOf(prefs.getString(THEME_PRESET_PREF, if (customPalette == null) "DEFAULT" else "CUSTOM") ?: "DEFAULT") }
-    var editablePalette by remember(customPalette, themeMode) { mutableStateOf(customPalette ?: fallbackPalette) }
-    var showColorPickerFor by remember { mutableStateOf<ColorField?>(null) }
+    item {
+        val sections = listOf(
+            stringResource(R.string.settings_display_theme) to 0,
+            stringResource(R.string.settings_color_palette) to 1,
+            stringResource(R.string.settings_text_size) to 2
+        )
+        SettingsTOC(sections, scope, listState)
+        Spacer(Modifier.height(8.dp))
 
-    fun applyPalette(value: String, palette: GalleryColors?) {
-        themePreset = value
-        prefs.edit().putString(THEME_PRESET_PREF, value).apply()
-        val nextPalette = palette ?: if (value == "DEFAULT") null else editablePalette
-        if (nextPalette != null) editablePalette = nextPalette
-        onCustomPaletteChange(nextPalette)
-    }
-
-    fun updatePalette(next: GalleryColors) {
-        editablePalette = next
-        themePreset = "CUSTOM"
-        prefs.edit().putString(THEME_PRESET_PREF, "CUSTOM").apply()
-        onCustomPaletteChange(next)
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
         SettingsSectionCard(stringResource(R.string.settings_display_theme), stringResource(R.string.settings_display_theme_desc)) {
             SettingsChoiceRow(
                 title = stringResource(R.string.settings_display_theme),
@@ -612,13 +765,44 @@ private fun ThemeSettingsSection(
                 description = stringResource(R.string.desc_theme_mode)
             ) { value -> onThemeModeChange(GalleryThemeMode.valueOf(value)) }
         }
+    }
+
+    item {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
+        val fallbackPalette = if (themeMode == GalleryThemeMode.LIGHT) GalleryColorTokens.Light else GalleryColorTokens.Dark
+        var themePreset by remember { mutableStateOf(prefs.getString(THEME_PRESET_PREF, if (customPalette == null) "DEFAULT" else "CUSTOM") ?: "DEFAULT") }
+        var editablePalette by remember(customPalette, themeMode) { mutableStateOf(customPalette ?: fallbackPalette) }
+        var showColorPickerFor by remember { mutableStateOf<ColorField?>(null) }
+
+        fun applyPalette(value: String, palette: GalleryColors?) {
+            themePreset = value
+            prefs.edit().putString(THEME_PRESET_PREF, value).apply()
+            val nextPalette = palette ?: if (value == "DEFAULT") null else editablePalette
+            if (nextPalette != null) editablePalette = nextPalette
+            onCustomPaletteChange(nextPalette)
+        }
+
+        fun updatePalette(next: GalleryColors) {
+            editablePalette = next
+            themePreset = "CUSTOM"
+            prefs.edit().putString(THEME_PRESET_PREF, "CUSTOM").apply()
+            onCustomPaletteChange(next)
+        }
+
+        val presets = GalleryThemePresets.List
         SettingsSectionCard(stringResource(R.string.settings_color_palette), stringResource(R.string.settings_color_palette_desc)) {
-            SettingsChoiceRow(stringResource(R.string.settings_theme_preset), themePresetOptions, themePreset, description = stringResource(R.string.desc_theme_preset)) { value ->
-                applyPalette(value, themePresetPalette(value))
+            SettingsChoiceRow(
+                title = stringResource(R.string.settings_theme_preset),
+                options = presets.map { it.labelRes to it.value },
+                selected = themePreset,
+                description = stringResource(R.string.desc_theme_preset)
+            ) { value ->
+                applyPalette(value, presets.find { it.value == value }?.colors)
             }
             OutlinedButton(onClick = { applyPalette("DEFAULT", null) }, enabled = customPalette != null) {
                 Icon(Icons.Default.RestartAlt, contentDescription = null)
-                Text(stringResource(R.string.settings_restore_standard_colors), modifier = Modifier.padding(start = 6.dp))
+                Text(stringResource(R.string.settings_restore_standard_colors), modifier = Modifier.padding(start = 8.dp))
             }
             colorFields.forEach { field ->
                 ColorIconRow(
@@ -628,17 +812,258 @@ private fun ThemeSettingsSection(
                 )
             }
         }
-        TextSizeSettingsSection(textScale, onTextScaleChange)
+
+        if (showColorPickerFor != null) {
+            val field = showColorPickerFor!!
+            ColorPickerDialog(
+                initialColor = field.get(editablePalette),
+                onColorSelected = { color ->
+                    updatePalette(field.set(editablePalette, color))
+                    showColorPickerFor = null
+                },
+                onDismiss = { showColorPickerFor = null }
+            )
+        }
     }
 
-    showColorPickerFor?.let { field ->
-        ColorPickerDialog(
-            initialColor = field.get(editablePalette),
-            onColorSelected = { color ->
-                updatePalette(field.set(editablePalette, color))
-                showColorPickerFor = null
-            },
-            onDismiss = { showColorPickerFor = null }
+    item {
+        TextSizeSettingsSection(textScale, onTextScaleChange)
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.mediaViewerSettingsItems(
+    context: Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    listState: androidx.compose.foundation.lazy.LazyListState
+) {
+    item {
+        val sections = listOf(
+            stringResource(R.string.settings_media_viewer) to 0,
+            stringResource(R.string.label_bottom_bar_assignment_title) to 1
+        )
+        SettingsTOC(sections, scope, listState)
+        Spacer(Modifier.height(8.dp))
+
+        val prefs = remember { context.getSharedPreferences(MEDIA_VIEWER_PREFS, Context.MODE_PRIVATE) }
+        var showInfoOverlay by remember { mutableStateOf(prefs.getBoolean("showInfoOverlay", false)) }
+        var loopGif by remember { mutableStateOf(prefs.getBoolean("loopGif", true)) }
+        var showFrameBar by remember { mutableStateOf(prefs.getBoolean("showFrameBar", false)) }
+        var showRandomRecs by remember { mutableStateOf(prefs.getBoolean("showRandomRecs", true)) }
+        var showSimilarRecs by remember { mutableStateOf(prefs.getBoolean("showSimilarRecs", true)) }
+        var swipeUpRecs by remember { mutableStateOf(prefs.getBoolean("swipeUpRecs", true)) }
+        var swipeDownClose by remember { mutableStateOf(prefs.getBoolean("swipeDownClose", true)) }
+        var doubleTapZoom by remember { mutableStateOf(prefs.getBoolean("doubleTapZoom", true)) }
+        var showSystemBars by remember { mutableStateOf(prefs.getBoolean("showSystemBars", false)) }
+        var seekInterval by remember { mutableStateOf(prefs.getString("seekInterval", "10") ?: "10") }
+
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+        fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+
+        SettingsSectionCard(stringResource(R.string.settings_media_viewer), stringResource(R.string.settings_media_viewer_desc)) {
+            SwitchSetting(stringResource(R.string.settings_show_info_overlay), showInfoOverlay, description = stringResource(R.string.desc_show_info_overlay)) { showInfoOverlay = it; saveBoolean("showInfoOverlay", it) }
+            SwitchSetting(stringResource(R.string.viewer_gif_stepping_stop), loopGif, description = stringResource(R.string.viewer_gif_stepping_stop)) { loopGif = it; saveBoolean("loopGif", it) }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = GalleryThemeTokens.colors.divider)
+
+            SettingsChoiceRow(stringResource(R.string.label_seek_interval), videoSeekIntervalOptions, seekInterval, description = stringResource(R.string.desc_seek_interval)) { seekInterval = it; saveString("seekInterval", it) }
+            SwitchSetting(stringResource(R.string.label_frame_bar), showFrameBar, statusText = if (showFrameBar) stringResource(R.string.label_frame_bar_status_dual) else stringResource(R.string.label_frame_bar_status_single), description = stringResource(R.string.desc_frame_bar)) { showFrameBar = it; saveBoolean("showFrameBar", it) }
+            SwitchSetting(stringResource(R.string.label_rec_random), showRandomRecs, description = stringResource(R.string.desc_rec_random)) { showRandomRecs = it; saveBoolean("showRandomRecs", it) }
+            SwitchSetting(stringResource(R.string.label_rec_similar), showSimilarRecs, description = stringResource(R.string.desc_similar_image_grouping)) { showSimilarRecs = it; saveBoolean("showSimilarRecs", it) }
+            SwitchSetting(stringResource(R.string.label_swipe_up_rec), swipeUpRecs, description = stringResource(R.string.desc_swipe_up_rec)) { swipeUpRecs = it; saveBoolean("swipeUpRecs", it) }
+            SwitchSetting(stringResource(R.string.label_swipe_down_close), swipeDownClose, description = stringResource(R.string.desc_swipe_down_close)) { swipeDownClose = it; saveBoolean("swipeDownClose", it) }
+            SwitchSetting(stringResource(R.string.label_double_tap_zoom), doubleTapZoom, description = stringResource(R.string.desc_double_tap_zoom_viewer)) { doubleTapZoom = it; saveBoolean("doubleTapZoom", it) }
+            SwitchSetting(stringResource(R.string.label_show_system_bars), showSystemBars, description = stringResource(R.string.desc_show_system_bars)) { showSystemBars = it; saveBoolean("showSystemBars", it) }
+        }
+    }
+    val mediaPrefs = context.getSharedPreferences(MEDIA_VIEWER_PREFS, Context.MODE_PRIVATE)
+    viewerAssignmentItems(mediaPrefs, "media", includeMediaActions = true, includeTouch = false)
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.bookViewerSettingsItems(
+    context: Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    listState: androidx.compose.foundation.lazy.LazyListState
+) {
+    item {
+        val sections = listOf(
+            stringResource(R.string.settings_section_bookshelf) to 0,
+            stringResource(R.string.settings_section_display) to 1,
+            stringResource(R.string.label_touch_assignment_title) to 2,
+            stringResource(R.string.label_bottom_bar_assignment_title) to 3
+        )
+        SettingsTOC(sections, scope, listState)
+        Spacer(Modifier.height(8.dp))
+
+        val prefs = remember { context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE) }
+        var fileSort by remember { mutableStateOf(prefs.getString("fileSort", "NAME_ASC") ?: "NAME_ASC") }
+        var showThumbnail by remember { mutableStateOf(prefs.getBoolean("showThumbnail", true)) }
+        var smoothFilter by remember { mutableStateOf(prefs.getString("smoothFilter", "BILINEAR") ?: "BILINEAR") }
+        var enableSwipeDeleteBook by remember { mutableStateOf(prefs.getBoolean("enableSwipeDeleteBook", false)) }
+        var autoLoadOnLaunch by remember { mutableStateOf(prefs.getBoolean("autoLoadOnLaunch", true)) }
+
+        fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+        fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+
+        SettingsSectionCard(stringResource(R.string.settings_section_bookshelf), stringResource(R.string.settings_section_bookshelf_desc)) {
+            SettingsChoiceRow(stringResource(R.string.settings_file_sort), fileSortOptions, fileSort, description = stringResource(R.string.desc_file_sort)) { fileSort = it; saveString("fileSort", it) }
+            SwitchSetting(stringResource(R.string.settings_show_thumbnail), showThumbnail, description = stringResource(R.string.desc_show_thumbnail)) { showThumbnail = it; saveBoolean("showThumbnail", it) }
+            SettingsChoiceRow(stringResource(R.string.settings_thumbnail_smoothing), smoothingOptions, smoothFilter, description = stringResource(R.string.desc_thumbnail_smoothing)) { smoothFilter = it; saveString("smoothFilter", it) }
+            SwitchSetting(stringResource(R.string.settings_swipe_delete_book), enableSwipeDeleteBook, description = stringResource(R.string.desc_swipe_delete_book)) { enableSwipeDeleteBook = it; saveBoolean("enableSwipeDeleteBook", it) }
+            SwitchSetting(stringResource(R.string.settings_auto_load_on_launch), autoLoadOnLaunch, description = stringResource(R.string.desc_auto_load_on_launch)) { autoLoadOnLaunch = it; saveBoolean("autoLoadOnLaunch", it) }
+        }
+    }
+
+    item {
+        val globalPrefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+        val prefs = remember { context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE) }
+        var bindingDirection by remember { mutableStateOf(prefs.getString("bindingDirection", "RIGHT") ?: "RIGHT") }
+        var scrollMode by remember { mutableStateOf(prefs.getString("scrollMode", "PAGE") ?: "PAGE") }
+        var transitionEffect by remember { mutableStateOf(prefs.getString("transitionEffect", "SLIDE_HORIZONTAL") ?: "SLIDE_HORIZONTAL") }
+        var readMark by remember { mutableStateOf(prefs.getString("readMark", "NONE") ?: "NONE") }
+        var seekAnchorsEnabled by remember { mutableStateOf(prefs.getBoolean("seekAnchorsEnabled", true)) }
+        var maxSeekAnchors by remember { mutableIntStateOf(prefs.getInt("maxSeekAnchors", 3)) }
+        var tapZoneLayout by remember { mutableStateOf(normalizeTapZoneLayoutSetting(prefs.getString("tapZoneLayout", "THREE"))) }
+        var touchIndicator by remember { mutableStateOf(prefs.getBoolean("touchIndicator", globalPrefs.getBoolean("touchIndicator", false))) }
+
+        fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+        fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+
+        SettingsSectionCard(stringResource(R.string.settings_section_display), stringResource(R.string.settings_section_display_desc)) {
+            SettingsChoiceRow(stringResource(R.string.settings_binding_direction), listOf(R.string.opt_right to "RIGHT", R.string.opt_left to "LEFT"), bindingDirection, description = stringResource(R.string.desc_binding_direction)) { bindingDirection = it; saveString("bindingDirection", it) }
+            SettingsChoiceRow(stringResource(R.string.settings_viewer_mode), bookScrollModeOptions, scrollMode, description = stringResource(R.string.desc_viewer_mode)) { scrollMode = it; saveString("scrollMode", it) }
+            SettingsChoiceRow(stringResource(R.string.settings_transition_effect), pageTransitionEffectOptions, transitionEffect, description = stringResource(R.string.desc_transition_effect)) { transitionEffect = it; saveString("transitionEffect", it) }
+            SettingsChoiceRow(stringResource(R.string.settings_read_mark), readMarkOptions, readMark, description = stringResource(R.string.desc_read_mark)) { readMark = it; saveString("readMark", it) }
+            SwitchSetting(stringResource(R.string.settings_seek_anchors), seekAnchorsEnabled, description = stringResource(R.string.desc_seek_anchors)) { seekAnchorsEnabled = it; saveBoolean("seekAnchorsEnabled", it) }
+            if (seekAnchorsEnabled) {
+                SliderSetting(stringResource(R.string.settings_max_seek_anchors), maxSeekAnchors, 1f..5f, 4, stringResource(R.string.unit_count)) { maxSeekAnchors = it; saveInt("maxSeekAnchors", it) }
+            }
+            SettingsChoiceRow(stringResource(R.string.settings_screen_allocation), tapZoneLayoutOptions, tapZoneLayout, description = stringResource(R.string.desc_screen_allocation)) { tapZoneLayout = it; saveString("tapZoneLayout", it) }
+            SwitchSetting(stringResource(R.string.settings_touch_indicator), touchIndicator, description = stringResource(R.string.desc_touch_indicator)) { touchIndicator = it; saveBoolean("touchIndicator", it) }
+        }
+    }
+
+    val bookPrefs = context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE)
+    val tapZoneLayout = normalizeTapZoneLayoutSetting(bookPrefs.getString("tapZoneLayout", "THREE"))
+    viewerAssignmentItems(bookPrefs, "book", includeMediaActions = false, includeTouch = true, touchLayout = tapZoneLayout)
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.videoViewerSettingsItems(
+    context: Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    listState: androidx.compose.foundation.lazy.LazyListState
+) {
+    item {
+        val sections = listOf(
+            stringResource(R.string.settings_video_viewer) to 0,
+            stringResource(R.string.label_bottom_bar_assignment_title) to 1
+        )
+        SettingsTOC(sections, scope, listState)
+        Spacer(Modifier.height(8.dp))
+
+        val prefs = remember { context.getSharedPreferences(VIDEO_VIEWER_PREFS, Context.MODE_PRIVATE) }
+        var autoPlay by remember { mutableStateOf(prefs.getBoolean("autoPlay", true)) }
+        var loopPlayback by remember { mutableStateOf(prefs.getBoolean("loopPlayback", true)) }
+        var defaultMute by remember { mutableStateOf(prefs.getBoolean("defaultMute", false)) }
+        var directViewer by remember { mutableStateOf(prefs.getBoolean("directViewer", false)) }
+        var seekInterval by remember { mutableStateOf(prefs.getString("seekInterval", "10") ?: "10") }
+        var resizeMode by remember { mutableStateOf(prefs.getString("resizeMode", "FIT") ?: "FIT") }
+
+        fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+        fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+        fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+
+        SettingsSectionCard(stringResource(R.string.settings_video_viewer), stringResource(R.string.settings_video_viewer_desc)) {
+            SwitchSetting(stringResource(R.string.settings_video_auto_play), autoPlay, description = stringResource(R.string.desc_transition_speed)) { autoPlay = it; saveBoolean("autoPlay", it) }
+            SwitchSetting(stringResource(R.string.settings_video_loop), loopPlayback, description = stringResource(R.string.settings_video_loop)) { loopPlayback = it; saveBoolean("loopPlayback", it) }
+            SwitchSetting(stringResource(R.string.settings_video_default_mute), defaultMute, description = stringResource(R.string.settings_video_default_mute)) { defaultMute = it; saveBoolean("defaultMute", it) }
+            SwitchSetting(stringResource(R.string.settings_video_direct_viewer), directViewer, description = stringResource(R.string.desc_video_direct_viewer)) { directViewer = it; saveBoolean("directViewer", it) }
+            SettingsChoiceRow(stringResource(R.string.settings_video_seek_interval), videoSeekIntervalOptions, seekInterval, description = stringResource(R.string.desc_seek_interval)) { seekInterval = it; saveString("seekInterval", it) }
+            SettingsChoiceRow(stringResource(R.string.settings_video_resize_mode), videoResizeModeOptions, resizeMode, description = stringResource(R.string.desc_transition_effect)) { resizeMode = it; saveString("resizeMode", it) }
+        }
+    }
+    val videoPrefs = context.getSharedPreferences(VIDEO_VIEWER_PREFS, Context.MODE_PRIVATE)
+    viewerAssignmentItems(videoPrefs, "video", includeMediaActions = false, includeTouch = false)
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.viewerAssignmentItems(
+    prefs: SharedPreferences,
+    prefix: String,
+    includeMediaActions: Boolean,
+    includeTouch: Boolean,
+    touchLayout: String? = null
+) {
+    if (includeTouch) {
+        item {
+            val touchSlots = tapZoneSlotsForLayout(touchLayout)
+            val touchFunctions = listOf(
+                AppConstants.ACTION_PREV,
+                AppConstants.ACTION_NEXT,
+                AppConstants.ACTION_TOGGLE_UI,
+                AppConstants.ACTION_ZOOM,
+                AppConstants.ACTION_SETTINGS,
+                AppConstants.ACTION_SEARCH,
+                AppConstants.ACTION_SAVE,
+                AppConstants.ACTION_TAG
+            )
+            val defaultTouchAssignments = defaultTouchAssignmentsFor(prefix, touchSlots)
+            AssignmentEditor(
+                title = stringResource(R.string.label_touch_assignment_title),
+                prefs = prefs,
+                keyPrefix = "${prefix}_touch",
+                slots = touchSlots,
+                functions = touchFunctions,
+                duplicateAllowed = true,
+                layoutType = AssignmentLayoutType.TOUCH,
+                defaultAssignments = defaultTouchAssignments,
+                description = stringResource(R.string.desc_touch_assignment)
+            )
+        }
+    }
+
+    val barSlots = listOf(
+        AppConstants.SLOT_BOTTOM_LEFT,
+        AppConstants.SLOT_BOTTOM_CENTER_LEFT,
+        AppConstants.SLOT_BOTTOM_CENTER,
+        AppConstants.SLOT_BOTTOM_CENTER_RIGHT,
+        AppConstants.SLOT_BOTTOM_RIGHT
+    )
+    val baseButtonFunctions = listOf(
+        AppConstants.ACTION_CLOSE,
+        AppConstants.ACTION_SETTINGS,
+        AppConstants.ACTION_BOOKMARK,
+        AppConstants.ACTION_ROTATE,
+        AppConstants.ACTION_SCREENSHOT,
+        AppConstants.ACTION_PREV,
+        AppConstants.ACTION_NEXT,
+        AppConstants.ACTION_PLAY_PAUSE,
+        AppConstants.ACTION_OVERFLOW
+    )
+    val mediaButtonFunctions = listOf(
+        AppConstants.ACTION_TRASH,
+        AppConstants.ACTION_FAVORITE,
+        AppConstants.ACTION_SLIDESHOW,
+        AppConstants.ACTION_GIF,
+        AppConstants.ACTION_ASCII2D,
+        AppConstants.ACTION_WALLPAPER,
+        AppConstants.ACTION_THUMBNAIL,
+        AppConstants.ACTION_TAG
+    )
+    val buttonFunctions = if (includeMediaActions) baseButtonFunctions + mediaButtonFunctions else baseButtonFunctions
+    val defaultBarAssignments = defaultBarAssignmentsFor(prefix, includeMediaActions, barSlots)
+
+    item {
+        AssignmentEditor(
+            title = stringResource(R.string.label_bottom_bar_assignment_title),
+            prefs = prefs,
+            keyPrefix = "${prefix}_bar",
+            slots = barSlots,
+            functions = buttonFunctions,
+            duplicateAllowed = false,
+            layoutType = AssignmentLayoutType.BAR,
+            defaultAssignments = defaultBarAssignments,
+            description = stringResource(R.string.desc_bottom_bar_assignment)
         )
     }
 }
@@ -650,18 +1075,18 @@ private fun ColorIconRow(label: String, color: Color, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
+            .padding(vertical = dimensionResource(R.dimen.spacing_settings_halo)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
     ) {
         Box(
             modifier = Modifier
-                .size(32.dp)
-                .background(color, androidx.compose.foundation.shape.CircleShape)
-                .border(1.dp, colors.divider, androidx.compose.foundation.shape.CircleShape)
+                .size(dimensionResource(R.dimen.icon_size_large))
+                .background(color, CircleShape)
+                .border(1.dp, colors.divider, CircleShape)
         )
-        Text(label, color = colors.primaryText, modifier = Modifier.weight(1f))
-        Icon(Icons.Default.Edit, contentDescription = null, tint = colors.secondaryText, modifier = Modifier.size(20.dp))
+        Text(label, style = galleryTypography.body, color = colors.primaryText, modifier = Modifier.weight(1f))
+        Icon(Icons.Default.Edit, contentDescription = null, tint = colors.secondaryText, modifier = Modifier.size(dimensionResource(R.dimen.icon_size_check)))
     }
 }
 
@@ -672,14 +1097,7 @@ private fun ColorPickerDialog(
     onDismiss: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
-    val palette = remember {
-        listOf(
-            Color(0xFF000000), Color(0xFF101418), Color(0xFF1D2630), Color(0xFF404040), Color(0xFFFFFFFF),
-            Color(0xFF006ACB), Color(0xFF4DA3FF), Color(0xFF00A7C8), Color(0xFF38C6D9), Color(0xFFB7C7FF),
-            Color(0xFF168A52), Color(0xFF47D18C), Color(0xFF7ACB6A), Color(0xFFD7A86E), Color(0xFFFFC857),
-            Color(0xFFD9364E), Color(0xFFFF6B7A), Color(0xFFFF8A3D), Color(0xFFD083FF), Color(0xFFFF4FD8)
-        )
-    }
+    val palette = GalleryPaletteSwatches.Preset
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -690,26 +1108,28 @@ private fun ColorPickerDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(80.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .height(dimensionResource(R.dimen.color_picker_preview_height))
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
                         .background(initialColor)
-                        .border(1.dp, colors.divider, RoundedCornerShape(8.dp)),
+                        .border(1.dp, colors.divider, RoundedCornerShape(dimensionResource(R.dimen.radius_medium))),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(initialColor.toHexString(), color = if (initialColor.luminance() > 0.5f) Color.Black else Color.White, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.height(16.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(Modifier.height(dimensionResource(R.dimen.spacing_medium)))
+                Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
                     palette.chunked(5).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
                             row.forEach { color ->
                                 Box(
                                     modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .size(dimensionResource(R.dimen.color_picker_swatch_size))
+                                        .clip(CircleShape)
                                         .background(color)
                                         .clickable { onColorSelected(color) }
-                                        .border(if (color == initialColor) 2.dp else 0.dp, colors.accent, androidx.compose.foundation.shape.CircleShape)
+                                        .border(if (color == initialColor) 2.dp else 0.dp, colors.accent,
+                                            CircleShape
+                                        )
                                 )
                             }
                         }
@@ -738,195 +1158,16 @@ private fun ThemeModeRow(title: String, selected: Boolean, onClick: () -> Unit) 
             .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_base), vertical = dimensionResource(R.dimen.spacing_settings_horizontal) / 1.4f),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(title, color = colors.primaryText, modifier = Modifier.weight(1f))
+            Text(title, style = galleryTypography.body, color = colors.primaryText, modifier = Modifier.weight(1f))
             RadioButton(selected = selected, onClick = onClick)
         }
     }
 }
 
 @Composable
-private fun BookViewerSettingsSection() {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE) }
-    val globalPrefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
-    var fileSort by remember { mutableStateOf(prefs.getString("fileSort", "NAME_ASC") ?: "NAME_ASC") }
-    var showThumbnail by remember { mutableStateOf(prefs.getBoolean("showThumbnail", true)) }
-    var smoothFilter by remember { mutableStateOf(prefs.getString("smoothFilter", "BILINEAR") ?: "BILINEAR") }
-    var bindingDirection by remember { mutableStateOf(prefs.getString("bindingDirection", "RIGHT") ?: "RIGHT") }
-    var scrollMode by remember { mutableStateOf(prefs.getString("scrollMode", "PAGE") ?: "PAGE") }
-    var transitionEffect by remember { mutableStateOf(prefs.getString("transitionEffect", "SLIDE_HORIZONTAL") ?: "SLIDE_HORIZONTAL") }
-    var readMark by remember { mutableStateOf(prefs.getString("readMark", "NONE") ?: "NONE") }
-    var tapZoneLayout by remember { mutableStateOf(normalizeTapZoneLayoutSetting(prefs.getString("tapZoneLayout", "THREE"))) }
-    var touchIndicator by remember { mutableStateOf(prefs.getBoolean("touchIndicator", globalPrefs.getBoolean("touchIndicator", false))) }
-    var enableSwipeDeleteBook by remember { mutableStateOf(prefs.getBoolean("enableSwipeDeleteBook", false)) }
-    var autoLoadOnLaunch by remember { mutableStateOf(prefs.getBoolean("autoLoadOnLaunch", true)) }
-
-    fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
-    fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
-
-    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
-        SettingsSectionCard(stringResource(R.string.settings_section_bookshelf), stringResource(R.string.settings_section_bookshelf_desc)) {
-            SettingsChoiceRow(stringResource(R.string.settings_file_sort), fileSortOptions, fileSort, description = stringResource(R.string.desc_file_sort)) { fileSort = it; saveString("fileSort", it) }
-            SwitchSetting(stringResource(R.string.settings_show_thumbnail), showThumbnail, description = stringResource(R.string.desc_show_thumbnail)) { showThumbnail = it; saveBoolean("showThumbnail", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_thumbnail_smoothing), smoothingOptions, smoothFilter, description = stringResource(R.string.desc_thumbnail_smoothing)) { smoothFilter = it; saveString("smoothFilter", it) }
-            SwitchSetting(stringResource(R.string.settings_swipe_delete_book), enableSwipeDeleteBook, description = stringResource(R.string.desc_swipe_delete_book)) { enableSwipeDeleteBook = it; saveBoolean("enableSwipeDeleteBook", it) }
-            SwitchSetting(stringResource(R.string.settings_auto_load_on_launch), autoLoadOnLaunch, description = stringResource(R.string.desc_auto_load_on_launch)) { autoLoadOnLaunch = it; saveBoolean("autoLoadOnLaunch", it) }
-        }
-        SettingsSectionCard(stringResource(R.string.settings_section_display), stringResource(R.string.settings_section_display_desc)) {
-            SettingsChoiceRow(stringResource(R.string.settings_binding_direction), listOf(R.string.opt_right to "RIGHT", R.string.opt_left to "LEFT"), bindingDirection, description = stringResource(R.string.desc_binding_direction)) { bindingDirection = it; saveString("bindingDirection", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_viewer_mode), bookScrollModeOptions, scrollMode, description = stringResource(R.string.desc_viewer_mode)) { scrollMode = it; saveString("scrollMode", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_transition_effect), pageTransitionEffectOptions, transitionEffect, description = stringResource(R.string.desc_transition_effect)) { transitionEffect = it; saveString("transitionEffect", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_read_mark), readMarkOptions, readMark, description = stringResource(R.string.desc_read_mark)) { readMark = it; saveString("readMark", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_screen_allocation), tapZoneLayoutOptions, tapZoneLayout, description = stringResource(R.string.desc_screen_allocation)) { tapZoneLayout = it; saveString("tapZoneLayout", it) }
-            SwitchSetting(stringResource(R.string.settings_touch_indicator), touchIndicator, description = stringResource(R.string.desc_touch_indicator)) { touchIndicator = it; saveBoolean("touchIndicator", it) }
-        }
-        ViewerAssignmentSection(prefs, "book", includeMediaActions = false, includeTouch = true, touchLayout = tapZoneLayout)
-    }
-}
-
-@Composable
-private fun MediaViewerSettingsSection() {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(MEDIA_VIEWER_PREFS, Context.MODE_PRIVATE) }
-    var showInfoOverlay by remember { mutableStateOf(prefs.getBoolean("showInfoOverlay", false)) }
-    var loopGif by remember { mutableStateOf(prefs.getBoolean("loopGif", true)) }
-    var showFrameBar by remember { mutableStateOf(prefs.getBoolean("showFrameBar", false)) }
-    var showRandomRecs by remember { mutableStateOf(prefs.getBoolean("showRandomRecs", true)) }
-    var showSimilarRecs by remember { mutableStateOf(prefs.getBoolean("showSimilarRecs", true)) }
-    var swipeUpRecs by remember { mutableStateOf(prefs.getBoolean("swipeUpRecs", true)) }
-    var swipeDownClose by remember { mutableStateOf(prefs.getBoolean("swipeDownClose", true)) }
-    var doubleTapZoom by remember { mutableStateOf(prefs.getBoolean("doubleTapZoom", true)) }
-    var showSystemBars by remember { mutableStateOf(prefs.getBoolean("showSystemBars", false)) }
-    var seekInterval by remember { mutableStateOf(prefs.getString("seekInterval", "10") ?: "10") }
-
-    fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
-    fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
-
-    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
-        SettingsSectionCard(stringResource(R.string.settings_media_viewer), stringResource(R.string.settings_media_viewer_desc)) {
-            SwitchSetting(stringResource(R.string.settings_show_info_overlay), showInfoOverlay, description = stringResource(R.string.desc_show_info_overlay)) { showInfoOverlay = it; saveBoolean("showInfoOverlay", it) }
-            SwitchSetting(stringResource(R.string.viewer_gif_stepping_stop), loopGif, description = stringResource(R.string.viewer_gif_stepping_stop)) { loopGif = it; saveBoolean("loopGif", it) }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = GalleryThemeTokens.colors.divider)
-
-            SettingsChoiceRow(stringResource(R.string.label_seek_interval), videoSeekIntervalOptions, seekInterval, description = stringResource(R.string.desc_seek_interval)) { seekInterval = it; saveString("seekInterval", it) }
-            SwitchSetting(stringResource(R.string.label_frame_bar), showFrameBar, statusText = if (showFrameBar) stringResource(R.string.label_frame_bar_status_dual) else stringResource(R.string.label_frame_bar_status_single), description = stringResource(R.string.desc_frame_bar)) { showFrameBar = it; saveBoolean("showFrameBar", it) }
-            SwitchSetting(stringResource(R.string.label_rec_random), showRandomRecs, description = stringResource(R.string.desc_rec_random)) { showRandomRecs = it; saveBoolean("showRandomRecs", it) }
-            SwitchSetting(stringResource(R.string.label_rec_similar), showSimilarRecs, description = stringResource(R.string.desc_rec_similar)) { showSimilarRecs = it; saveBoolean("showSimilarRecs", it) }
-            SwitchSetting(stringResource(R.string.label_swipe_up_rec), swipeUpRecs, description = stringResource(R.string.desc_swipe_up_rec)) { swipeUpRecs = it; saveBoolean("swipeUpRecs", it) }
-            SwitchSetting(stringResource(R.string.label_swipe_down_close), swipeDownClose, description = stringResource(R.string.desc_swipe_down_close)) { swipeDownClose = it; saveBoolean("swipeDownClose", it) }
-            SwitchSetting(stringResource(R.string.label_double_tap_zoom), doubleTapZoom, description = stringResource(R.string.desc_double_tap_zoom_viewer)) { doubleTapZoom = it; saveBoolean("doubleTapZoom", it) }
-            SwitchSetting(stringResource(R.string.label_show_system_bars), showSystemBars, description = stringResource(R.string.desc_show_system_bars)) { showSystemBars = it; saveBoolean("showSystemBars", it) }
-        }
-        ViewerAssignmentSection(prefs, "media", includeMediaActions = true, includeTouch = false)
-    }
-}
-
-@Composable
-private fun VideoViewerSettingsSection() {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(VIDEO_VIEWER_PREFS, Context.MODE_PRIVATE) }
-    var autoPlay by remember { mutableStateOf(prefs.getBoolean("autoPlay", true)) }
-    var loopPlayback by remember { mutableStateOf(prefs.getBoolean("loopPlayback", true)) }
-    var defaultMute by remember { mutableStateOf(prefs.getBoolean("defaultMute", false)) }
-    var seekInterval by remember { mutableStateOf(prefs.getString("seekInterval", "10") ?: "10") }
-    var resizeMode by remember { mutableStateOf(prefs.getString("resizeMode", "FIT") ?: "FIT") }
-
-    fun saveString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
-    fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
-
-    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
-        SettingsSectionCard(stringResource(R.string.settings_video_viewer), stringResource(R.string.settings_video_viewer_desc)) {
-            SwitchSetting(stringResource(R.string.settings_video_auto_play), autoPlay, description = stringResource(R.string.desc_transition_speed)) { autoPlay = it; saveBoolean("autoPlay", it) } // TODO: check string
-            SwitchSetting(stringResource(R.string.settings_video_loop), loopPlayback, description = stringResource(R.string.settings_video_loop)) { loopPlayback = it; saveBoolean("loopPlayback", it) }
-            SwitchSetting(stringResource(R.string.settings_video_default_mute), defaultMute, description = stringResource(R.string.settings_video_default_mute)) { defaultMute = it; saveBoolean("defaultMute", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_video_seek_interval), videoSeekIntervalOptions, seekInterval, description = stringResource(R.string.desc_seek_interval)) { seekInterval = it; saveString("seekInterval", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_video_resize_mode), videoResizeModeOptions, resizeMode, description = stringResource(R.string.desc_transition_effect)) { resizeMode = it; saveString("resizeMode", it) } // TODO: check string
-        }
-        ViewerAssignmentSection(prefs, "video", includeMediaActions = false, includeTouch = false)
-    }
-}
-
-@Composable
-private fun ViewerAssignmentSection(
-    prefs: SharedPreferences,
-    prefix: String,
-    includeMediaActions: Boolean,
-    includeTouch: Boolean,
-    touchLayout: String? = null
-) {
-    if (includeTouch) {
-        val touchSlots = tapZoneSlotsForLayout(touchLayout)
-        val touchFunctions = listOf(
-            AppConstants.ACTION_PREV,
-            AppConstants.ACTION_NEXT,
-            AppConstants.ACTION_TOGGLE_UI,
-            AppConstants.ACTION_ZOOM,
-            AppConstants.ACTION_SETTINGS,
-            AppConstants.ACTION_SEARCH,
-            AppConstants.ACTION_SAVE,
-            AppConstants.ACTION_TAG
-        )
-        val defaultTouchAssignments = defaultTouchAssignmentsFor(prefix, touchSlots)
-        AssignmentEditor(
-            title = stringResource(R.string.label_touch_assignment_title),
-            prefs = prefs,
-            keyPrefix = "${prefix}_touch",
-            slots = touchSlots,
-            functions = touchFunctions,
-            duplicateAllowed = true,
-            layoutType = AssignmentLayoutType.TOUCH,
-            defaultAssignments = defaultTouchAssignments,
-            description = stringResource(R.string.desc_touch_assignment)
-        )
-    }
-
-    val barSlots = listOf(
-        AppConstants.SLOT_BOTTOM_LEFT,
-        AppConstants.SLOT_BOTTOM_CENTER_LEFT,
-        AppConstants.SLOT_BOTTOM_CENTER,
-        AppConstants.SLOT_BOTTOM_CENTER_RIGHT,
-        AppConstants.SLOT_BOTTOM_RIGHT
-    )
-    val baseButtonFunctions = listOf(
-        AppConstants.ACTION_CLOSE,
-        AppConstants.ACTION_SETTINGS,
-        AppConstants.ACTION_BOOKMARK,
-        AppConstants.ACTION_ROTATE,
-        AppConstants.ACTION_SCREENSHOT,
-        AppConstants.ACTION_PREV,
-        AppConstants.ACTION_NEXT,
-        AppConstants.ACTION_OVERFLOW
-    )
-    val mediaButtonFunctions = listOf(
-        AppConstants.ACTION_TRASH,
-        AppConstants.ACTION_FAVORITE,
-        AppConstants.ACTION_SLIDESHOW,
-        AppConstants.ACTION_GIF,
-        AppConstants.ACTION_ASCII2D,
-        AppConstants.ACTION_WALLPAPER,
-        AppConstants.ACTION_THUMBNAIL,
-        AppConstants.ACTION_TAG
-    )
-    val buttonFunctions = if (includeMediaActions) baseButtonFunctions + mediaButtonFunctions else baseButtonFunctions
-    val defaultBarAssignments = defaultBarAssignmentsFor(prefix, includeMediaActions, barSlots)
-
-    AssignmentEditor(
-        title = stringResource(R.string.label_bottom_bar_assignment_title),
-        prefs = prefs,
-        keyPrefix = "${prefix}_bar",
-        slots = barSlots,
-        functions = buttonFunctions,
-        duplicateAllowed = false,
-        layoutType = AssignmentLayoutType.BAR,
-        defaultAssignments = defaultBarAssignments,
-        description = stringResource(R.string.desc_bottom_bar_assignment)
-    )
-}
-
 private fun tapZoneSlotsForLayout(layout: String?): List<String> {
     return tapZoneSpecs(tapZoneCountForLayout(layout)).map { spec -> tapZoneSlotLabel(spec.id) }
 }
@@ -941,23 +1182,24 @@ private fun normalizeTapZoneLayoutSetting(value: String?): String {
     }
 }
 
+@Composable
 private fun tapZoneSlotLabel(id: String): String {
     return when (id) {
-        "top_start" -> "左上"
-        "top_center" -> "上"
-        "top_end" -> "右上"
-        "left_upper" -> "左上側"
-        "left_lower" -> "左下側"
-        "left" -> "左"
-        "center" -> "中央"
-        "right" -> "右"
-        "right_upper" -> "右上側"
-        "right_lower" -> "右下側"
-        "bottom_start" -> "左下"
-        "bottom_center" -> "下"
-        "bottom_end" -> "右下"
-        "top" -> "上"
-        "bottom" -> "下"
+        "top_start" -> stringResource(R.string.tap_zone_top_start)
+        "top_center" -> stringResource(R.string.tap_zone_top_center)
+        "top_end" -> stringResource(R.string.tap_zone_top_end)
+        "left_upper" -> stringResource(R.string.tap_zone_left_upper)
+        "left_lower" -> stringResource(R.string.tap_zone_left_lower)
+        "left" -> stringResource(R.string.tap_zone_left)
+        "center" -> stringResource(R.string.tap_zone_center)
+        "right" -> stringResource(R.string.tap_zone_right)
+        "right_upper" -> stringResource(R.string.tap_zone_right_upper)
+        "right_lower" -> stringResource(R.string.tap_zone_right_lower)
+        "bottom_start" -> stringResource(R.string.tap_zone_bottom_start)
+        "bottom_center" -> stringResource(R.string.tap_zone_bottom_center)
+        "bottom_end" -> stringResource(R.string.tap_zone_bottom_end)
+        "top" -> stringResource(R.string.tap_zone_top)
+        "bottom" -> stringResource(R.string.tap_zone_bottom)
         else -> id
     }
 }
@@ -968,6 +1210,13 @@ private fun defaultBarAssignmentsFor(
     slots: List<String>
 ): Map<String, String> {
     val defaults = when {
+        prefix == "nav" -> listOf(
+            AppRoutes.HOME,
+            AppRoutes.FOLDERS,
+            AppRoutes.VIDEOS,
+            AppRoutes.BOOKS,
+            AppRoutes.TRASH
+        )
         includeMediaActions -> listOf(
             AppConstants.ACTION_TRASH,
             AppConstants.ACTION_SETTINGS,
@@ -983,9 +1232,9 @@ private fun defaultBarAssignmentsFor(
             AppConstants.ACTION_OVERFLOW
         )
         prefix == "video" -> listOf(
-            AppConstants.ACTION_CLOSE,
+            AppConstants.ACTION_ROTATE,
             AppConstants.ACTION_PREV,
-            AppConstants.ACTION_SCREENSHOT,
+            AppConstants.ACTION_PLAY_PAUSE,
             AppConstants.ACTION_NEXT,
             AppConstants.ACTION_OVERFLOW
         )
@@ -1041,9 +1290,10 @@ private fun AssignmentEditor(
     val textSizes = GalleryThemeTokens.textSizes
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val labelNone = stringResource(R.string.label_action_none)
     val slotBounds = remember { mutableStateMapOf<String, Rect>() }
     var assignments by remember(keyPrefix, slots, defaultAssignments) {
-        mutableStateOf(slots.associateWith { slot -> prefs.getString("$keyPrefix.$slot", defaultAssignments[slot] ?: "なし") ?: "なし" })
+        mutableStateOf(slots.associateWith { slot -> prefs.getString("$keyPrefix.$slot", defaultAssignments[slot] ?: labelNone) ?: labelNone })
     }
 
     // Drag state
@@ -1105,19 +1355,19 @@ private fun AssignmentEditor(
                         AssignmentLayoutType.TOUCH -> {
                             BoxWithConstraints(
                                 modifier = Modifier
-                                    .width(200.dp)
+                                    .width(dimensionResource(R.dimen.scrollbar_container_width))
                                     .aspectRatio(0.7f)
-                                    .border(2.dp, colors.divider, RoundedCornerShape(8.dp))
-                                    .padding(4.dp)
+                                    .border(2.dp, colors.divider, RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
+                                    .padding(dimensionResource(R.dimen.spacing_tiny))
                             ) {
                                 val cellWidth = maxWidth / 5f
                                 val cellHeight = maxHeight / 5f
                                 tapZoneSpecs(slots.size).zip(slots).forEach { (spec, slot) ->
-                                    val func = assignments[slot] ?: "なし"
+                                    val func = assignments[slot] ?: labelNone
                                     Surface(
-                                        color = if (func == "なし") colors.surface.copy(alpha = 0.3f) else colors.accentSoft,
-                                        shape = RoundedCornerShape(4.dp),
-                                        border = BorderStroke(1.dp, if (func == "なし") colors.divider else colors.accent),
+                                        color = if (func == labelNone) colors.surface.copy(alpha = 0.3f) else colors.accentSoft,
+                                        shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
+                                        border = BorderStroke(1.dp, if (func == labelNone) colors.divider else colors.accent),
                                         modifier = Modifier
                                             .offset(
                                                 x = cellWidth * spec.column.toFloat(),
@@ -1136,7 +1386,7 @@ private fun AssignmentEditor(
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                             Text(slot, color = colors.mutedText, fontSize = textSizes.tiny, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            if (func != "なし") {
+                                            if (func != labelNone) {
                                                 Text(resolveViewerActionLabel(func), color = colors.accent, fontSize = textSizes.badge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             }
                                         }
@@ -1148,15 +1398,15 @@ private fun AssignmentEditor(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(56.dp)
+                                    .height(dimensionResource(R.dimen.header_height))
                                     .background(Color.Black.copy(alpha = 0.2f), CircleShape)
-                                    .padding(horizontal = 8.dp),
+                                    .padding(horizontal = dimensionResource(R.dimen.spacing_small)),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 slots.forEach { slot ->
-                                    val func = assignments[slot] ?: "なし"
-                                    val isActive = func != "なし"
+                                    val func = assignments[slot] ?: labelNone
+                                    val isActive = func != labelNone
                                     Box(
                                         modifier = Modifier
                                             .size(42.dp)
@@ -1178,33 +1428,33 @@ private fun AssignmentEditor(
                         AssignmentLayoutType.MENU -> {
                             Column(
                                 modifier = Modifier
-                                    .width(220.dp)
-                                    .background(colors.surface, RoundedCornerShape(8.dp))
-                                    .border(1.dp, colors.divider, RoundedCornerShape(8.dp))
-                                    .padding(vertical = 4.dp),
+                                    .width(dimensionResource(R.dimen.grid_placeholder_height))
+                                    .background(colors.surface, RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
+                                    .border(1.dp, colors.divider, RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
+                                    .padding(vertical = dimensionResource(R.dimen.spacing_tiny)),
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 slots.forEach { slot ->
-                                    val func = assignments[slot] ?: "なし"
+                                    val func = assignments[slot] ?: labelNone
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(36.dp)
-                                            .padding(horizontal = 12.dp)
+                                            .height(dimensionResource(R.dimen.drawer_item_height))
+                                            .padding(horizontal = dimensionResource(R.dimen.spacing_base))
                                             .onGloballyPositioned { slotBounds[slot] = it.boundsInRoot() },
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
                                     ) {
                                         Icon(
-                                            if (func == "なし") Icons.Default.CheckBoxOutlineBlank else Icons.Default.RadioButtonChecked,
+                                            if (func == labelNone) Icons.Default.CheckBoxOutlineBlank else Icons.Default.RadioButtonChecked,
                                             null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = if (func == "なし") colors.mutedText else colors.accent
+                                            modifier = Modifier.size(dimensionResource(R.dimen.spacing_medium)),
+                                            tint = if (func == labelNone) colors.mutedText else colors.accent
                                         )
                                         Text(
-                                            text = if (func == "なし") "($slot)" else resolveViewerActionLabel(func),
-                                            color = if (func == "なし") colors.mutedText else colors.primaryText,
-                                            fontSize = textSizes.small
+                                            text = if (func == labelNone) "($slot)" else resolveViewerActionLabel(func),
+                                            color = if (func == labelNone) colors.mutedText else colors.primaryText,
+                                            style = galleryTypography.bodySecondary
                                         )
                                     }
                                 }
@@ -1214,7 +1464,7 @@ private fun AssignmentEditor(
                 }
 
                 // Palette
-                Text(stringResource(R.string.label_action_catalog_guide), color = colors.secondaryText, fontSize = textSizes.small)
+                Text(stringResource(R.string.label_action_catalog_guide), color = colors.secondaryText, style = galleryTypography.bodySecondary)
                 val allFunctions = listOf("なし") + functions
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1274,7 +1524,7 @@ private fun AssignmentEditor(
 
             hoveredSlot?.let { slot ->
                 slotBounds[slot]?.let { bounds ->
-                    val halo = 6.dp
+                    val halo = dimensionResource(R.dimen.spacing_settings_halo)
                     val haloPx = with(density) { halo.toPx() }
                     val localTopLeft = bounds.topLeft - editorRootPos - Offset(haloPx, haloPx)
                     Box(
@@ -1292,7 +1542,7 @@ private fun AssignmentEditor(
                             .border(
                                 width = 2.dp,
                                 color = Color.White.copy(alpha = 0.92f),
-                                shape = if (layoutType == AssignmentLayoutType.BAR) CircleShape else RoundedCornerShape(10.dp)
+                                shape = if (layoutType == AssignmentLayoutType.BAR) CircleShape else RoundedCornerShape(dimensionResource(R.dimen.radius_medium) + 2.dp)
                             )
                             .zIndex(9f)
                     )
@@ -1305,7 +1555,7 @@ private fun AssignmentEditor(
                 val localTopLeft = dragRootPos - editorRootPos - dragTouchOffset
                 Surface(
                     color = colors.accent.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(999.dp),
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.radius_full)),
                     modifier = Modifier
                         .offset {
                             IntOffset(localTopLeft.x.roundToInt(), localTopLeft.y.roundToInt())
@@ -1319,12 +1569,12 @@ private fun AssignmentEditor(
                                 }
                             } else {
                                 Modifier
-                                    .height(40.dp)
-                                    .widthIn(min = 100.dp, max = 220.dp)
+                                    .height(dimensionResource(R.dimen.button_size_viewer_action))
+                                    .widthIn(min = dimensionResource(R.dimen.drag_overlay_width_min), max = dimensionResource(R.dimen.drag_overlay_width_max))
                             }
                         )
                         .zIndex(10f),
-                    shadowElevation = 8.dp
+                    shadowElevation = dimensionResource(R.dimen.card_elevation_default)
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp)) {
                         Text(
@@ -1343,7 +1593,7 @@ private fun AssignmentEditor(
 }
 
 @Composable
-private fun Dp.toSp() = with(androidx.compose.ui.platform.LocalDensity.current) { this@toSp.toSp() }
+private fun Dp.toSp() = with(LocalDensity.current) { this@toSp.toSp() }
 
 @Composable
 private fun SettingsSectionCard(title: String, description: String, content: @Composable ColumnScope.() -> Unit) {
@@ -1354,9 +1604,9 @@ private fun SettingsSectionCard(title: String, description: String, content: @Co
         border = BorderStroke(1.dp, colors.divider),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
-            Text(title, color = colors.primaryText, fontWeight = FontWeight.Bold)
-            Text(description, color = colors.secondaryText)
+        Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_settings_horizontal)), verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))) {
+            Text(title, style = galleryTypography.title, color = colors.primaryText)
+            Text(description, style = galleryTypography.body, color = colors.secondaryText)
             content()
         }
     }
@@ -1377,9 +1627,9 @@ private fun SettingsChoiceRow(
     val selectedLabel = options.find { it.second == selected }?.let { stringResource(it.first) } ?: selected
 
     Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
-        Text(title, color = colors.primaryText, fontWeight = FontWeight.Bold)
+        Text(title, style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.primaryText)
         if (description != null) {
-            Text(description, color = colors.secondaryText, fontSize = GalleryThemeTokens.textSizes.small)
+            Text(description, style = galleryTypography.body, color = colors.secondaryText)
         }
 
         if (options.size >= 3) {
@@ -1392,6 +1642,7 @@ private fun SettingsChoiceRow(
                     value = selectedLabel,
                     onValueChange = {},
                     readOnly = true,
+                    textStyle = galleryTypography.body,
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                     colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
                         unfocusedContainerColor = colors.field,
@@ -1400,7 +1651,7 @@ private fun SettingsChoiceRow(
                         focusedBorderColor = colors.accent
                     ),
                     modifier = Modifier.menuAnchor().fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
                 )
                 ExposedDropdownMenu(
                     expanded = expanded,
@@ -1409,7 +1660,7 @@ private fun SettingsChoiceRow(
                 ) {
                     options.forEach { (labelRes, value) ->
                         DropdownMenuItem(
-                            text = { Text(stringResource(labelRes), color = colors.primaryText) },
+                            text = { Text(stringResource(labelRes), style = galleryTypography.body, color = colors.primaryText) },
                             onClick = {
                                 onSelected(value)
                                 expanded = false
@@ -1426,7 +1677,7 @@ private fun SettingsChoiceRow(
                             selected = selected == value,
                             onClick = { onSelected(value) },
                             modifier = Modifier.weight(1f),
-                            label = { Text(stringResource(labelRes), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            label = { Text(stringResource(labelRes), style = galleryTypography.body, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         )
                     }
                     repeat(columns - rowOptions.size) { Spacer(Modifier.weight(1f)) }
@@ -1450,11 +1701,11 @@ private fun SliderSetting(
     var draftValue by remember(value) { mutableFloatStateOf(value.toFloat()) }
     Column {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(title, color = colors.primaryText, fontWeight = FontWeight.Bold)
-            Text("${draftValue.toInt()}$suffix", color = colors.accent, fontWeight = FontWeight.Bold)
+            Text(title, style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.primaryText)
+            Text("${draftValue.toInt()}$suffix", style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.accent)
         }
         if (description != null) {
-            Text(description, color = colors.secondaryText, fontSize = GalleryThemeTokens.textSizes.small)
+            Text(description, style = galleryTypography.body, color = colors.secondaryText)
         }
         Slider(
             value = draftValue,
@@ -1478,25 +1729,24 @@ private fun SwitchSetting(
 ) {
     val colors = GalleryThemeTokens.colors
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = dimensionResource(R.dimen.spacing_tiny)),
         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = colors.primaryText,
-                fontWeight = FontWeight.Bold
+                style = galleryTypography.body.copy(fontWeight = FontWeight.Bold),
+                color = colors.primaryText
             )
             if (description != null) {
-                Text(description, color = colors.secondaryText, fontSize = GalleryThemeTokens.textSizes.small)
+                Text(description, style = galleryTypography.body, color = colors.secondaryText)
             }
             if (statusText != null) {
-                val textSizes = GalleryThemeTokens.textSizes
                 Text(
                     text = statusText,
+                    style = galleryTypography.label,
                     color = colors.accent,
-                    fontSize = textSizes.extraSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1509,10 +1759,9 @@ private fun SwitchSetting(
 @Composable
 private fun TextSizeSettingsSection(textScale: Float, onTextScaleChange: (Float) -> Unit) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
     var draftScale by remember(textScale) { mutableFloatStateOf(textScale) }
     SettingsSectionCard(stringResource(R.string.settings_text_size), stringResource(R.string.settings_text_size_desc)) {
-        Text(stringResource(R.string.settings_current_value, (draftScale * 100).toInt()), color = colors.accent, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.settings_current_value, (draftScale * 100).toInt()), style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.accent)
         Slider(
             value = draftScale,
             onValueChange = {
@@ -1529,9 +1778,9 @@ private fun TextSizeSettingsSection(textScale: Float, onTextScaleChange: (Float)
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_base)), verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
-                Text(stringResource(R.string.settings_sample_header), color = colors.primaryText, fontSize = textSizes.header, fontWeight = FontWeight.Bold)
-                Text(stringResource(R.string.settings_sample_body), color = colors.secondaryText, fontSize = textSizes.body)
-                Text(stringResource(R.string.settings_sample_label), color = colors.mutedText, fontSize = textSizes.small)
+                Text(stringResource(R.string.settings_sample_header), style = MaterialTheme.typography.titleLarge, color = colors.primaryText, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.settings_sample_body), style = MaterialTheme.typography.bodyLarge, color = colors.secondaryText)
+                Text(stringResource(R.string.settings_sample_label), style = MaterialTheme.typography.bodySmall, color = colors.mutedText)
             }
         }
     }
@@ -1640,76 +1889,6 @@ private val ageFilterOptions = listOf(
     R.string.opt_age_r18 to AppConstants.RATING_R18
 )
 
-private data class ThemePreset(val labelRes: Int, val value: String, val colors: GalleryColors?)
-
-private fun palette(
-    background: Long,
-    surface: Long,
-    primaryText: Long,
-    secondaryText: Long,
-    accent: Long,
-    danger: Long,
-    success: Long,
-    divider: Long,
-    surfaceVariant: Long = surface,
-    topBar: Long = background,
-    drawer: Long = background,
-    card: Long = surface,
-    field: Long = surfaceVariant,
-    mutedText: Long = secondaryText,
-    accentSoft: Long = accent,
-    warning: Long = 0xFFFFC857,
-    info: Long = accent,
-    disabled: Long = secondaryText
-) = GalleryColors(
-    background = Color(background),
-    surface = Color(surface),
-    surfaceVariant = Color(surfaceVariant),
-    topBar = Color(topBar),
-    drawer = Color(drawer),
-    card = Color(card),
-    field = Color(field),
-    primaryText = Color(primaryText),
-    secondaryText = Color(secondaryText),
-    mutedText = Color(mutedText),
-    accent = Color(accent),
-    accentSoft = Color(accentSoft),
-    danger = Color(danger),
-    success = Color(success),
-    warning = Color(warning),
-    info = Color(info),
-    divider = Color(divider),
-    disabled = Color(disabled)
-)
-
-private val themePresets = listOf(
-    ThemePreset(R.string.preset_standard, "DEFAULT", null),
-    ThemePreset(R.string.preset_custom, "CUSTOM", null),
-    ThemePreset(R.string.preset_midnight, "MIDNIGHT", palette(background = 0xFF101418, surface = 0xFF151B22, primaryText = 0xFFF4F8FC, secondaryText = 0xFFB7C6D5, accent = 0xFF4DA3FF, danger = 0xFFFF6B7A, success = 0xFF47D18C, divider = 0x33FFFFFF)),
-    ThemePreset(R.string.preset_paper, "PAPER", palette(background = 0xFFF4F8FC, surface = 0xFFFFFFFF, primaryText = 0xFF101820, secondaryText = 0xFF435466, accent = 0xFF006ACB, danger = 0xFFD9364E, success = 0xFF168A52, divider = 0x1F000000)),
-    ThemePreset(R.string.preset_sunrise, "SUNRISE", palette(background = 0xFFFFF7ED, surface = 0xFFFFFBF5, primaryText = 0xFF2D1B16, secondaryText = 0xFF6F4A3E, accent = 0xFFE65F3C, danger = 0xFFD6384D, success = 0xFF2D9A68, divider = 0x24000000)),
-    ThemePreset(R.string.preset_sunset, "SUNSET", palette(background = 0xFF171018, surface = 0xFF241525, primaryText = 0xFFFFF2E8, secondaryText = 0xFFE0BBAA, accent = 0xFFFF8A3D, danger = 0xFFFF6175, success = 0xFF62D58E, divider = 0x33FFFFFF)),
-    ThemePreset(R.string.preset_gorgeous, "GORGEOUS", palette(background = 0xFF100B12, surface = 0xFF1A121D, primaryText = 0xFFFFF7E2, secondaryText = 0xFFE8D2A0, accent = 0xFFFFC857, danger = 0xFFFF6678, success = 0xFF5DDD9B, divider = 0x40FFDFA3)),
-    ThemePreset(R.string.preset_calm, "CALM", palette(background = 0xFF121715, surface = 0xFF17201D, primaryText = 0xFFEFF8F2, secondaryText = 0xFFC3D5CA, accent = 0xFF8FD19E, danger = 0xFFFF7480, success = 0xFF67D695, divider = 0x2EFFFFFF)),
-    ThemePreset(R.string.preset_spring, "SPRING", palette(background = 0xFFFFF7FB, surface = 0xFFFFFFFF, primaryText = 0xFF25151D, secondaryText = 0xFF69485A, accent = 0xFFE85D93, danger = 0xFFD83A55, success = 0xFF2BA86B, divider = 0x22000000)),
-    ThemePreset(R.string.preset_summer, "SUMMER", palette(background = 0xFFF1FBFF, surface = 0xFFFFFFFF, primaryText = 0xFF0C2430, secondaryText = 0xFF315D6E, accent = 0xFF00A7C8, danger = 0xFFD93A4E, success = 0xFF149B70, divider = 0x20000000)),
-    ThemePreset(R.string.preset_winter, "WINTER", palette(background = 0xFF0E141B, surface = 0xFF141D27, primaryText = 0xFFF2FAFF, secondaryText = 0xFFC5D8E6, accent = 0xFF8ED8FF, danger = 0xFFFF7180, success = 0xFF64D69A, divider = 0x33FFFFFF)),
-    ThemePreset(R.string.preset_forest, "FOREST", palette(background = 0xFF0F1711, surface = 0xFF172119, primaryText = 0xFFF0F8EF, secondaryText = 0xFFC6D8C1, accent = 0xFF7ACB6A, danger = 0xFFFF746F, success = 0xFF6FDA83, divider = 0x2EFFFFFF)),
-    ThemePreset(R.string.preset_neon, "NEON", palette(background = 0xFF090B12, surface = 0xFF10131F, primaryText = 0xFFF1FFF9, secondaryText = 0xFFB8F7E6, accent = 0xFF49F2C2, danger = 0xFFFF4D8A, success = 0xFF6DFF85, divider = 0x4049F2C2)),
-    ThemePreset(R.string.preset_mono, "MONO", palette(background = 0xFF111315, surface = 0xFF191C1F, primaryText = 0xFFF2F4F6, secondaryText = 0xFFC6CBD0, accent = 0xFFE6EAF0, danger = 0xFFFF6B76, success = 0xFF7FD39A, divider = 0x33FFFFFF)),
-    ThemePreset(R.string.preset_sakura_mist, "SAKURA_MIST", palette(background = 0xFFFFF4F8, surface = 0xFFFFFBFD, primaryText = 0xFF2D1821, secondaryText = 0xFF704B5A, accent = 0xFFD95F8D, danger = 0xFFD94359, success = 0xFF2F9E71, divider = 0x22000000)),
-    ThemePreset(R.string.preset_fresh_leaf, "FRESH_LEAF", palette(background = 0xFFF5FFF2, surface = 0xFFFFFFFF, primaryText = 0xFF142314, secondaryText = 0xFF3F633F, accent = 0xFF3FA35B, danger = 0xFFD94050, success = 0xFF1D9B5A, divider = 0x20000000)),
-    ThemePreset(R.string.preset_deep_sea, "DEEP_SEA", palette(background = 0xFF071218, surface = 0xFF0D1D25, primaryText = 0xFFE9FCFF, secondaryText = 0xFFB5DCE3, accent = 0xFF38C6D9, danger = 0xFFFF6576, success = 0xFF58D899, divider = 0x3338C6D9)),
-    ThemePreset(R.string.preset_starry, "STARRY", palette(background = 0xFF080A18, surface = 0xFF11142A, primaryText = 0xFFF3F6FF, secondaryText = 0xFFC8D2FF, accent = 0xFFB7C7FF, danger = 0xFFFF6B82, success = 0xFF6CE0A2, divider = 0x33FFFFFF)),
-    ThemePreset(R.string.preset_coffee, "COFFEE", palette(background = 0xFF15100C, surface = 0xFF211811, primaryText = 0xFFFFF4E7, secondaryText = 0xFFE2C4A0, accent = 0xFFD7A86E, danger = 0xFFFF6B70, success = 0xFF75D18E, divider = 0x35FFE0B8)),
-    ThemePreset(R.string.preset_jade, "JADE", palette(background = 0xFF071410, surface = 0xFF10231D, primaryText = 0xFFE9FFF6, secondaryText = 0xFFB9E6D4, accent = 0xFF59D6A3, danger = 0xFFFF6776, success = 0xFF73E28F, divider = 0x3359D6A3)),
-    ThemePreset(R.string.preset_grape, "GRAPE", palette(background = 0xFF150C18, surface = 0xFF211126, primaryText = 0xFFFFF0FF, secondaryText = 0xFFE0B8ED, accent = 0xFFD083FF, danger = 0xFFFF657C, success = 0xFF68D99A, divider = 0x35FFFFFF)),
-    ThemePreset(R.string.preset_porcelain, "PORCELAIN", palette(background = 0xFFF8FAFC, surface = 0xFFFFFFFF, primaryText = 0xFF17202A, secondaryText = 0xFF4B5E72, accent = 0xFF527AA3, danger = 0xFFD83E50, success = 0xFF218F62, divider = 0x1F000000)),
-    ThemePreset(R.string.preset_autumn_leaf, "AUTUMN_LEAF", palette(background = 0xFFFFF8F0, surface = 0xFFFFFCF8, primaryText = 0xFF2B1A11, secondaryText = 0xFF6B4936, accent = 0xFFC65A2E, danger = 0xFFD33E4E, success = 0xFF2C955F, divider = 0x22000000)),
-    ThemePreset(R.string.preset_jewel, "JEWEL", palette(background = 0xFF0B0A12, surface = 0xFF151326, primaryText = 0xFFFFF4FF, secondaryText = 0xFFE2C4FF, accent = 0xFFFF4FD8, danger = 0xFFFF667B, success = 0xFF65E2A0, divider = 0x33FFFFFF))
-)
-
-private val themePresetOptions = themePresets.map { it.labelRes to it.value }
 private val startupScreenOptions = listOf(
     R.string.nav_home to "home",
     R.string.nav_folders to "folders",
@@ -1723,8 +1902,6 @@ private val startupScreenOptions = listOf(
     R.string.nav_settings to "settings",
     R.string.nav_about to "about"
 )
-
-private fun themePresetPalette(value: String): GalleryColors? = themePresets.firstOrNull { it.value == value }?.colors
 
 private fun Color.toHexString(): String {
     val argb = toArgb()

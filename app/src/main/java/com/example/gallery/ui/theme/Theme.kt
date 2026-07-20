@@ -225,10 +225,12 @@ fun GalleryTheme(
         else -> buildGalleryColorScheme(galleryColors)
     }
     val textSizes = GalleryTextSizeTokens.scaled(textScale)
+    val typography = buildGalleryTypography(galleryColors, textSizes)
 
     CompositionLocalProvider(
         LocalGalleryColors provides galleryColors,
-        LocalGalleryTextSizes provides textSizes
+        LocalGalleryTextSizes provides textSizes,
+        LocalGalleryTypography provides typography
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

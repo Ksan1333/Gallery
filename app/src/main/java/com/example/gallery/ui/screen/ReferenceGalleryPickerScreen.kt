@@ -18,7 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import com.example.gallery.data.model.MediaData
@@ -73,7 +73,7 @@ fun ReferenceGalleryPickerScreen(
                 topBarActions = {
                     if (selectedUris.isNotEmpty()) {
                         Text(stringResource(R.string.ref_items_selected, selectedUris.size), color = colors.primaryText)
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_small)))
                         Button(
                             enabled = !isSaving,
                             onClick = {

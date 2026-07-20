@@ -21,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.draw.clip
@@ -34,7 +35,9 @@ import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.gallery.data.repository.MediaRepository
+import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.GalleryAlphaTokens
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.TagTranslationService
 import kotlinx.coroutines.Dispatchers
@@ -78,7 +81,7 @@ fun UnifiedMediaEditDialog(
     LaunchedEffect(uris) {
         if (uris.size == 1) {
             val meta = repository.getMetadata(uris[0])
-            selectedAgeRating = meta?.ageRating ?: "SFW"
+            selectedAgeRating = meta?.ageRating ?: AppConstants.RATING_SFW
         } else {
             // 複数選択時は「変更なし」をデフォルトにするため null
             if (selectedAgeRating == null) selectedAgeRating = null
@@ -149,13 +152,13 @@ fun UnifiedMediaEditDialog(
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        .height(dimensionResource(R.dimen.edit_dialog_preview_row_height)),
+                    horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))
                 ) {
                     // 2つずつペアにして表示することで縦2段を実現
                     val pairs = uris.chunked(2)
                     items(pairs) { pair ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))) {
                             pair.forEach { uri ->
                                 AsyncImage(
                                     model = remember(uri) {
@@ -167,14 +170,14 @@ fun UnifiedMediaEditDialog(
                                     },
                                     contentDescription = null,
                                     modifier = Modifier
-                                        .size(88.dp)
-                                        .clip(RoundedCornerShape(4.dp)),
+                                        .size(dimensionResource(R.dimen.edit_dialog_thumbnail_size))
+                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small))),
                                     contentScale = ContentScale.Crop
                                 )
                             }
                             // 奇数個の場合に高さを合わせるための空き
                             if (pair.size < 2) {
-                                Spacer(modifier = Modifier.size(88.dp))
+                                Spacer(modifier = Modifier.size(dimensionResource(R.dimen.edit_dialog_thumbnail_size)))
                             }
                         }
                     }
@@ -188,10 +191,10 @@ fun UnifiedMediaEditDialog(
                 item {
                     Text(stringResource(R.string.edit_target_age), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = colors.primaryText)
                     FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth().padding(vertical = dimensionResource(R.dimen.spacing_small)),
+                        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
                     ) {
-                        listOf(null to stringResource(R.string.opt_no_change), "SFW" to stringResource(R.string.opt_age_sfw), "R15" to stringResource(R.string.opt_age_r15), "R18" to stringResource(R.string.opt_age_r18)).forEach { (code, label) ->
+                        listOf(null to stringResource(R.string.opt_no_change), AppConstants.RATING_SFW to stringResource(R.string.opt_age_sfw), AppConstants.RATING_R15 to stringResource(R.string.opt_age_r15), AppConstants.RATING_R18 to stringResource(R.string.opt_age_r18)).forEach { (code, label) ->
                             if (uris.size > 1 || code != null) {
                                 FilterChip(
                                     selected = selectedAgeRating == code,
@@ -275,7 +278,7 @@ fun UnifiedMediaEditDialog(
                                 value = tagSearchQuery,
                                 onValueChange = { tagSearchQuery = it },
                                 placeholder = { Text(stringResource(R.string.edit_search_tags), fontSize = textSizes.tiny) },
-                                modifier = Modifier.width(150.dp).height(40.dp),
+                                modifier = Modifier.width(dimensionResource(R.dimen.edit_dialog_tag_search_width)).height(dimensionResource(R.dimen.icon_size_extra_large)), // icon_size_extra_large is 40dp
                                 singleLine = true,
                                 textStyle = LocalTextStyle.current.copy(fontSize = textSizes.small),
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -291,14 +294,14 @@ fun UnifiedMediaEditDialog(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 200.dp)
-                                .padding(vertical = 4.dp)
-                                .background(colors.background.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .heightIn(max = dimensionResource(R.dimen.edit_dialog_tag_list_max_height))
+                                .padding(vertical = dimensionResource(R.dimen.spacing_tiny))
+                                .background(colors.background.copy(alpha = GalleryAlphaTokens.SubtleBackground), RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
                                 .verticalScroll(rememberScrollState())
                         ) {
                             FlowRow(
-                                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                modifier = Modifier.fillMaxWidth().padding(dimensionResource(R.dimen.spacing_small)),
+                                horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))
                             ) {
                                 filteredTags.forEach { tag ->
                                     FilterChip(
@@ -312,10 +315,10 @@ fun UnifiedMediaEditDialog(
                                         label = { Text(TagTranslationService.translate(tag), fontSize = textSizes.small) },
                                         enabled = !isProcessing,
                                         colors = FilterChipDefaults.filterChipColors(
-                                    labelColor = if (!isProcessing) colors.primaryText else colors.disabled,
-                                    selectedLabelColor = colors.background,
-                                    selectedContainerColor = colors.accent.copy(alpha = 0.7f)
-                                )
+                                            labelColor = if (!isProcessing) colors.primaryText else colors.disabled,
+                                            selectedLabelColor = colors.background,
+                                            selectedContainerColor = colors.accent.copy(alpha = GalleryAlphaTokens.Highlight)
+                                        )
                                     )
                                 }
                             }

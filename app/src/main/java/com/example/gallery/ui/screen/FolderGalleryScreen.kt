@@ -23,8 +23,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.example.gallery.R
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.state.*
@@ -36,7 +36,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.util.UUID
 
-@OptIn(kotlinx.coroutines.FlowPreview::class)
+@OptIn(FlowPreview::class)
 @Composable
 fun FolderGalleryScreen(
     onShowViewer: () -> Unit,
@@ -61,7 +61,12 @@ fun FolderGalleryScreen(
     var pendingGroupTitle by remember { mutableStateOf("") }
     val folderData = remember { mutableStateMapOf<String, MutableList<MediaData>>() }
     var selectedFolderName by rememberSaveable { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
+    // 初期値を true にして、最初のロードが終わるまでスピナーを出す。
+    // ただし、既にデータがある場合は isLoading=false から始まるように調整が必要かもしれないが、
+    // LaunchedEffect で loadAllMedia が呼ばれるので true 開始で安全。
+    var isLoading by remember { mutableStateOf(true) }
+    var isCategoriesCalculating by remember { mutableStateOf(false) }
+    var isInitialLoadFinished by remember { mutableStateOf(false) }
 
     val managedFolders by galleryState.repository.getAllManagedFolders().collectAsState(initial = emptyList())
     val managedFolderNames = remember(managedFolders) { managedFolders.map { it.folderName } }
@@ -72,6 +77,8 @@ fun FolderGalleryScreen(
     val metadataMap = remember { mutableStateMapOf<String, com.example.gallery.data.local.entity.MediaMetadataSummary>() }
     var metadataVersion by remember { mutableIntStateOf(0) }
     var folderDataVersion by remember { mutableIntStateOf(0) }
+    var refreshVersion by remember { mutableIntStateOf(0) }
+    var lastReorderTime by remember { mutableLongStateOf(0L) }
     LaunchedEffect(galleryState.repository) {
         galleryState.repository.getAllMetadataSummaryFlow()
             .debounce(1000)
@@ -92,35 +99,67 @@ fun FolderGalleryScreen(
 
     var showFolderMenu by remember { mutableStateOf<CategoryData?>(null) }
 
-    fun loadAllMedia() {
-        if (isLoading) return
+    fun loadAllMedia(isRefresh: Boolean = false) {
+        android.util.Log.d("FolderGallery", "loadAllMedia started")
         scope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) { isLoading = true }
-            val newMap = mutableMapOf<String, MutableList<MediaData>>()
-            val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
+            if (!isRefresh || folderData.isEmpty()) {
+                withContext(Dispatchers.Main) { isLoading = true }
+            }
+            try {
+                val newMap = mutableMapOf<String, MutableList<MediaData>>()
+                val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
+                android.util.Log.d("FolderGallery", "loadAllMedia: allMedia size = ${allMedia.size}")
 
-            // ディレクトリ走査は重いので、allMedia の folderName だけで構成する。
-            allMedia.forEach { newMap.getOrPut(it.folderName) { mutableListOf() }.add(it) }
+                // ディレクトリ走査は重いので、allMedia の folderName だけで構成する。
+                allMedia.forEach { newMap.getOrPut(it.folderName) { mutableListOf() }.add(it) }
 
-            // 明示的に管理されている空フォルダも追加する。
-            managedFolderNames.forEach { if (!newMap.containsKey(it)) newMap[it] = mutableListOf() }
-            newMap.values.forEach { it.sortByDescending { m -> m.dateAdded } }
-            withContext(Dispatchers.Main) {
-                folderData.clear(); folderData.putAll(newMap)
-                folderDataVersion++
-                isLoading = false
+                // 明示的に管理されている空フォルダも追加する。
+                managedFolderNames.forEach { if (!newMap.containsKey(it)) newMap[it] = mutableListOf() }
+                newMap.values.forEach { it.sortByDescending { m -> m.dateAdded } }
+                
+                android.util.Log.d("FolderGallery", "loadAllMedia: folderMap keys = ${newMap.keys}")
+                
+                withContext(Dispatchers.Main) {
+                    folderData.clear()
+                    folderData.putAll(newMap)
+                    folderDataVersion++
+                    android.util.Log.d("FolderGallery", "loadAllMedia: folderData cleared and updated, version=$folderDataVersion")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FolderGallery", "loadAllMedia error", e)
+            } finally {
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    android.util.Log.d("FolderGallery", "loadAllMedia finished, isLoading=false")
+                }
             }
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p -> if (p.values.all { it }) loadAllMedia() }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p ->
+        if (p.values.any { it }) loadAllMedia()
+        else isLoading = false
+    }
 
     LaunchedEffect(galleryState.refreshTrigger) {
-        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
-        else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-        if (perms.all { androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        
+        val hasAnyPermission = perms.any {
+            val granted = androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            android.util.Log.d("FolderGallery", "Permission check: $it = $granted")
+            granted
+        }
+
+        if (hasAnyPermission) {
             loadAllMedia()
         } else {
+            android.util.Log.d("FolderGallery", "No permission, launching launcher")
             permissionLauncher.launch(perms)
         }
     }
@@ -141,16 +180,22 @@ fun FolderGalleryScreen(
 
     var categories by remember { mutableStateOf<List<CategoryData>>(emptyList()) }
     var selectedCategoryMedia by remember { mutableStateOf<List<MediaData>>(emptyList()) }
+    var isMediaCalculationFinished by remember { mutableStateOf(false) }
 
-    LaunchedEffect(folderDataVersion, metadataVersion, galleryState.ageRatingFilter, folderThumbnails, orderMap, managedFolderNames) {
-        val folderSnapshot = folderData.mapValues { it.value.toList() }
+    LaunchedEffect(folderDataVersion, metadataVersion, galleryState.ageRatingFilter, folderThumbnails, orderMap, managedFolderNames, refreshVersion) {
+        if (System.currentTimeMillis() - lastReorderTime < 2000L) return@LaunchedEffect
+
+        android.util.Log.d("FolderGallery", "Categories update LaunchedEffect: folderDataVersion=$folderDataVersion, metadataVersion=$metadataVersion")
+        isCategoriesCalculating = true
+
+        val folderSnapshot = folderData.toMap()
         val metadataSnapshot = metadataMap.toMap()
         val thumbnailSnapshot = folderThumbnails.toMap()
         val orderSnapshot = orderMap.toMap()
         val managedSnapshot = managedFolderNames.toSet()
         val ageFilter = galleryState.ageRatingFilter
 
-        categories = withContext(Dispatchers.Default) {
+        val nextCategories = withContext(Dispatchers.Default) {
             folderSnapshot.map { (name, images) ->
                 val filtered = images.filter { m ->
                     val rating = metadataSnapshot[m.uri]?.ageRating ?: "SFW"
@@ -168,8 +213,14 @@ fun FolderGalleryScreen(
                 )
             }
                 .sortedWith(compareBy({ orderSnapshot[it.id] ?: Int.MAX_VALUE }, { it.title }))
-                .filter { it.isPhysical || (folderSnapshot[it.id]?.size ?: 0) > 0 || thumbnailSnapshot[it.id] != null }
+                .filter { it.isPhysical || it.count > 0 || thumbnailSnapshot[it.id] != null }
         }
+        
+        android.util.Log.d("FolderGallery", "Categories updated: count=${nextCategories.size}")
+        categories = nextCategories
+        isCategoriesCalculating = false
+        isInitialLoadFinished = true
+        android.util.Log.d("FolderGallery", "isInitialLoadFinished set to true")
     }
 
     LaunchedEffect(selectedFolderName, folderDataVersion, metadataVersion, galleryState.ageRatingFilter) {
@@ -177,6 +228,7 @@ fun FolderGalleryScreen(
         val mediaSnapshot = folderName?.let { folderData[it]?.toList() }.orEmpty()
         val metadataSnapshot = metadataMap.toMap()
         val ageFilter = galleryState.ageRatingFilter
+        isMediaCalculationFinished = false
         selectedCategoryMedia = withContext(Dispatchers.Default) {
             mediaSnapshot.filter { m ->
                 val rating = metadataSnapshot[m.uri]?.ageRating ?: "SFW"
@@ -188,21 +240,39 @@ fun FolderGalleryScreen(
                 }
             }
         }
+        isMediaCalculationFinished = true
     }
 
-    val displayedCategories = remember(categories, folderGroups) {
-        buildFolderGroupCategories(categories, folderGroups)
+    LaunchedEffect(selectedCategoryMedia, selectedFolderName, isLoading, isMediaCalculationFinished) {
+        if (selectedFolderName != null && !isLoading && isMediaCalculationFinished && selectedCategoryMedia.isEmpty()) {
+            // Small delay to ensure state has settled and avoid flickers
+            delay(500)
+            if (selectedFolderName != null && !isLoading && isMediaCalculationFinished && selectedCategoryMedia.isEmpty()) {
+                selectedFolderName = null
+                isSubCategorySelected = false
+            }
+        }
+    }
+
+    val displayedCategories = remember(categories, folderGroups, refreshVersion) {
+        val result = buildFolderGroupCategories(categories, folderGroups)
+        android.util.Log.d("FolderGallery", "displayedCategories updated: result size=${result.size}, categories size=${categories.size}, groups size=${folderGroups.size}")
+        result
     }
 
     fun persistFolderGroups(next: List<FolderGroupDefinition>) {
         folderGroups = next
         FolderGroupStore.save(globalPrefs, next)
+        refreshVersion++
+        galleryState.refresh()
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        CategoryScreen(
-            title = if (isSelectionMode) stringResource(R.string.folder_picker_title) else stringResource(R.string.nav_folders),
-            categories = displayedCategories, isLoading = isLoading, galleryState = galleryState,
+        Box(modifier = Modifier.fillMaxSize()) {
+            CategoryScreen(
+                title = if (isSelectionMode) stringResource(R.string.folder_picker_title) else stringResource(R.string.nav_folders),
+                categories = displayedCategories,
+                isLoading = (isLoading || isCategoriesCalculating || !isInitialLoadFinished) && displayedCategories.isEmpty() && !isInitialLoadFinished,
+                galleryState = galleryState,
             onNavigateToTag = { tag ->
                 onBackToFolders() // まずフォルダリストへ戻る。
                 onFolderSelected("TAG_NAVIGATION:$tag") // 特別なプレフィックスで MainActivity へ通知する。
@@ -256,12 +326,19 @@ fun FolderGalleryScreen(
                 }
             },
             onCategoryClick = { if (isSelectionMode) onFolderSelected(it.id) else { selectedFolderName = it.id; isSubCategorySelected = true } },
-            onCategoryLongClick = { showFolderMenu = it },
+            onCategoryLongClick = null,
             onReorder = { ids ->
                 val categoriesById = displayedCategories.associateBy { it.id }
                 val folderIds = ids.flatMap { id ->
                     categoriesById[id]?.groupMembers?.map { it.id }.orEmpty().ifEmpty { listOf(id) }
                 }
+                
+                // Immediately update local categories state to prevent reorder "jump-back"
+                val idToFlatCat = categories.associateBy { it.id }
+                categories = folderIds.mapNotNull { idToFlatCat[it] }
+                refreshVersion++
+                lastReorderTime = System.currentTimeMillis()
+
                 scope.launch {
                     galleryState.repository.updateFolderOrders(
                         folderIds.distinct().mapIndexed { i, id ->
@@ -270,16 +347,51 @@ fun FolderGalleryScreen(
                     )
                 }
             },
-            onCreateCategoryGroup = { folderIds ->
-                pendingGroupFolderIds = folderIds.distinct()
-                pendingGroupTitle = context.getString(
-                    R.string.folder_group_default_name,
-                    folderGroups.size + 1
-                )
+            onCreateCategoryGroup = { folderIds, targetGroupId ->
+                if (targetGroupId != null) {
+                    val updated = folderGroups.map { group ->
+                        if (group.id == targetGroupId) {
+                            group.copy(folderIds = (group.folderIds + folderIds).distinct())
+                        } else {
+                            val remaining = group.folderIds.filterNot { it in folderIds }
+                            group.copy(folderIds = remaining)
+                        }
+                    }.filter { it.folderIds.size >= 2 }
+                    persistFolderGroups(updated)
+                } else {
+                    pendingGroupFolderIds = folderIds.distinct()
+                    pendingGroupTitle = context.getString(
+                        R.string.folder_group_default_name,
+                        folderGroups.size + 1
+                    )
+                }
             },
             onUngroupCategory = { groupId ->
                 persistFolderGroups(folderGroups.filterNot { it.id == groupId })
             },
+            onUngroupCategoryMember = { groupId, folderId ->
+                val updated = folderGroups.mapNotNull { group ->
+                    if (group.id == groupId) {
+                        val remaining = group.folderIds.filterNot { it == folderId }
+                        if (remaining.size >= 2) {
+                            group.copy(folderIds = remaining)
+                        } else {
+                            null
+                        }
+                    } else {
+                        group
+                    }
+                }
+                persistFolderGroups(updated)
+            },
+            onRenameCategoryGroup = { groupId, newName ->
+                val updated = folderGroups.map { group ->
+                    if (group.id == groupId) group.copy(title = newName) else group
+                }
+                persistFolderGroups(updated)
+            },
+            showThumbnails = true,
+            initialColumnIndex = 3,
             onShowViewer = onShowViewer, onHideViewer = onHideViewer,
             selectedCategoryTitle = selectedFolderName,
             selectedCategoryMedia = selectedCategoryMedia,
@@ -289,7 +401,8 @@ fun FolderGalleryScreen(
             onPageChangedInViewer = { galleryState.lastViewedUri = it },
             onBulkEdit = onBulkEdit,
             onBulkMove = onBulkMove,
-            onScrollConsumed = { galleryState.lastViewedUri = null }
+            onScrollConsumed = { galleryState.lastViewedUri = null },
+            gridExtraBottomPadding = dimensionResource(R.dimen.spacing_micro) - dimensionResource(R.dimen.spacing_micro) // 0.dp
         )
     }
 
@@ -300,7 +413,7 @@ fun FolderGalleryScreen(
             text = {
                 Column {
                     Text(stringResource(R.string.folder_dcim_desc), fontSize = textSizes.small, color = colors.mutedText)
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
                     OutlinedTextField(
                         value = newFolderName,
                         onValueChange = { newFolderName = it },

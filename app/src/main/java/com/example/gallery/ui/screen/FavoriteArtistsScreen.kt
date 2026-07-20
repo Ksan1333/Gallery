@@ -55,13 +55,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.material.icons.filled.Download
@@ -108,7 +108,7 @@ fun FavoriteArtistsScreen(
     onMenuClick: () -> Unit = {}
 ) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
+    GalleryThemeTokens.textSizes
     val creatorBackground = colors.background
     val creatorCard = colors.card
     val creatorInk = colors.primaryText
@@ -137,120 +137,6 @@ fun FavoriteArtistsScreen(
     fun persistCustomSites(next: List<String>) {
         customSites = next.map { it.trim() }.filter { it.isNotBlank() && it !in DEFAULT_PLATFORMS }.distinct()
         saveCustomSites(prefs, customSites)
-    }
-
-    fun getBackupFile(): File {
-        // ユーザーが見つけやすい Documents/Gallery/Backups に保存する。
-        val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-        val folder = File(baseDir, "Gallery/Backups")
-        if (!folder.exists()) folder.mkdirs()
-        return File(folder, "favorite_artists.json")
-    }
-
-    fun exportData() {
-        if (creators.isEmpty() && customSites.isEmpty()) {
-            Toast.makeText(context, context.getString(R.string.msg_no_data_backup), Toast.LENGTH_SHORT).show()
-            return
-        }
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                val file = getBackupFile()
-                FileOutputStream(file).use { stream ->
-                    val root = JSONObject()
-                    val artistsArray = JSONArray()
-                    creators.forEach { c ->
-                        val links = JSONArray()
-                        c.links.forEach { l ->
-                            links.put(JSONObject().put("platform", l.platform).put("url", l.url))
-                        }
-                        artistsArray.put(JSONObject().put("name", c.name).put("links", links))
-                    }
-                    root.put("artists", artistsArray)
-                    val sitesArray = JSONArray()
-                    customSites.forEach { s -> sitesArray.put(s) }
-                    root.put("custom_sites", sitesArray)
-
-                    stream.bufferedWriter(Charsets.UTF_8).use { writer ->
-                        writer.write(root.toString(2))
-                    }
-                }
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.msg_saved_to, file.absolutePath), Toast.LENGTH_LONG).show()
-                }
-            }.onFailure {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.msg_save_failed, it.message), Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
-
-    fun importData() {
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                val file = getBackupFile()
-                if (!file.exists()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, context.getString(R.string.msg_backup_not_found), Toast.LENGTH_SHORT).show()
-                    }
-                    return@runCatching
-                }
-                file.inputStream().use { stream ->
-                    val content = stream.bufferedReader(Charsets.UTF_8).readText()
-                    val root = JSONObject(content)
-
-                    val artistsArray = root.optJSONArray("artists")
-                    val newArtists = mutableListOf<FavoriteCreator>()
-                    if (artistsArray != null) {
-                        for (i in 0 until artistsArray.length()) {
-                            val obj = artistsArray.getJSONObject(i)
-                            val name = obj.optString("name")
-                            if (name.isBlank()) continue
-
-                            val linksArr = obj.optJSONArray("links")
-                            val links = mutableListOf<CreatorLink>()
-                            if (linksArr != null) {
-                                for (j in 0 until linksArr.length()) {
-                                    val l = linksArr.getJSONObject(j)
-                                    links.add(CreatorLink(l.optString("platform"), l.optString("url")))
-                                }
-                            }
-                            newArtists.add(FavoriteCreator(name, links))
-                        }
-                    }
-
-                    val sitesArray = root.optJSONArray("custom_sites")
-                    val newSites = mutableListOf<String>()
-                    if (sitesArray != null) {
-                        for (i in 0 until sitesArray.length()) {
-                            newSites.add(sitesArray.getString(i))
-                        }
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        if (newArtists.isNotEmpty()) {
-                            val currentNames = creators.map { it.name }.toSet()
-                            val uniqueNewArtists = newArtists.filter { it.name !in currentNames }
-                            if (uniqueNewArtists.isNotEmpty()) {
-                                persistCreators(creators + uniqueNewArtists)
-                            }
-                        }
-                        if (newSites.isNotEmpty()) {
-                            val currentSites = customSites.toSet()
-                            val uniqueNewSites = newSites.filter { it !in currentSites }
-                            if (uniqueNewSites.isNotEmpty()) {
-                                persistCustomSites(customSites + uniqueNewSites)
-                            }
-                        }
-                        Toast.makeText(context, context.getString(R.string.msg_loaded), Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }.onFailure {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.msg_load_failed, it.message), Toast.LENGTH_LONG).show()
-                }
-            }
-        }
     }
 
     Scaffold(
@@ -314,8 +200,8 @@ fun FavoriteArtistsScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .background(creatorBackground),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
+                verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
             ) {
                 itemsIndexed(creators, key = { index, _ -> index }) { creatorIndex, creator ->
                     CreatorEditCard(
@@ -346,7 +232,7 @@ fun FavoriteArtistsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = creatorAccent)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
                         Text(stringResource(R.string.fav_add_creator_tab))
                     }
                 }
@@ -354,22 +240,22 @@ fun FavoriteArtistsScreen(
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = creatorCard),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
                     ) {
                         Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_base)),
+                            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
                         ) {
                             Text(stringResource(R.string.fav_user_sites), color = creatorInk, fontWeight = FontWeight.Bold)
                             customSites.forEach { site ->
                                 Surface(
                                     color = colors.field,
-                                    shape = RoundedCornerShape(6.dp),
-                                    border = BorderStroke(1.dp, colors.divider),
+                                    shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small) + dimensionResource(R.dimen.radius_tiny)), // 6.dp
+                                    border = BorderStroke(dimensionResource(R.dimen.spacing_hairline), colors.divider),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
+                                        modifier = Modifier.padding(start = dimensionResource(R.dimen.popup_padding_h), end = dimensionResource(R.dimen.spacing_micro), top = dimensionResource(R.dimen.spacing_tiny), bottom = dimensionResource(R.dimen.spacing_tiny)),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
@@ -501,19 +387,19 @@ private fun CreatorDisplayScreen(
 
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
+        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
     ) {
         itemsIndexed(visibleCreators) { _, creator ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = creatorCard),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(dimensionResource(R.dimen.spacing_base)),
+                    verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.popup_padding_h))
                 ) {
                     Text(
                         text = creator.name.ifBlank { stringResource(R.string.fav_untitled_creator) },
@@ -529,18 +415,18 @@ private fun CreatorDisplayScreen(
                                 .fillMaxWidth()
                                 .clickable { openUrl(context, link.url) },
                             color = creatorField,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, GalleryThemeTokens.colors.divider)
+                            shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium)),
+                            border = BorderStroke(dimensionResource(R.dimen.spacing_hairline), GalleryThemeTokens.colors.divider)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_base), vertical = dimensionResource(R.dimen.popup_padding_h)),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = link.platform,
                                     color = creatorAccent,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.width(80.dp),
+                                    modifier = Modifier.width(dimensionResource(R.dimen.grid_bottom_padding) * 0.8f), // 80.dp
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -570,7 +456,7 @@ private fun CreatorEditCard(
     onSearchRequested: (Int, SearchTarget) -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
+    GalleryThemeTokens.textSizes
     val creatorCard = colors.card
     val creatorInk = colors.primaryText
     val creatorMuted = colors.secondaryText
@@ -579,11 +465,11 @@ private fun CreatorEditCard(
     var pendingDeleteLinkIndex by remember { mutableStateOf<Int?>(null) }
     Card(
         colors = CardDefaults.cardColors(containerColor = creatorCard),
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_base)),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.popup_padding_h))
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.fav_creator_tab), color = creatorInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -634,7 +520,7 @@ private fun CreatorEditCard(
                 onClick = { onCreatorChange(creator.copy(links = creator.links + emptyLink(platforms))) }
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(dimensionResource(R.dimen.spacing_micro) + dimensionResource(R.dimen.spacing_micro) * 2)) // 6.dp
                 Text(stringResource(R.string.fav_add_link))
             }
         }
@@ -671,9 +557,9 @@ private fun CreatorLinkEditor(
             platforms = platforms,
             selectedPlatform = link.platform.ifBlank { platforms.firstOrNull().orEmpty() },
             onPlatformSelected = { onLinkChange(link.copy(platform = it)) },
-            modifier = Modifier.width(122.dp)
+            modifier = Modifier.width(dimensionResource(R.dimen.scrollbar_label_offset) * 4.35f) // ~122.dp
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
         OutlinedTextField(
             value = link.url,
             onValueChange = { onLinkChange(link.copy(url = it)) },
@@ -711,11 +597,11 @@ private fun PlatformDropdown(
                 .fillMaxWidth()
                 .clickable { expanded = true },
             color = creatorField,
-            shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, colors.divider)
+            shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small) + dimensionResource(R.dimen.radius_tiny)), // 6.dp
+            border = BorderStroke(dimensionResource(R.dimen.spacing_hairline), colors.divider)
         ) {
             Row(
-                modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 16.dp, bottom = 16.dp),
+                modifier = Modifier.padding(start = dimensionResource(R.dimen.popup_padding_h), end = dimensionResource(R.dimen.spacing_tiny), top = dimensionResource(R.dimen.spacing_medium), bottom = dimensionResource(R.dimen.spacing_medium)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -810,13 +696,13 @@ private fun CreatorSearchDialog(
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = creatorCard,
-            shape = RoundedCornerShape(8.dp)
+            shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
         ) {
             Column {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
+                        .padding(dimensionResource(R.dimen.spacing_small)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(

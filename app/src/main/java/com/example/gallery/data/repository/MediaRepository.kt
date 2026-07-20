@@ -214,14 +214,18 @@ class MediaRepository(
     }
 
     suspend fun syncMediaStoreToRoom() = withContext(Dispatchers.IO) {
-        val allGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-            context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val hasAnyPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasImages = context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasVideos = context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasPartial = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            } else false
+            hasImages || hasVideos || hasPartial
         } else {
             context.checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
 
-        if (!allGranted) return@withContext
+        if (!hasAnyPermission) return@withContext
 
         var opId: String? = null
         fun ensureSyncOperation(): String {
@@ -235,7 +239,7 @@ class MediaRepository(
         try {
             val existingFullMetadata = mediaDao.getAllMetadata().associateBy { it.uri }
             val existingMetadata = existingFullMetadata.mapValues { (_, entity) ->
-                com.example.gallery.data.local.entity.MediaMetadataSummary(
+                MediaMetadataSummary(
                     uri = entity.uri,
                     dateAdded = entity.dateAdded,
                     mimeType = entity.mimeType,
@@ -433,7 +437,23 @@ class MediaRepository(
             opId?.let { activeOpId ->
                 GlobalOperationService.updateProgress(1.0f, context.getString(R.string.msg_sync_complete), id = activeOpId)
             }
-            cachedMediaList = null
+            
+            val allMetadata = mediaDao.getAllMetadataSummary().filter { !it.isDeleted }
+            val mediaList = allMetadata.map { summary ->
+                MediaData(
+                    uri = summary.uri,
+                    dateAdded = summary.dateAdded,
+                    mimeType = summary.mimeType,
+                    duration = summary.duration,
+                    width = summary.width,
+                    height = summary.height,
+                    fileSize = summary.fileSize,
+                    fileName = summary.fileName,
+                    folderName = summary.folderName
+                )
+            }
+            cachedMediaList = mediaList
+            lastCacheTime = System.currentTimeMillis()
         } finally {
             opId?.let { GlobalOperationService.finishOperation(it) }
         }
@@ -559,9 +579,31 @@ class MediaRepository(
         GlobalOperationService.finishOperation(opId)
     }
 
-    suspend fun toggleFavorite(uri: String) {
-        val current = getMetadata(uri)
-        mediaDao.updateFavorite(uri, !(current?.isFavorite ?: false))
+    suspend fun toggleFavorite(uri: String) = withContext(Dispatchers.IO) {
+        val current = mediaDao.getMetadata(uri)
+        if (current != null) {
+            mediaDao.updateFavorite(uri, !current.isFavorite)
+            return@withContext
+        }
+
+        // A viewer can be opened from a list before a metadata row has been
+        // materialized.  `UPDATE` is then a no-op, which made the favorite
+        // button appear broken for those items (notably videos).
+        val media = getAllMedia().firstOrNull { it.uri == uri } ?: return@withContext
+        mediaDao.insertMetadata(
+            MediaMetadataEntity(
+                uri = media.uri,
+                dateAdded = media.dateAdded,
+                mimeType = media.mimeType,
+                duration = media.duration,
+                width = media.width,
+                height = media.height,
+                fileSize = media.fileSize,
+                fileName = media.fileName,
+                folderName = media.folderName,
+                isFavorite = true
+            )
+        )
     }
 
     suspend fun bulkUpdateFavorite(uris: List<String>, isFavorite: Boolean) {
@@ -992,7 +1034,7 @@ class MediaRepository(
     }
 
     fun getAllFolderOrders(): Flow<List<com.example.gallery.data.local.entity.FolderOrderEntity>> = mediaDao.getAllFolderOrders()
-    suspend fun updateFolderOrders(orders: List<com.example.gallery.data.local.entity.FolderOrderEntity>) = orders.forEach { mediaDao.insertFolderOrder(it) }
+    suspend fun updateFolderOrders(orders: List<com.example.gallery.data.local.entity.FolderOrderEntity>) = mediaDao.bulkInsertFolderOrders(orders)
     fun getAllManagedFolderNames(): Flow<List<String>> = mediaDao.getAllManagedFolderNames()
     fun getAllManagedFolders(): Flow<List<com.example.gallery.data.local.entity.ManagedFolderEntity>> = mediaDao.getAllManagedFolders()
 

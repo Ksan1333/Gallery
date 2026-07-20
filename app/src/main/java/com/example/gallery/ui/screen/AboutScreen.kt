@@ -15,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,6 +25,8 @@ import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.galleryTypography
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import com.example.gallery.BuildConfig
@@ -67,7 +68,6 @@ fun AboutScreen(
 ) {
     val context = LocalContext.current
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
     LaunchedEffect(Unit) {
         viewModel.fetchChangelog(context)
     }
@@ -89,7 +89,7 @@ fun AboutScreen(
                 .padding(padding)
                 .background(colors.background)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(dimensionResource(R.dimen.spacing_medium))
         ) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -97,31 +97,31 @@ fun AboutScreen(
                         Icons.Default.Info,
                         contentDescription = null,
                         tint = colors.accent,
-                        modifier = Modifier.size(64.dp)
+                        modifier = Modifier.size(dimensionResource(R.dimen.grid_bottom_padding) * 0.64f) // 64.dp
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Text(stringResource(R.string.app_name), color = colors.primaryText, fontSize = textSizes.title, fontWeight = FontWeight.Bold)
-                    Text("Version ${BuildConfig.VERSION_NAME}", color = colors.mutedText, fontSize = textSizes.subtitle)
+                    Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                    Text(stringResource(R.string.app_name), style = galleryTypography.title)
+                    Text("Version ${BuildConfig.VERSION_NAME}", style = galleryTypography.bodySecondary)
                 }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_extra_large)))
 
-            Text(stringResource(R.string.about_changelog), color = colors.accent, fontSize = textSizes.header, fontWeight = FontWeight.Bold)
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = colors.mutedText.copy(alpha = 0.3f))
+            Text(stringResource(R.string.about_changelog), style = galleryTypography.header.copy(color = colors.accent))
+            HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_small)), color = colors.mutedText.copy(alpha = 0.3f))
 
             when {
                 viewModel.isLoading -> {
-                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(dimensionResource(R.dimen.spacing_large)), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = colors.accent)
                     }
                 }
                 viewModel.error != null -> {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(dimensionResource(R.dimen.spacing_medium)),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(viewModel.error!!, color = colors.danger, fontSize = textSizes.subtitle)
+                        Text(viewModel.error!!, style = galleryTypography.bodySecondary.copy(color = colors.danger))
                         Button(
                             onClick = { viewModel.fetchChangelog(context) },
                             colors = ButtonDefaults.buttonColors(containerColor = colors.card)
@@ -135,14 +135,14 @@ fun AboutScreen(
                 }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_extra_large)))
 
-            Text(stringResource(R.string.about_dev_info), color = colors.accent, fontSize = textSizes.header, fontWeight = FontWeight.Bold)
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = colors.mutedText.copy(alpha = 0.3f))
+            Text(stringResource(R.string.about_dev_info), style = galleryTypography.header.copy(color = colors.accent))
+            HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_small)), color = colors.mutedText.copy(alpha = 0.3f))
 
-            Text(stringResource(R.string.about_dev_desc), color = colors.secondaryText, fontSize = textSizes.subtitle)
+            Text(stringResource(R.string.about_dev_desc), style = galleryTypography.bodySecondary)
 
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(dimensionResource(R.dimen.viewer_bottom_bar_height)))
         }
     }
 }
@@ -180,12 +180,12 @@ fun ExpandableChangelog(text: String) {
     val sections = remember(text) { parseChangelogSections(text, context) }
     var expandedTitle by remember(sections) { mutableStateOf(sections.firstOrNull()?.title) }
     val colors = GalleryThemeTokens.colors
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
         sections.forEach { section ->
             val expanded = expandedTitle == section.title
             Surface(
                 color = colors.card.copy(alpha = 0.45f),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(dimensionResource(R.dimen.radius_medium)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column {
@@ -193,14 +193,14 @@ fun ExpandableChangelog(text: String) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { expandedTitle = if (expanded) null else section.title }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = dimensionResource(R.dimen.spacing_base), vertical = dimensionResource(R.dimen.popup_padding_h)),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(section.title, color = colors.primaryText, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = colors.accent)
                     }
                     if (expanded) {
-                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_base), vertical = dimensionResource(R.dimen.spacing_small))) {
                             MarkdownText(section.body)
                         }
                     }
@@ -213,56 +213,47 @@ fun ExpandableChangelog(text: String) {
 @Composable
 fun MarkdownText(text: String) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
     Column {
         text.lines().forEach { line ->
             when {
                 line.startsWith("# ") -> {
                     Text(
                         text = line.removePrefix("# "),
-                        color = colors.primaryText,
-                        fontSize = textSizes.header,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 8.dp)
+                        style = galleryTypography.header,
+                        modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_small))
                     )
                 }
                 line.startsWith("## ") -> {
                     Text(
                         text = line.removePrefix("## "),
-                        color = colors.accent,
-                        fontSize = textSizes.header,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                        style = galleryTypography.header.copy(color = colors.accent),
+                        modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_medium), bottom = dimensionResource(R.dimen.spacing_tiny))
                     )
                 }
                 line.startsWith("### ") -> {
                     Text(
                         text = line.removePrefix("### "),
-                        color = colors.primaryText,
-                        fontSize = textSizes.body,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                        style = galleryTypography.body.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_small), bottom = dimensionResource(R.dimen.spacing_tiny))
                     )
                 }
                 line.startsWith("- ") || line.startsWith("* ") -> {
-                    Row(modifier = Modifier.padding(start = 8.dp).padding(vertical = 2.dp)) {
+                    Row(modifier = Modifier.padding(start = dimensionResource(R.dimen.spacing_small)).padding(vertical = dimensionResource(R.dimen.spacing_micro))) {
                         Text("• ", color = colors.accent)
                         Text(
                             text = line.substring(2),
-                            color = colors.secondaryText,
-                            fontSize = textSizes.subtitle
+                            style = galleryTypography.bodySecondary
                         )
                     }
                 }
                 line.isBlank() -> {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
                 }
                 else -> {
                     Text(
                         text = line,
-                        color = colors.secondaryText,
-                        fontSize = textSizes.subtitle,
-                        modifier = Modifier.padding(vertical = 2.dp)
+                        style = galleryTypography.bodySecondary,
+                        modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_micro))
                     )
                 }
             }

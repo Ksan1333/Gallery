@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -79,10 +82,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -101,15 +106,19 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
-import coil.compose.rememberAsyncImagePainter
+import androidx.compose.ui.graphics.asImageBitmap
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
+import coil.compose.rememberAsyncImagePainter
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.AppDefaults
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.util.RollingFrameCacheManager
+import com.example.gallery.util.VideoFrameCacheManager
 import com.example.gallery.ui.component.GalleryVideoSeekBar
 import com.example.gallery.ui.component.TapZoneGuideOverlay
 import com.example.gallery.ui.component.isViewerOverflowActionName
@@ -122,6 +131,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 private fun handleVideoViewerAction(
     function: String,
@@ -168,7 +178,7 @@ fun VideoFullscreenViewerScreen(
     galleryState: GalleryState
 ) {
     val context = LocalContext.current
-    val colors = GalleryThemeTokens.colors
+    GalleryThemeTokens.colors
     val textSizes = GalleryThemeTokens.textSizes
     val lifecycleOwner = LocalLifecycleOwner.current
     val activity = context as? Activity
@@ -227,7 +237,20 @@ fun VideoFullscreenViewerScreen(
     var touchIndicatorToken by remember { mutableIntStateOf(0) }
     var isVideoStripVisible by remember { mutableStateOf(false) }
     var wasPlayingBeforeSeek by remember { mutableStateOf(false) }
-    val frameStepMs = 1000L / 30L
+    var isSeekBarDragging by remember { mutableStateOf(false) }
+    var isSwipingOnScreen by remember { mutableStateOf(false) }
+    var isPlayerBuffering by remember { mutableStateOf(false) }
+    var lastSeekRequestedAt by remember { mutableLongStateOf(0L) }
+    var showCacheOverlay by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isSeekBarDragging, isPlayerBuffering) {
+        if (isSeekBarDragging && isPlayerBuffering) {
+            delay(40) // Small grace period to allow player to seek without showing low-res cache
+            showCacheOverlay = true
+        } else {
+            showCacheOverlay = false
+        }
+    }
 
     fun showControlsTemporarily() {
         isControlsVisible = true
@@ -297,6 +320,7 @@ fun VideoFullscreenViewerScreen(
                         }
 
                         override fun onPlaybackStateChanged(playbackState: Int) {
+                            isPlayerBuffering = playbackState == Player.STATE_BUFFERING
                             if (playbackState == Player.STATE_ENDED) {
                                 this@apply.seekTo(0L)
                                 this@apply.play()
@@ -317,13 +341,18 @@ fun VideoFullscreenViewerScreen(
             isPlaying = false
             exoPlayer?.pause()
         }
-        exoPlayer?.setSeekParameters(SeekParameters.EXACT)
-        positionMs = next
-        exoPlayer?.seekTo(next)
-        Log.d(
-            VIDEO_FULLSCREEN_SEEK_TRACE,
-            "seek_request uriHash=${currentVideo?.uri?.hashCode()} target=$next pause=$pausePlayback duration=$duration"
-        )
+        
+        // Only seek if the target position has significantly changed to avoid flooding
+        if (abs(next - positionMs) >= 16) { // ~60fps resolution
+            exoPlayer?.setSeekParameters(SeekParameters.EXACT)
+            positionMs = next
+            exoPlayer?.seekTo(next)
+            lastSeekRequestedAt = System.currentTimeMillis()
+            Log.d(
+                VIDEO_FULLSCREEN_SEEK_TRACE,
+                "seek_request uriHash=${currentVideo?.uri?.hashCode()} target=$next pause=$pausePlayback duration=$duration"
+            )
+        }
     }
 
     fun moveVideo(delta: Int) {
@@ -366,7 +395,9 @@ fun VideoFullscreenViewerScreen(
         exoPlayer ?: return@LaunchedEffect
         exoPlayer.playWhenReady = isPlaying
         while (true) {
-            positionMs = exoPlayer.currentPosition
+            if (!isSeekBarDragging) {
+                positionMs = exoPlayer.currentPosition
+            }
             durationMs = exoPlayer.duration.coerceAtLeast(0L)
             delay(50)
         }
@@ -385,7 +416,7 @@ fun VideoFullscreenViewerScreen(
         }
     }
 
-    LaunchedEffect(isControlsVisible, interactionToken, isVideoStripVisible, isControlInteractionActive, isOverflowMenuOpen) {
+    LaunchedEffect(isControlsVisible, interactionToken, isVideoStripVisible, isControlInteractionActive, isOverflowMenuOpen, isPlaying) {
         if (isControlsVisible) {
             window?.navigationBarColor = AndroidColor.TRANSPARENT
             window?.statusBarColor = AndroidColor.BLACK
@@ -400,7 +431,7 @@ fun VideoFullscreenViewerScreen(
             window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
             insetsController?.hide(WindowInsetsCompat.Type.systemBars())
         }
-        if (isControlsVisible && !isVideoStripVisible && !isControlInteractionActive && !isOverflowMenuOpen) {
+        if (isControlsVisible && isPlaying && !isVideoStripVisible && !isControlInteractionActive && !isOverflowMenuOpen) {
             delay(controlPanelAutoHideMs.toLong())
             if (!isControlInteractionActive && !isOverflowMenuOpen) {
                 isControlsVisible = false
@@ -464,8 +495,18 @@ fun VideoFullscreenViewerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    LaunchedEffect(currentVideo?.uri, durationMs) {
+        val uri = currentVideo?.uri ?: return@LaunchedEffect
+        if (durationMs > 0) {
+            VideoFrameCacheManager.prepareCache(context, uri, durationMs)
+        }
+    }
+
     DisposableEffect(exoPlayer) {
-        onDispose { exoPlayer?.release() }
+        onDispose { 
+            exoPlayer?.release()
+            VideoFrameCacheManager.clearCache()
+        }
     }
 
     BackHandler(onBack = { closeViewer() })
@@ -481,135 +522,186 @@ fun VideoFullscreenViewerScreen(
     ) {
         exoPlayer?.let { player ->
             key(currentVideo?.uri) {
-                AndroidView(
-                    factory = {
-                        PlayerView(it).apply {
-                            tag = currentVideo?.uri
-                            this.player = player
-                            useController = false
-                            setShutterBackgroundColor(AndroidColor.BLACK)
-                            setKeepContentOnPlayerReset(false)
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            setBackgroundColor(AndroidColor.BLACK)
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = {
+                            PlayerView(it).apply {
+                                tag = currentVideo?.uri
+                                this.player = player
+                                useController = false
+                                setShutterBackgroundColor(AndroidColor.BLACK)
+                                setKeepContentOnPlayerReset(false)
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                setBackgroundColor(AndroidColor.BLACK)
+                                layoutParams = FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            }
+                        },
+                        update = {
+                            if (it.tag != currentVideo?.uri) {
+                                it.player = null
+                                it.tag = currentVideo?.uri
+                            }
+                            it.setShutterBackgroundColor(AndroidColor.BLACK)
+                            it.setBackgroundColor(AndroidColor.BLACK)
+                            it.player = player
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(player, durationMs) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    var totalX = 0f
+                                    var totalY = 0f
+                                    var lastAppliedSeekDeltaMs = 0L
+                                    var didHorizontalSeek = false
+                                    var activeGesture: String? = null
+                                    val dragStartPosition = positionMs
+                                    val wasPlayingAtDragStart = isPlaying
+                                    val edgeWidth = size.width * 0.18f
+                                    val gestureMode = when {
+                                        down.position.x <= edgeWidth -> "brightness"
+                                        down.position.x >= size.width - edgeWidth -> "volume"
+                                        else -> "seek"
+                                    }
+                                    val startVolume = playerVolume
+                                    val startBrightness = screenBrightness
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+
+                                        val delta = change.position - change.previousPosition
+                                        totalX += delta.x
+                                        totalY += delta.y
+
+                                        if (activeGesture == null) {
+                                            activeGesture = when {
+                                                gestureMode == "volume" && abs(totalY) > 12f && abs(totalY) > abs(totalX) -> "volume"
+                                                gestureMode == "brightness" && abs(totalY) > 12f && abs(totalY) > abs(totalX) -> "brightness"
+                                                abs(totalX) > 12f && abs(totalX) > abs(totalY) * 1.2f -> "seek"
+                                                else -> null
+                                            }
+                                        }
+
+                                        if (activeGesture == "volume") {
+                                            playerVolume = (startVolume - totalY / (size.height * 0.25f)).coerceIn(0f, 1f)
+                                            val streamVolume = (playerVolume * maxMediaVolume)
+                                                .roundToInt()
+                                                .coerceIn(0, maxMediaVolume)
+                                            audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, streamVolume, 0)
+                                            val actualStreamVolume =
+                                                audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: streamVolume
+                                            player.volume = 1f
+                                            Log.d(
+                                                VIDEO_FULLSCREEN_SEEK_TRACE,
+                                                "volume_adjust value=${(playerVolume * 100).roundToInt()} requested=$streamVolume actual=$actualStreamVolume max=$maxMediaVolume"
+                                            )
+                                            showAdjustment(volumeLabel, playerVolume)
+                                            showControlsTemporarily()
+                                            change.consume()
+                                        } else if (activeGesture == "brightness") {
+                                            screenBrightness = (startBrightness - totalY / (size.height * 0.25f)).coerceIn(0.01f, 1f)
+                                            hasCustomBrightness = true
+                                            window?.let { targetWindow ->
+                                                val attrs = targetWindow.attributes
+                                                attrs.screenBrightness = screenBrightness
+                                                targetWindow.attributes = attrs
+                                            }
+                                            Log.d(
+                                                VIDEO_FULLSCREEN_SEEK_TRACE,
+                                                "brightness_adjust value=${(screenBrightness * 100).roundToInt()} actual=${window?.attributes?.screenBrightness}"
+                                            )
+                                            showAdjustment(brightnessLabel, screenBrightness)
+                                            showControlsTemporarily()
+                                            change.consume()
+                                        } else if (activeGesture == "seek") {
+                                            // Rolling cache preparation on first move
+                                            if (!didHorizontalSeek) {
+                                                currentVideo?.uri?.let { uri ->
+                                                    scope.launch {
+                                                        RollingFrameCacheManager.prepareRollingCache(context, uri, positionMs)
+                                                    }
+                                                }
+                                            }
+
+                                            // A full-width swipe seeks at most one minute.
+                                            val seekDeltaMs = ((totalX / size.width.coerceAtLeast(1)) * 60_000f).roundToLong()
+                                            if (abs(seekDeltaMs - lastAppliedSeekDeltaMs) >= 1000L / 30L) {
+                                                val target = dragStartPosition + seekDeltaMs
+                                                
+                                                if (!didHorizontalSeek && wasPlayingAtDragStart) {
+                                                    isPlaying = false
+                                                    player.pause()
+                                                }
+                                                isSeekBarDragging = false
+                                                isSwipingOnScreen = true
+                                                seekTo(target, pausePlayback = false)
+                                                lastAppliedSeekDeltaMs = seekDeltaMs
+                                                didHorizontalSeek = true
+                                                showControlsTemporarily()
+                                                change.consume()
+                                            }
+                                        }
+                                    }
+
+                                    if (didHorizontalSeek) {
+                                        isSeekBarDragging = false
+                                        isSwipingOnScreen = false
+                                        RollingFrameCacheManager.clearRollingCache()
+                                        if (wasPlayingAtDragStart) {
+                                            isPlaying = true
+                                            player.play()
+                                        }
+                                    }
+                                    if (!didHorizontalSeek && abs(totalX) < 8f && abs(totalY) < 8f) {
+                                        showTouchIndicator(down.position)
+                                        isControlsVisible = !isControlsVisible
+                                        interactionToken++
+                                    }
+                                }
+                            }
+                    )
+                    
+                    // Full-screen Scrubbing Preview (25-frame low-res cache)
+                    if (isSeekBarDragging) {
+                        VideoFrameCacheManager.getFrameAt(positionMs)?.let { bitmap ->
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
                             )
                         }
-                    },
-                    update = {
-                        if (it.tag != currentVideo?.uri) {
-                            it.player = null
-                            it.tag = currentVideo?.uri
+                    }
+
+                    // Rolling High-Res Preview (10-frame high-res cache for swipe)
+                    if (isSwipingOnScreen) {
+                        RollingFrameCacheManager.getRollingFrameAt(positionMs)?.let { bitmap ->
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
                         }
-                        it.setShutterBackgroundColor(AndroidColor.BLACK)
-                        it.setBackgroundColor(AndroidColor.BLACK)
-                        it.player = player
-                    },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(player, durationMs) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            var totalX = 0f
-                            var totalY = 0f
-                            var consumedFrames = 0
-                            var didFrameStep = false
-                            var activeGesture: String? = null
-                            val dragStartPosition = positionMs
-                            val wasPlayingAtDragStart = isPlaying
-                            val edgeWidth = size.width * 0.18f
-                            val gestureMode = when {
-                                down.position.x <= edgeWidth -> "brightness"
-                                down.position.x >= size.width - edgeWidth -> "volume"
-                                else -> "frame"
-                            }
-                            val startVolume = playerVolume
-                            val startBrightness = screenBrightness
+                    }
 
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed) break
-
-                                val delta = change.position - change.previousPosition
-                                totalX += delta.x
-                                totalY += delta.y
-
-                                if (activeGesture == null) {
-                                    activeGesture = when {
-                                        gestureMode == "volume" && abs(totalY) > 12f && abs(totalY) > abs(totalX) -> "volume"
-                                        gestureMode == "brightness" && abs(totalY) > 12f && abs(totalY) > abs(totalX) -> "brightness"
-                                        abs(totalX) > 12f && abs(totalX) > abs(totalY) * 1.2f -> "frame"
-                                        else -> null
-                                    }
-                                }
-
-                                if (activeGesture == "volume") {
-                                    playerVolume = (startVolume - totalY / (size.height * 0.25f)).coerceIn(0f, 1f)
-                                    val streamVolume = (playerVolume * maxMediaVolume)
-                                        .roundToInt()
-                                        .coerceIn(0, maxMediaVolume)
-                                    audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, streamVolume, 0)
-                                    val actualStreamVolume =
-                                        audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: streamVolume
-                                    player.volume = 1f
-                                    Log.d(
-                                        VIDEO_FULLSCREEN_SEEK_TRACE,
-                                        "volume_adjust value=${(playerVolume * 100).roundToInt()} requested=$streamVolume actual=$actualStreamVolume max=$maxMediaVolume"
-                                    )
-                                    showAdjustment(volumeLabel, playerVolume)
-                                    showControlsTemporarily()
-                                    change.consume()
-                                } else if (activeGesture == "brightness") {
-                                    screenBrightness = (startBrightness - totalY / (size.height * 0.25f)).coerceIn(0.01f, 1f)
-                                    hasCustomBrightness = true
-                                    window?.let { targetWindow ->
-                                        val attrs = targetWindow.attributes
-                                        attrs.screenBrightness = screenBrightness
-                                        targetWindow.attributes = attrs
-                                    }
-                                    Log.d(
-                                        VIDEO_FULLSCREEN_SEEK_TRACE,
-                                        "brightness_adjust value=${(screenBrightness * 100).roundToInt()} actual=${window?.attributes?.screenBrightness}"
-                                    )
-                                    showAdjustment(brightnessLabel, screenBrightness)
-                                    showControlsTemporarily()
-                                    change.consume()
-                                } else if (activeGesture == "frame") {
-                                    val frameDelta = (totalX / 14f).roundToInt()
-                                    val stepDelta = frameDelta - consumedFrames
-                                    if (stepDelta != 0) {
-                                        val target = dragStartPosition + frameDelta * frameStepMs
-                                        Log.d(
-                                            VIDEO_FULLSCREEN_SEEK_TRACE,
-                                            "frame_drag delta=$stepDelta frameDelta=$frameDelta totalX=$totalX from=$dragStartPosition target=$target"
-                                        )
-                                        if (!didFrameStep && wasPlayingAtDragStart) {
-                                            isPlaying = false
-                                            player.pause()
-                                        }
-                                        seekTo(target, pausePlayback = false)
-                                        consumedFrames = frameDelta
-                                        didFrameStep = true
-                                        showControlsTemporarily()
-                                        change.consume()
-                                    }
-                                }
-                            }
-
-                            if (didFrameStep && wasPlayingAtDragStart) {
-                                isPlaying = true
-                                player.play()
-                            }
-                            if (!didFrameStep && abs(totalX) < 8f && abs(totalY) < 8f) {
-                                showTouchIndicator(down.position)
-                                isControlsVisible = !isControlsVisible
-                                interactionToken++
-                            }
+                    // Rolling High-Res Preview (10-frame high-res cache for swipe)
+                    if (isSwipingOnScreen) {
+                        RollingFrameCacheManager.getRollingFrameAt(positionMs)?.let { bitmap ->
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
                         }
-                        }
-                )
+                    }
+                }
             }
         }
 
@@ -618,9 +710,9 @@ fun VideoFullscreenViewerScreen(
                 onClick = { closeViewer() },
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(10.dp)
+                    .padding(dimensionResource(R.dimen.spacing_small))
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_close), tint = Color.White)
             }
 
                 Text(
@@ -639,7 +731,7 @@ fun VideoFullscreenViewerScreen(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxWidth()
-                        .padding(start = 64.dp, end = 64.dp, top = 20.dp)
+                        .padding(start = 64.dp, end = 64.dp, top = dimensionResource(R.dimen.icon_size_check))
                 )
 
             if (isVideoStripVisible) {
@@ -658,12 +750,12 @@ fun VideoFullscreenViewerScreen(
                             .align(Alignment.CenterEnd)
                             .fillMaxHeight()
                             .width(92.dp)
-                            .padding(top = 58.dp, bottom = 104.dp, end = 8.dp)
+                            .padding(top = dimensionResource(R.dimen.header_height), bottom = dimensionResource(R.dimen.grid_bottom_padding), end = dimensionResource(R.dimen.spacing_small))
                     } else {
                         Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
-                            .padding(top = 58.dp, start = 8.dp, end = 8.dp)
+                            .padding(top = dimensionResource(R.dimen.header_height), start = dimensionResource(R.dimen.spacing_small), end = dimensionResource(R.dimen.spacing_small))
                     }
                 )
             }
@@ -673,7 +765,7 @@ fun VideoFullscreenViewerScreen(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                    .padding(horizontal = dimensionResource(R.dimen.spacing_medium), vertical = dimensionResource(R.dimen.spacing_small))
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false)
@@ -693,15 +785,39 @@ fun VideoFullscreenViewerScreen(
                     color = Color.White.copy(alpha = 0.9f),
                     fontSize = textSizes.small,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
                         .background(Color.Black.copy(alpha = 0.32f))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .padding(horizontal = dimensionResource(R.dimen.popup_padding_h), vertical = dimensionResource(R.dimen.spacing_tiny))
+                )
+                GalleryVideoSeekBar(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onSeekStart = {
+                        isControlInteractionActive = true
+                        isSeekBarDragging = true
+                        wasPlayingBeforeSeek = isPlaying
+                        isPlaying = false
+                        exoPlayer?.pause()
+                    },
+                    onSeek = { seekTo(it, pausePlayback = false) },
+                    onSeekEnd = {
+                        isSeekBarDragging = false
+                        if (wasPlayingBeforeSeek) {
+                            isPlaying = true
+                            exoPlayer?.play()
+                        }
+                        isControlInteractionActive = false
+                        showControlsTemporarily()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(dimensionResource(R.dimen.viewer_seek_bar_height))
                 )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp, bottom = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                        .padding(top = dimensionResource(R.dimen.spacing_tiny), bottom = dimensionResource(R.dimen.spacing_tiny)),
+                    horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium), Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val barSlots = listOf("ボトム左", "ボトム中央左", "ボトム中央", "ボトム中央右", "ボトム右")
@@ -715,20 +831,26 @@ fun VideoFullscreenViewerScreen(
                     val actionNext = stringResource(R.string.label_action_next_video)
                     val actionPlayPause = stringResource(R.string.label_action_play_pause)
                     val actionGif = stringResource(R.string.label_gif)
+                    val actionOverflow = stringResource(R.string.label_3dot_menu)
+                    val labelNone = stringResource(R.string.label_action_none)
 
                     val videoActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGif) {
                         listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGif)
                     }
-                    val defaultBarAssignments = remember(actionClose, actionPrev, actionScreenshot, actionNext) {
-                        listOf(actionClose, actionPrev, actionScreenshot, actionNext, "3点ボタン")
+                    val defaultBarAssignments = remember(actionRotate, actionPrev, actionPlayPause, actionNext, actionOverflow) {
+                        listOf(actionRotate, actionPrev, actionPlayPause, actionNext, actionOverflow)
                     }
                     val barAssignments = remember(videoPrefs, interactionToken, videoActionCatalog, defaultBarAssignments) {
-                        val saved = barSlots.mapIndexed { index, slot ->
-                            videoPrefs.getString("video_bar.$slot", null)
+                        barSlots.mapIndexedNotNull { index, slot ->
+                            val saved = videoPrefs.getString("video_bar.$slot", null)
                                 ?: videoPrefs.getString("video_bar.${legacyBarSlots[index]}", null)
-                                ?: "なし"
-                        }.filter { it != "なし" }
-                        saved.ifEmpty { defaultBarAssignments }
+                            val fallback = defaultBarAssignments.getOrNull(index)
+                            when {
+                                saved == null -> fallback
+                                saved == labelNone -> null
+                                else -> saved
+                            }
+                        }
                     }
                     val menuAssignments = remember(barAssignments) {
                         videoActionCatalog.filterNot { action -> barAssignments.contains(action) }
@@ -760,7 +882,7 @@ fun VideoFullscreenViewerScreen(
                                         onToggleVideoStrip = { isVideoStripVisible = !isVideoStripVisible }
                                     )
                                 },
-                                iconSize = 24.dp,
+                                iconSize = dimensionResource(R.dimen.icon_size_medium),
                                 buttonSize = 44.dp
                             )
                         }
@@ -771,12 +893,12 @@ fun VideoFullscreenViewerScreen(
                         Box {
                             PlainOverlayIconButton(
                                 icon = Icons.Default.MoreVert,
-                                contentDescription = "Menu",
+                                contentDescription = stringResource(R.string.book_menu),
                                 onClick = {
                                     showMoreMenu = true
                                     isOverflowMenuOpen = true
                                 },
-                                iconSize = 24.dp,
+                                iconSize = dimensionResource(R.dimen.icon_size_medium),
                                 buttonSize = 44.dp
                             )
                             DropdownMenu(
@@ -817,78 +939,6 @@ fun VideoFullscreenViewerScreen(
                         }
                     }
                 }
-                GalleryVideoSeekBar(
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    onSeekStart = {
-                        isControlInteractionActive = true
-                        wasPlayingBeforeSeek = isPlaying
-                        isPlaying = false
-                        exoPlayer?.pause()
-                    },
-                    onSeek = { seekTo(it, pausePlayback = true) },
-                    onSeekEnd = {
-                        if (wasPlayingBeforeSeek) {
-                            isPlaying = true
-                            exoPlayer?.play()
-                        }
-                        isControlInteractionActive = false
-                        showControlsTemporarily()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(18.dp)
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(22.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PlainOverlayIconButton(
-                            icon = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous video",
-                            onClick = { moveVideo(-1) }
-                        )
-                        FrameStepOverlayButton(
-                            direction = -1,
-                            onClick = {
-                                isPlaying = false
-                                exoPlayer?.pause()
-                                seekTo(positionMs - frameStepMs, pausePlayback = false)
-                                showControlsTemporarily()
-                            }
-                        )
-                        PlainOverlayIconButton(
-                            icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            onClick = {
-                                isPlaying = !isPlaying
-                                exoPlayer?.playWhenReady = isPlaying
-                            },
-                            iconSize = 42.dp
-                        )
-                        FrameStepOverlayButton(
-                            direction = 1,
-                            onClick = {
-                                isPlaying = false
-                                exoPlayer?.pause()
-                                seekTo(positionMs + frameStepMs, pausePlayback = false)
-                                showControlsTemporarily()
-                            }
-                        )
-                        PlainOverlayIconButton(
-                            icon = Icons.Default.SkipNext,
-                            contentDescription = "Next video",
-                            onClick = { moveVideo(1) }
-                        )
-                    }
-                }
             }
         }
 
@@ -902,7 +952,7 @@ fun VideoFullscreenViewerScreen(
         if (showClockBattery) {
             var clockText by remember { mutableStateOf("") }
             LaunchedEffect(Unit) {
-                val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                val formatter = java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
                 while (true) {
                     val batteryIntent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
                     val level = batteryIntent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
@@ -914,15 +964,15 @@ fun VideoFullscreenViewerScreen(
             }
             Surface(
                 color = Color.Black.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(999.dp),
+                shape = RoundedCornerShape(dimensionResource(R.dimen.radius_full)),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = if (isControlsVisible) 96.dp else 16.dp, end = 16.dp)
+                    .padding(top = if (isControlsVisible) dimensionResource(R.dimen.viewer_clock_battery_padding_top) else dimensionResource(R.dimen.spacing_medium), end = dimensionResource(R.dimen.spacing_medium))
             ) {
                 Text(
                     text = clockText,
                     color = Color.White,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.popup_padding_h), vertical = dimensionResource(R.dimen.spacing_tiny)),
                     fontSize = textSizes.tiny
                 )
             }
@@ -1096,7 +1146,7 @@ private fun VideoStripItem(
     ) {
         Image(
             painter = rememberAsyncImagePainter(
-                ImageRequest.Builder(context)
+                model = ImageRequest.Builder(context)
                     .data(video.uri)
                     .videoFrameMillis(1000)
                     .crossfade(false)
@@ -1127,33 +1177,6 @@ private fun PlainOverlayIconButton(
             contentDescription = contentDescription,
             tint = Color.White,
             modifier = Modifier.size(iconSize)
-        )
-    }
-}
-
-@Composable
-private fun FrameStepOverlayButton(
-    direction: Int,
-    onClick: () -> Unit
-) {
-    val colors = GalleryThemeTokens.colors
-    Box(contentAlignment = Alignment.Center) {
-        PlainOverlayIconButton(
-            icon = if (direction < 0) Icons.Default.FastRewind else Icons.Default.FastForward,
-            contentDescription = if (direction < 0) "Previous frame" else "Next frame",
-            onClick = onClick,
-            buttonSize = 38.dp,
-            iconSize = 22.dp
-        )
-        Text(
-            text = "1f",
-            color = colors.primaryText,
-            fontSize = GalleryThemeTokens.textSizes.tiny,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.46f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 4.dp, vertical = 1.dp)
         )
     }
 }

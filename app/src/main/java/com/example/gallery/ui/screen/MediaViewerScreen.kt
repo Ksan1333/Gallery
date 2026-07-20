@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.draw.clip
@@ -135,6 +136,7 @@ import com.example.gallery.ui.component.TapZoneGuideOverlay
 import com.example.gallery.ui.component.tapZoneCountForLayout
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.GalleryAlphaTokens
 
 private fun handleViewerAction(
     function: String,
@@ -220,7 +222,7 @@ fun MediaViewerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { imageList.size })
-    val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", android.content.Context.MODE_PRIVATE) }
+    val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
     val doubleTapFastZoom = globalSettingsPrefs.getBoolean("doubleTapFastZoom", true)
     val slideshowIntervalMs = remember { globalSettingsPrefs.getInt("slideshowIntervalMs", 5000) }
     val slideshowSpeedMs = remember { globalSettingsPrefs.getInt("slideshowSpeedMs", 250).coerceIn(0, 2000) }
@@ -237,7 +239,7 @@ fun MediaViewerScreen(
     val showClockBattery = globalSettingsPrefs.getBoolean("showClockBattery", false)
     val fullscreenMode = remember { globalSettingsPrefs.getString("fullscreenMode", "HIDE_STATUS_BAR") ?: "HIDE_STATUS_BAR" }
     val orientationMode = remember { globalSettingsPrefs.getString("orientation", "AUTO") ?: "AUTO" }
-    val imageFilterQuality = remember {
+    remember {
         when (globalSettingsPrefs.getString("smoothing", "BILINEAR")) {
             "NEAREST" -> FilterQuality.None
             "AVERAGING" -> FilterQuality.Low
@@ -246,9 +248,9 @@ fun MediaViewerScreen(
         }
     }
 
-    val mediaViewerPrefs = remember { context.getSharedPreferences("media_viewer_settings", android.content.Context.MODE_PRIVATE) }
+    val mediaViewerPrefs = remember { context.getSharedPreferences("media_viewer_settings", Context.MODE_PRIVATE) }
     val showInfoOverlayEnabled = mediaViewerPrefs.getBoolean("showInfoOverlay", false)
-    val loopGif = mediaViewerPrefs.getBoolean("loopGif", true)
+    mediaViewerPrefs.getBoolean("loopGif", true)
     val showFrameBar = mediaViewerPrefs.getBoolean("showFrameBar", false)
     val showRandomRecs = mediaViewerPrefs.getBoolean("showRandomRecs", true)
     val showSimilarRecs = mediaViewerPrefs.getBoolean("showSimilarRecs", true)
@@ -258,11 +260,11 @@ fun MediaViewerScreen(
     val showSystemBarsPref = mediaViewerPrefs.getBoolean("showSystemBars", false)
     val videoSeekIntervalMediaPref = remember { mediaViewerPrefs.getString("seekInterval", "10")?.toIntOrNull() ?: 10 }
 
-    val videoPrefs = remember { context.getSharedPreferences("video_viewer_settings", android.content.Context.MODE_PRIVATE) }
+    val videoPrefs = remember { context.getSharedPreferences("video_viewer_settings", Context.MODE_PRIVATE) }
     val videoAutoPlay = remember { videoPrefs.getBoolean("autoPlay", true) }
     val videoLoopPlayback = remember { videoPrefs.getBoolean("loopPlayback", true) }
     val videoDefaultMute = remember { videoPrefs.getBoolean("defaultMute", false) }
-    val videoSeekIntervalPref = remember { videoPrefs.getString("seekInterval", "10")?.toIntOrNull() ?: videoSeekIntervalMediaPref }
+    remember { videoPrefs.getString("seekInterval", "10")?.toIntOrNull() ?: videoSeekIntervalMediaPref }
     val videoResizeMode = remember { videoPrefs.getString("resizeMode", "FIT") ?: "FIT" }
 
     val thumbnailListState = rememberLazyListState()
@@ -325,7 +327,6 @@ fun MediaViewerScreen(
     var seekTargetPosition by remember(pagerState.currentPage) { mutableLongStateOf(-1L) }
 
     var isVerticalSwiping by remember { mutableStateOf(false) }
-    var isOverflowMenuVisible by remember { mutableStateOf(false) }
     var isSlideshowRunning by rememberSaveable { mutableStateOf(false) }
     var ascii2dUploadData by remember { mutableStateOf<Ascii2dUploadData?>(null) }
     var touchIndicatorPoint by remember { mutableStateOf<Offset?>(null) }
@@ -499,7 +500,7 @@ fun MediaViewerScreen(
 
     val density = LocalDensity.current
     val colors = GalleryThemeTokens.colors
-    val maxRecDrag = with(density) { 360.dp.toPx() } // 600dp -> 360dp（約60%に調整）
+    val maxRecDrag = with(density) { dimensionResource(R.dimen.search_section_tags_max_height).toPx() }
 
     val textSizes = GalleryThemeTokens.textSizes
     Box(modifier = modifier.fillMaxSize().background(colors.background)) {
@@ -697,8 +698,10 @@ fun MediaViewerScreen(
 
                             if (scale.value < 0.95f) {
                                 scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } }
-                            } else {
-                                if (offsetY.value > 200f) onClickedClose()
+                            } else if (scale.value <= 1.05f) {
+                                // A magnified GIF uses offsetY for panning.  Do not mistake that
+                                // panning distance for the swipe-down-to-close gesture.
+                                if (swipeDownClose && offsetY.value > 200f) onClickedClose()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
@@ -1081,7 +1084,7 @@ fun MediaViewerScreen(
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
-                                        .background(if (isSelected) colors.accent.copy(alpha = 0.3f) else Color.Transparent)
+                                        .background(if (isSelected) colors.accent.copy(alpha = GalleryAlphaTokens.LowContrast) else Color.Transparent)
                                         .border(
                                             width = if (isSelected) 2.dp else 0.dp,
                                             color = if (isSelected) colors.accent else Color.Transparent,
@@ -1197,8 +1200,8 @@ fun MediaViewerScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(48.dp)
-                                    .padding(horizontal = 8.dp),
+                                    .height(dimensionResource(R.dimen.viewer_bottom_bar_height))
+                                    .padding(horizontal = dimensionResource(R.dimen.spacing_small)),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1214,8 +1217,8 @@ fun MediaViewerScreen(
                                 GalleryFloatingActionButton(
                                     icon = action.icon,
                                     tooltipDescription = action.label,
-                                    size = 40.dp,
-                                    iconSize = 22.dp,
+                                    size = dimensionResource(R.dimen.button_size_viewer_action),
+                                    iconSize = dimensionResource(R.dimen.icon_size_viewer_action),
                                     contentColor = action.color ?: colors.primaryText,
                                     onClick = {
                                         handleViewerAction(
@@ -1231,7 +1234,7 @@ fun MediaViewerScreen(
                                             onRotate = {
                                                 val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                 screenOrientation = target
-                                                (context as android.app.Activity).requestedOrientation = target
+                                                (context as Activity).requestedOrientation = target
                                             },
                                             onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
                                             onToggleGifStepping = {
@@ -1253,10 +1256,11 @@ fun MediaViewerScreen(
                                             },
                                             onShowTagDialog = { showTagDialog = true },
                                             onSearchAscii2d = {
-                                                android.widget.Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), android.widget.Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), Toast.LENGTH_SHORT).show()
                                                 scope.launch {
-                                                    val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { kotlin.runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) } }
-                                                    result.onSuccess { ascii2dUploadData = it }.onFailure { error -> android.widget.Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), android.widget.Toast.LENGTH_LONG).show() }
+                                                    val result = withContext(
+                                                        Dispatchers.IO) { kotlin.runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) } }
+                                                    result.onSuccess { ascii2dUploadData = it }.onFailure { error -> Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), Toast.LENGTH_LONG).show() }
                                                 }
                                             }
                                         )
@@ -1271,8 +1275,8 @@ fun MediaViewerScreen(
                                 GalleryFloatingActionButton(
                                     icon = Icons.Default.MoreVert,
                                     tooltipDescription = stringResource(R.string.btn_open),
-                                    size = 40.dp,
-                                    iconSize = 22.dp,
+                                    size = dimensionResource(R.dimen.button_size_viewer_action),
+                                    iconSize = dimensionResource(R.dimen.icon_size_viewer_action),
                                     contentColor = colors.primaryText,
                                     onClick = { showMoreMenu = true }
                                 )
@@ -1302,7 +1306,7 @@ fun MediaViewerScreen(
                                                         onRotate = {
                                                             val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                             screenOrientation = target
-                                                            (context as android.app.Activity).requestedOrientation = target
+                                                            (context as Activity).requestedOrientation = target
                                                         },
                                                         onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
                                                         onToggleGifStepping = {
@@ -1324,10 +1328,11 @@ fun MediaViewerScreen(
                                                         },
                                                         onShowTagDialog = { showTagDialog = true },
                                                         onSearchAscii2d = {
-                                                            android.widget.Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), android.widget.Toast.LENGTH_SHORT).show()
+                                                            Toast.makeText(context, context.getString(R.string.msg_search_ascii2d), Toast.LENGTH_SHORT).show()
                                                             scope.launch {
-                                                                val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { kotlin.runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) } }
-                                                                result.onSuccess { ascii2dUploadData = it }.onFailure { error -> android.widget.Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), android.widget.Toast.LENGTH_LONG).show() }
+                                                                val result = withContext(
+                                                                    Dispatchers.IO) { kotlin.runCatching { prepareAscii2dUploadData(context, currentMediaItem.uri) } }
+                                                                result.onSuccess { ascii2dUploadData = it }.onFailure { error -> Toast.makeText(context, context.getString(R.string.msg_error_ascii2d, error.message), Toast.LENGTH_LONG).show() }
                                                             }
                                                         }
                                                     )
@@ -1361,9 +1366,9 @@ fun MediaViewerScreen(
                 modifier = Modifier
                     .align(if (progressDisplayMode == "MIN" && progressMiniStyle == "CIRCLE") Alignment.BottomEnd else Alignment.BottomCenter)
                     .padding(
-                        start = 24.dp,
-                        end = 24.dp,
-                        bottom = if (isUiVisible) 116.dp else 28.dp
+                        start = dimensionResource(R.dimen.spacing_large),
+                        end = dimensionResource(R.dimen.spacing_large),
+                        bottom = if (isUiVisible) dimensionResource(R.dimen.viewer_bottom_padding_ui) else dimensionResource(R.dimen.viewer_bottom_padding_no_ui)
                     )
             )
         }
@@ -1373,7 +1378,8 @@ fun MediaViewerScreen(
             LaunchedEffect(Unit) {
                 val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
                 while (true) {
-                    val batteryIntent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                    val batteryIntent = context.registerReceiver(null, android.content.IntentFilter(
+                        Intent.ACTION_BATTERY_CHANGED))
                     val level = batteryIntent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
                     val scaleValue = batteryIntent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
                     val battery = if (level >= 0 && scaleValue > 0) "${(level * 100 / scaleValue)}%" else "--%"
@@ -1382,16 +1388,16 @@ fun MediaViewerScreen(
                 }
             }
             Surface(
-                color = Color.Black.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(999.dp),
+                color = Color.Black.copy(alpha = GalleryAlphaTokens.Clock),
+                shape = RoundedCornerShape(dimensionResource(R.dimen.radius_full)),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = if (isUiVisible) 96.dp else 16.dp, end = 16.dp)
+                    .padding(top = if (isUiVisible) dimensionResource(R.dimen.viewer_clock_battery_padding_top) else dimensionResource(R.dimen.spacing_medium), end = dimensionResource(R.dimen.spacing_medium))
             ) {
                 Text(
                     text = clockText,
                     color = colors.primaryText,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.popup_padding_h), vertical = dimensionResource(R.dimen.spacing_tiny)),
                     fontSize = textSizes.tiny
                 )
             }
@@ -1399,8 +1405,8 @@ fun MediaViewerScreen(
 
         AnimatedVisibility(visible = isRecommendationVisible, enter = slideInVertically(initialOffsetY = { it }) + fadeIn(), exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             val density = LocalDensity.current
-            val maxDrag = with(density) { 360.dp.toPx() }
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.42f).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = 0.95f)).pointerInput(Unit) { detectDragGestures(onDragEnd = { if (recommendationDragOffset.value > 100f) { scope.launch { recommendationDragOffset.animateTo(maxDrag, tween(250)); isRecommendationVisible = false; delay(250); recommendationDragOffset.snapTo(0f) } } else { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } } }, onDragCancel = { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } }, onDrag = { change, dragAmount -> change.consume(); scope.launch { recommendationDragOffset.snapTo((recommendationDragOffset.value + dragAmount.y).coerceAtLeast(0f)) } }) }) {
+            val maxDrag = with(density) { dimensionResource(R.dimen.search_section_tags_max_height).toPx() }
+            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.42f).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = GalleryAlphaTokens.Recommendation)).pointerInput(Unit) { detectDragGestures(onDragEnd = { if (recommendationDragOffset.value > 100f) { scope.launch { recommendationDragOffset.animateTo(maxDrag, tween(250)); isRecommendationVisible = false; delay(250); recommendationDragOffset.snapTo(0f) } } else { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } } }, onDragCancel = { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } }, onDrag = { change, dragAmount -> change.consume(); scope.launch { recommendationDragOffset.snapTo((recommendationDragOffset.value + dragAmount.y).coerceAtLeast(0f)) } }) }) {
                 Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
                     Box(modifier = Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) { Surface(modifier = Modifier.width(40.dp).height(4.dp), color = Color.Gray.copy(alpha = 0.5f), shape = CircleShape) {} }
                     Row(
@@ -1519,14 +1525,14 @@ fun MediaViewerScreen(
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Surface(
                                             color = when(currentAgeRating) {
-                                                AppConstants.RATING_R18 -> colors.danger.copy(alpha = 0.8f)
-                                                AppConstants.RATING_R15 -> colors.warning.copy(alpha = 0.8f)
-                                                else -> colors.success.copy(alpha = 0.8f)
+                                                AppConstants.RATING_R18 -> colors.danger.copy(alpha = GalleryAlphaTokens.Recommendation)
+                                                AppConstants.RATING_R15 -> colors.warning.copy(alpha = GalleryAlphaTokens.Recommendation)
+                                                else -> colors.success.copy(alpha = GalleryAlphaTokens.Recommendation)
                                             },
-                                            shape = RoundedCornerShape(4.dp)
+                                            shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small))
                                         ) {
                                             Text(
-                                                text = if (isTrashMode) "$currentAgeRating Trash" else currentAgeRating,
+                                                text = if (isTrashMode) "$currentAgeRating${stringResource(R.string.label_trash_suffix)}" else currentAgeRating,
                                                 color = if (currentAgeRating == AppConstants.RATING_R15) colors.background else colors.primaryText,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
@@ -1605,7 +1611,8 @@ fun MediaViewerScreen(
                                     MediaInfoRow(stringResource(R.string.viewer_file_name), media.fileName)
                                     val actualPath = remember(media.uri) {
                                         try {
-                                            val cursor = context.contentResolver.query(Uri.parse(media.uri), arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)
+                                            val cursor = context.contentResolver.query(Uri.parse(media.uri), arrayOf(
+                                                MediaStore.MediaColumns.DATA), null, null, null)
                                             cursor?.use { if (it.moveToFirst()) it.getString(0) else media.uri } ?: media.uri
                                         } catch (e: Exception) {
                                             media.uri
@@ -1691,7 +1698,7 @@ fun FrameStepControlRow(
                         text = if (isScrubbing) "${if (previewFrameDelta >= 0) "+" else ""}$previewFrameDelta ${stringResource(R.string.label_frame_unit)}" else stringResource(R.string.label_frame_step),
                         color = if (isScrubbing) colors.accent else colors.primaryText.copy(alpha = 0.75f),
                         fontSize = textSizes.small,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.width(58.dp)
                     )
                 Box(
@@ -1815,10 +1822,10 @@ fun SeekButtonWithPicker(isForward: Boolean, currentInterval: Int, onIntervalSel
     val currentOnClick by rememberUpdatedState(onClick); val currentOnIntervalSelected by rememberUpdatedState(onIntervalSelected)
     Box(contentAlignment = Alignment.Center) {
         Column(modifier = Modifier.pointerInput(currentInterval) { awaitPointerEventScope { while (true) { val down = awaitFirstDown(); val startTimestamp = System.currentTimeMillis(); var isLongPress = false; val baseIndex = options.indexOf(currentInterval).let { if (it == -1) 3 else it }; selectedIndexByDrag = baseIndex; while (true) { val event = awaitPointerEvent(); val currentTime = System.currentTimeMillis(); if (currentTime - startTimestamp > 400 && !isLongPress) { isLongPress = true; isPickerVisible = true }; if (isLongPress) { val dragChange = event.changes.first(); val dragY = dragChange.position.y - down.position.y; val indexOffset = (dragY / 40f).roundToInt(); selectedIndexByDrag = (baseIndex + indexOffset).coerceIn(0, options.size - 1); dragChange.consume() }; if (event.changes.any { !it.pressed }) { if (isLongPress) { currentOnIntervalSelected(options[selectedIndexByDrag]); isPickerVisible = false } else currentOnClick(); break } } } } }.size(48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) { Icon(imageVector = if (isForward) Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = colors.primaryText.copy(alpha = 0.6f), modifier = Modifier.size(28.dp)); Text(text = currentInterval.toString(), color = colors.primaryText, fontSize = textSizes.bottomNav, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) { Icon(imageVector = if (isForward) Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = colors.primaryText.copy(alpha = 0.6f), modifier = Modifier.size(28.dp)); Text(text = currentInterval.toString(), color = colors.primaryText, fontSize = textSizes.bottomNav, fontWeight = FontWeight.Bold) }
             Text(stringResource(R.string.viewer_skip), color = colors.primaryText, fontSize = textSizes.bottomNav)
         }
-        if (isPickerVisible) { Popup(alignment = Alignment.Center, offset = IntOffset(0, 0)) { Surface(color = colors.background.copy(alpha = 0.8f), shape = RoundedCornerShape(24.dp), modifier = Modifier.width(60.dp)) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 12.dp)) { options.forEachIndexed { index, value -> val isSelected = index == selectedIndexByDrag; Text(text = value.toString(), color = if (isSelected) colors.accent else colors.primaryText, fontSize = if (isSelected) textSizes.header else textSizes.subtitle, fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null, modifier = Modifier.padding(vertical = 8.dp)) } } } } }
+        if (isPickerVisible) { Popup(alignment = Alignment.Center, offset = IntOffset(0, 0)) { Surface(color = colors.background.copy(alpha = 0.8f), shape = RoundedCornerShape(24.dp), modifier = Modifier.width(60.dp)) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 12.dp)) { options.forEachIndexed { index, value -> val isSelected = index == selectedIndexByDrag; Text(text = value.toString(), color = if (isSelected) colors.accent else colors.primaryText, fontSize = if (isSelected) textSizes.header else textSizes.subtitle, fontWeight = if (isSelected) FontWeight.Bold else null, modifier = Modifier.padding(vertical = 8.dp)) } } } } }
     }
 }
 
@@ -1852,7 +1859,7 @@ private data class Ascii2dUploadData(
     val byteCount: Int
 )
 
-private fun prepareAscii2dUploadData(context: android.content.Context, uriString: String): Ascii2dUploadData {
+private fun prepareAscii2dUploadData(context: Context, uriString: String): Ascii2dUploadData {
     val uri = Uri.parse(uriString)
     val sourceBytes = readImageBytes(context, uri, uriString)
     val bitmap = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
@@ -1879,7 +1886,7 @@ private fun prepareAscii2dUploadData(context: android.content.Context, uriString
     )
 }
 
-private fun readImageBytes(context: android.content.Context, uri: Uri, uriString: String): ByteArray {
+private fun readImageBytes(context: Context, uri: Uri, uriString: String): ByteArray {
     val resolverStream = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
     if (resolverStream != null) {
         val bytes = resolverStream.use { it.readBytes() }
@@ -2211,6 +2218,7 @@ fun VideoPlayer(
     resizeMode: String = "FIT"
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val colors = GalleryThemeTokens.colors
     val textSizes = GalleryThemeTokens.textSizes
     val exoPlayer = remember(uri) {
@@ -2306,12 +2314,11 @@ fun VideoPlayer(
                     var decided = false
                     var isHorizontal = false
                     var scrubbingStartPosition = 0L
-                    var accumulatedPan = Offset.Zero
-                    var isTransforming = false
+                    Offset.Zero
 
                     while (true) {
                         val event = awaitPointerEvent()
-                        val panChange = event.calculatePan()
+                        event.calculatePan()
 
                         if (event.changes.size >= 2) {
                             if (event.changes.all { !it.pressed }) break
@@ -2419,14 +2426,16 @@ fun VideoPlayer(
         )
 
         if (scrubbingTouchPoint != null) {
+            val scrubbingOuterRadius = with(density) { dimensionResource(R.dimen.viewer_scrubbing_circle_radius_outer).toPx() }
+            val scrubbingInnerRadius = with(density) { dimensionResource(R.dimen.viewer_scrubbing_circle_radius_inner).toPx() }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .drawWithContent {
                         drawContent()
                         drawCircle(
-                            color = Color.White.copy(alpha = 0.15f),
-                            radius = 80.dp.toPx(),
+                            color = Color.White.copy(alpha = GalleryAlphaTokens.Faint),
+                            radius = scrubbingOuterRadius,
                             center = scrubbingTouchPoint!!,
                             blendMode = BlendMode.Screen
                         )
@@ -2434,9 +2443,9 @@ fun VideoPlayer(
                             brush = Brush.radialGradient(
                                 colors = listOf(Color.White.copy(alpha = 0.4f), Color.Transparent),
                                 center = scrubbingTouchPoint!!,
-                                radius = 40.dp.toPx()
+                                radius = scrubbingInnerRadius
                             ),
-                            radius = 40.dp.toPx(),
+                            radius = scrubbingInnerRadius,
                             center = scrubbingTouchPoint!!
                         )
                     }
@@ -2461,14 +2470,14 @@ fun VideoPlayer(
                             text = stringResource(R.string.viewer_frame_stepping),
                             color = colors.accent,
                             fontSize = textSizes.small,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "${formatTime(videoPosition)} / ${formatTime(videoDuration)}",
                             color = colors.primaryText,
                             fontSize = textSizes.header,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold
                         )
                     }
                 }
@@ -2480,7 +2489,7 @@ fun VideoPlayer(
 @Composable
 fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: Float, offsetX: Float, offsetY: Float, onZoomPan: (Float, Offset) -> Unit, onVerticalDrag: (Float) -> Unit, onDragEnd: () -> Unit, onDoubleTap: () -> Unit, onLongPressStart: () -> Unit = {}, onLongPressEnd: () -> Unit = {}, onTouchIndicator: (Offset) -> Unit = {}, imageLoader: ImageLoader, isFrameSteppingVisible: Boolean, gifFrames: List<Bitmap>, currentFrameIndex: Int, longPressEnabled: Boolean = false, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val colors = GalleryThemeTokens.colors
+    GalleryThemeTokens.colors
     val scope = rememberCoroutineScope()
     var suppressNextTap by remember { mutableStateOf(false) }
     val painter = rememberAsyncImagePainter(model = ImageRequest.Builder(context).data(uri).build(), imageLoader = imageLoader)
@@ -2557,7 +2566,7 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
 @Composable
 fun RecommendationCard(mediaItem: MediaData, score: String?, imageLoader: ImageLoader, isDeleted: Boolean = false, onClick: () -> Unit) {
     val colors = GalleryThemeTokens.colors
-    Box(modifier = Modifier.size(110.dp).clip(RoundedCornerShape(8.dp)).background(colors.surfaceVariant).clickable { onClick() }) { Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(LocalContext.current).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit); if (score != null) Box(modifier = Modifier.align(Alignment.BottomEnd).background(colors.background.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text(score, color = colors.primaryText, fontSize = GalleryThemeTokens.textSizes.tiny) }; if (isDeleted) Box(modifier = Modifier.fillMaxSize().background(colors.background.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) { Icon(imageVector = Icons.Default.Delete, contentDescription = stringResource(R.string.viewer_deleted), tint = colors.primaryText.copy(alpha = 0.8f), modifier = Modifier.size(32.dp)) } } }
+    Box(modifier = Modifier.size(dimensionResource(R.dimen.viewer_recommendation_card_size)).clip(RoundedCornerShape(8.dp)).background(colors.surfaceVariant).clickable { onClick() }) { Image(painter = rememberAsyncImagePainter(model = ImageRequest.Builder(LocalContext.current).data(mediaItem.uri).apply { if (mediaItem.isVideo) videoFrameMillis(1000) }.build(), imageLoader = imageLoader), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit); if (score != null) Box(modifier = Modifier.align(Alignment.BottomEnd).background(colors.background.copy(alpha = GalleryAlphaTokens.Muted)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text(score, color = colors.primaryText, fontSize = GalleryThemeTokens.textSizes.tiny) }; if (isDeleted) Box(modifier = Modifier.fillMaxSize().background(colors.background.copy(alpha = GalleryAlphaTokens.Clock)), contentAlignment = Alignment.Center) { Icon(imageVector = Icons.Default.Delete, contentDescription = stringResource(R.string.viewer_deleted), tint = colors.primaryText.copy(alpha = 0.8f), modifier = Modifier.size(32.dp)) } } }
 
 @Composable
 private fun mediaTapZoneLabels(zoneCount: Int): List<String> {
@@ -2602,7 +2611,7 @@ private fun mediaTapZoneGuideLabels(zoneCount: Int): List<String> {
     }
 }
 
-private fun captureVideoFrame(context: android.content.Context, uriString: String, positionMs: Long, onResult: (Bitmap?) -> Unit) { val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO); scope.launch { val retriever = MediaMetadataRetriever(); try { val uri = Uri.parse(uriString); context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd -> retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length) } ?: retriever.setDataSource(context, uri); val bitmap = retriever.getFrameAtTime(positionMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC); withContext(Dispatchers.Main) { onResult(bitmap) } } catch (e: Exception) { e.printStackTrace(); withContext(Dispatchers.Main) { onResult(null) } } finally { try { retriever.release() } catch (e: Exception) {} } } }
+private fun captureVideoFrame(context: Context, uriString: String, positionMs: Long, onResult: (Bitmap?) -> Unit) { val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO); scope.launch { val retriever = MediaMetadataRetriever(); try { val uri = Uri.parse(uriString); context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd -> retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length) } ?: retriever.setDataSource(context, uri); val bitmap = retriever.getFrameAtTime(positionMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC); withContext(Dispatchers.Main) { onResult(bitmap) } } catch (e: Exception) { e.printStackTrace(); withContext(Dispatchers.Main) { onResult(null) } } finally { try { retriever.release() } catch (e: Exception) {} } } }
 
 private fun formatTime(ms: Long): String {
     val minutes = (ms / 1000) / 60
@@ -2612,7 +2621,7 @@ private fun formatTime(ms: Long): String {
 }
 
 private fun extractGifFrames(
-    context: android.content.Context,
+    context: Context,
     uriString: String,
     scope: kotlinx.coroutines.CoroutineScope,
     onProgress: (Float?) -> Unit = {},
@@ -2705,8 +2714,8 @@ private fun extractGifFrames(
         }
     }
 }
-private fun saveBitmapToScreenshots(context: android.content.Context, bitmap: Bitmap) { val filename = "Screenshot_${System.currentTimeMillis()}.png"; val contentValues = ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, filename); put(MediaStore.MediaColumns.MIME_TYPE, "image/png"); if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Screenshots"); put(MediaStore.MediaColumns.IS_PENDING, 1) } }; val resolver = context.contentResolver; try { val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues); if (uri != null) { resolver.openOutputStream(uri)?.use { outputStream -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream) }; if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { contentValues.clear(); contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0); resolver.update(uri, contentValues, null, null) }; (context as Activity).runOnUiThread { Toast.makeText(context, context.getString(R.string.msg_screenshot_saved), Toast.LENGTH_SHORT).show() } } } catch (e: Exception) { Log.e("PictureViewer", "Error saving screenshot", e); (context as Activity).runOnUiThread { Toast.makeText(context, context.getString(R.string.msg_error_save_failed), Toast.LENGTH_SHORT).show() } } }
+private fun saveBitmapToScreenshots(context: Context, bitmap: Bitmap) { val filename = "Screenshot_${System.currentTimeMillis()}.png"; val contentValues = ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, filename); put(MediaStore.MediaColumns.MIME_TYPE, "image/png"); if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Screenshots"); put(MediaStore.MediaColumns.IS_PENDING, 1) } }; val resolver = context.contentResolver; try { val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues); if (uri != null) { resolver.openOutputStream(uri)?.use { outputStream -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream) }; if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { contentValues.clear(); contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0); resolver.update(uri, contentValues, null, null) }; (context as Activity).runOnUiThread { Toast.makeText(context, context.getString(R.string.msg_screenshot_saved), Toast.LENGTH_SHORT).show() } } } catch (e: Exception) { Log.e("PictureViewer", "Error saving screenshot", e); (context as Activity).runOnUiThread { Toast.makeText(context, context.getString(R.string.msg_error_save_failed), Toast.LENGTH_SHORT).show() } } }
 
-private fun setAsWallpaper(context: android.content.Context, uriString: String) { val wallpaperManager = WallpaperManager.getInstance(context); val uri = Uri.parse(uriString); try { val intent = wallpaperManager.getCropAndSetWallpaperIntent(uri); context.startActivity(intent) } catch (e: Exception) { try { val inputStream = context.contentResolver.openInputStream(uri); wallpaperManager.setStream(inputStream); Toast.makeText(context, context.getString(R.string.msg_wallpaper_set), Toast.LENGTH_SHORT).show() } catch (e2: Exception) { Log.e("PictureViewer", "Failed to set wallpaper", e2); Toast.makeText(context, context.getString(R.string.msg_error_wallpaper_failed), Toast.LENGTH_SHORT).show() } } }
+private fun setAsWallpaper(context: Context, uriString: String) { val wallpaperManager = WallpaperManager.getInstance(context); val uri = Uri.parse(uriString); try { val intent = wallpaperManager.getCropAndSetWallpaperIntent(uri); context.startActivity(intent) } catch (e: Exception) { try { val inputStream = context.contentResolver.openInputStream(uri); wallpaperManager.setStream(inputStream); Toast.makeText(context, context.getString(R.string.msg_wallpaper_set), Toast.LENGTH_SHORT).show() } catch (e2: Exception) { Log.e("PictureViewer", "Failed to set wallpaper", e2); Toast.makeText(context, context.getString(R.string.msg_error_wallpaper_failed), Toast.LENGTH_SHORT).show() } } }
 
-private fun setBitmapAsWallpaper(context: android.content.Context, bitmap: Bitmap) { val wallpaperManager = WallpaperManager.getInstance(context); try { wallpaperManager.setBitmap(bitmap); Toast.makeText(context, context.getString(R.string.msg_wallpaper_set_frame), Toast.LENGTH_SHORT).show() } catch (e: Exception) { Log.e("PictureViewer", "Failed to set bitmap as wallpaper", e); Toast.makeText(context, context.getString(R.string.msg_error_wallpaper_failed), Toast.LENGTH_SHORT).show() } }
+private fun setBitmapAsWallpaper(context: Context, bitmap: Bitmap) { val wallpaperManager = WallpaperManager.getInstance(context); try { wallpaperManager.setBitmap(bitmap); Toast.makeText(context, context.getString(R.string.msg_wallpaper_set_frame), Toast.LENGTH_SHORT).show() } catch (e: Exception) { Log.e("PictureViewer", "Failed to set bitmap as wallpaper", e); Toast.makeText(context, context.getString(R.string.msg_error_wallpaper_failed), Toast.LENGTH_SHORT).show() } }

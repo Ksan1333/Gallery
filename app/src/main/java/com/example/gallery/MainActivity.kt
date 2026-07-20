@@ -74,6 +74,7 @@ import com.example.gallery.ui.state.GalleryViewMode
 import com.example.gallery.ui.theme.*
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.ThumbnailGenerationService
+import com.example.gallery.ui.AppConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -113,8 +114,7 @@ private fun loadTextScale(context: Context): Float =
 
 private fun loadStartupRoute(context: Context): String {
     val pm = PreferenceManager(context)
-    val route = pm.getGlobalString(PreferenceManager.STARTUP_SCREEN, AppRoutes.HOME)
-    return when (route) {
+    return when (val route = pm.getGlobalString(PreferenceManager.STARTUP_SCREEN, AppRoutes.HOME)) {
         AppRoutes.HOME,
         AppRoutes.FOLDERS,
         AppRoutes.VIDEOS,
@@ -260,7 +260,7 @@ fun AppNavigation(
 ) {
     val context = LocalContext.current
     val galleryState = (context.applicationContext as GalleryApplication).galleryState
-    val preferenceManager = remember { PreferenceManager(context) }
+    remember { PreferenceManager(context) }
     val scope = rememberCoroutineScope()
     val startDestination = remember { loadStartupRoute(context) }
     val globalSettingsPrefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
@@ -473,7 +473,13 @@ fun AppNavigation(
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            arrayOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
                 Manifest.permission.READ_MEDIA_VIDEO
@@ -485,11 +491,11 @@ fun AppNavigation(
             )
         }
 
-        val allGranted = permissions.all {
+        val hasAnyPermission = permissions.any {
             context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
 
-        if (!allGranted) {
+        if (!hasAnyPermission) {
             storagePermissionLauncher.launch(permissions)
         }
     }
@@ -530,7 +536,7 @@ fun AppNavigation(
 
     val systemBarBackgroundColor = GalleryThemeTokens.colors.background.toArgb()
     val systemBarTopColor = GalleryThemeTokens.colors.topBar.toArgb()
-    val window = (context as? android.app.Activity)?.window
+    val window = (context as? Activity)?.window
     fun setupSystemBars(isViewerVisible: Boolean, currentRoute: String?) {
         if (window != null) {
             val insetsController =
@@ -693,16 +699,14 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_menu_title),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = textSizes.subtitle,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        style = galleryTypography.title.copy(fontSize = textSizes.subtitle)
                     )
                     HorizontalDivider(color = colors.divider)
 
                     Text(
                         stringResource(R.string.drawer_basic_features),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = textSizes.extraSmall,
-                        color = colors.mutedText
+                        style = galleryTypography.label
                     )
 
                     NavigationDrawerItem(
@@ -800,8 +804,7 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_handy_features),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = textSizes.extraSmall,
-                        color = colors.mutedText
+                        style = galleryTypography.label
                     )
                     NavigationDrawerItem(
                         label = { Text(stringResource(R.string.nav_references)) },
@@ -872,8 +875,7 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_info),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        fontSize = textSizes.extraSmall,
-                        color = colors.mutedText
+                        style = galleryTypography.label
                     )
 
                     NavigationDrawerItem(
@@ -915,8 +917,7 @@ fun AppNavigation(
                     Text(
                         "Version ${BuildConfig.VERSION_NAME}",
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                        fontSize = textSizes.extraSmall,
-                        color = colors.mutedText
+                        style = galleryTypography.label
                     )
 
                     Spacer(Modifier.height(12.dp))
@@ -962,7 +963,7 @@ fun AppNavigation(
                         .pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    awaitFirstDown(requireUnconsumed = false)
                                     var totalDrag = 0f
                                     var isOpening = false
 
@@ -1548,13 +1549,36 @@ fun AppNavigation(
 
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
+            val prefs = remember { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
+            val navBarAssignments = remember(prefs) {
+                listOf(
+                    AppConstants.SLOT_BOTTOM_LEFT,
+                    AppConstants.SLOT_BOTTOM_CENTER_LEFT,
+                    AppConstants.SLOT_BOTTOM_CENTER,
+                    AppConstants.SLOT_BOTTOM_CENTER_RIGHT,
+                    AppConstants.SLOT_BOTTOM_RIGHT
+                ).mapNotNull { slot ->
+                    prefs.getString("nav_bar.$slot", null)?.takeIf { it != "なし" }
+                }
+            }
 
-            // 基本機能では下部ナビゲーションを表示する。
-            val isBasicFunction = currentRoute == AppRoutes.HOME ||
+            // 基本機能またはユーザーが設定した画面では下部ナビゲーションを表示する。
+            val isAssignedRoute = currentRoute in navBarAssignments || 
+                (navBarAssignments.isEmpty() && currentRoute in listOf(AppRoutes.HOME, AppRoutes.FOLDERS, AppRoutes.VIDEOS, AppRoutes.BOOKS, AppRoutes.TRASH))
+            
+            val isBasicFunction = isAssignedRoute ||
+                currentRoute == AppRoutes.HOME ||
                 currentRoute == AppRoutes.FOLDERS ||
                 currentRoute == AppRoutes.BOOKS ||
                 currentRoute == AppRoutes.TRASH ||
-                currentRoute == AppRoutes.VIDEOS
+                currentRoute == AppRoutes.VIDEOS ||
+                currentRoute == AppRoutes.REFERENCES ||
+                currentRoute == AppRoutes.VIDEO_DOWNLOADER ||
+                currentRoute == AppRoutes.FAVORITE_ARTISTS ||
+                currentRoute == AppRoutes.FAVORITE_SITES ||
+                currentRoute == AppRoutes.BOOK_BOOKMARKS ||
+                currentRoute == AppRoutes.SETTINGS ||
+                currentRoute == AppRoutes.ABOUT
             val isInteriorGalleryRoute =
                 (currentRoute == AppRoutes.FOLDERS && isFolderGalleryOpen) ||
                     (currentRoute == AppRoutes.VIDEOS && isVideoFolderOpen) ||
@@ -1611,8 +1635,7 @@ private fun AnalysisPeriodDialog(
         AppDefaults.ANALYSIS_PERIOD_ALL to stringResource(R.string.analysis_period_all),
         CUSTOM_ANALYSIS_PERIOD to customLabel
     )
-    val estimatedSeconds = targetCount?.times(4)
-    val estimatedText = when (estimatedSeconds) {
+    val estimatedText = when (val estimatedSeconds = targetCount?.times(4)) {
         null -> stringResource(R.string.analysis_calculating)
         0 -> stringResource(R.string.analysis_zero_minutes)
         else -> stringResource(R.string.analysis_estimated_minutes, (estimatedSeconds + 59) / 60, targetCount)

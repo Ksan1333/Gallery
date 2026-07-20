@@ -33,6 +33,7 @@ class PreferenceManager(context: Context) {
         const val TAP_ZONE_LAYOUT = "tapZoneLayout"
         const val SHOW_CLOCK_BATTERY = "showClockBattery"
         const val SIMILAR_IMAGE_GROUPING = "similarImageGroupingEnabled"
+        const val SIMILAR_IMAGE_THRESHOLD = "similarImageThreshold"
         const val FOLDER_GROUPS_DATA = "folderGroupsData"
     }
 

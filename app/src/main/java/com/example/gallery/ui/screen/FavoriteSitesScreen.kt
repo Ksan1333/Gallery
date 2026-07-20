@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.graphics.Color
@@ -96,7 +97,7 @@ fun FavoriteSitesScreen(
     onMenuClick: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
+    GalleryThemeTokens.textSizes
     val siteBackground = colors.background
     val siteInk = colors.primaryText
     val siteAccent = colors.accent
@@ -280,8 +281,8 @@ fun FavoriteSitesScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .background(siteBackground),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
+                verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
             ) {
                 itemsIndexed(sites, key = { index, _ -> index }) { index, site ->
                     FavoriteSiteEditCard(
@@ -306,7 +307,7 @@ fun FavoriteSitesScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = siteAccent)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
                         Text(stringResource(R.string.fav_add_site_card))
                     }
                 }
@@ -424,8 +425,8 @@ private fun FavoriteSitesDisplay(
 
     LazyColumn(
         modifier = modifier.background(siteBackground),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
+        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
     ) {
         itemsIndexed(visibleSites, key = { index, site -> "${site.url}_$index" }) { _, site ->
             Card(
@@ -433,12 +434,12 @@ private fun FavoriteSitesDisplay(
                     .fillMaxWidth()
                     .clickable(enabled = site.url.isNotBlank()) { openFavoriteSite(context, site.url) },
                 colors = CardDefaults.cardColors(containerColor = siteCard),
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, GalleryThemeTokens.colors.divider)
+                shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium)),
+                border = BorderStroke(dimensionResource(R.dimen.spacing_hairline), GalleryThemeTokens.colors.divider)
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.padding(dimensionResource(R.dimen.spacing_base)),
+                    verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -458,7 +459,7 @@ private fun FavoriteSitesDisplay(
                         Text(site.description, color = siteMuted, fontSize = textSizes.subtitle)
                     }
                     if (site.url.isNotBlank()) {
-                        Surface(color = siteField, shape = RoundedCornerShape(6.dp)) {
+                        Surface(color = siteField, shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small) + dimensionResource(R.dimen.radius_tiny))) {
                             Text(
                                 text = site.url,
                                 color = siteAccent,
@@ -467,7 +468,7 @@ private fun FavoriteSitesDisplay(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .padding(horizontal = dimensionResource(R.dimen.popup_padding_h), vertical = dimensionResource(R.dimen.spacing_small))
                             )
                         }
                     }
@@ -491,12 +492,12 @@ private fun FavoriteSiteEditCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = siteCard),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, GalleryThemeTokens.colors.divider)
+        shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium)),
+        border = BorderStroke(dimensionResource(R.dimen.spacing_hairline), GalleryThemeTokens.colors.divider)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_base)),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.popup_padding_h))
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.fav_site_card), color = siteInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -561,13 +562,13 @@ private fun FavoriteSiteSearchDialog(
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = siteCard,
-            shape = RoundedCornerShape(8.dp)
+            shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
         ) {
             Column {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
+                        .padding(dimensionResource(R.dimen.spacing_small)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(

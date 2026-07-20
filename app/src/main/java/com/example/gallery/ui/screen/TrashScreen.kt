@@ -16,13 +16,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
@@ -30,6 +30,7 @@ import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.galleryTypography
 import kotlinx.coroutines.launch
 
 @Composable
@@ -45,7 +46,6 @@ fun TrashScreen(
     val trashMedia by galleryState.repository.getTrashMedia().collectAsState(initial = emptyList())
     var trashedBooks by remember { mutableStateOf<List<BookData>>(emptyList()) }
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
 
     var selectedImageIndex by remember { mutableStateOf<Int?>(null) }
     var selectedBook by remember { mutableStateOf<BookData?>(null) }
@@ -76,9 +76,9 @@ fun TrashScreen(
                                     }
                                 }
                             ) {
-                                Text(stringResource(R.string.trash_permanent_delete), color = colors.danger, fontSize = textSizes.small)
+                                Text(stringResource(R.string.trash_permanent_delete), style = galleryTypography.small.copy(color = colors.danger))
                             }
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
                             Button(
                                 onClick = {
                                     scope.launch {
@@ -90,7 +90,7 @@ fun TrashScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
                             ) {
                                 Icon(Icons.Default.Restore, contentDescription = null)
-                                Spacer(Modifier.width(4.dp))
+                                Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
                                 Text(stringResource(R.string.btn_restore))
                             }
                         }
@@ -100,7 +100,7 @@ fun TrashScreen(
 
             if (trashMedia.isEmpty() && trashedBooks.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.trash_empty), color = colors.mutedText)
+                    Text(stringResource(R.string.trash_empty), style = galleryTypography.bodyMuted)
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
@@ -135,15 +135,14 @@ fun TrashScreen(
                         ) {
                             Text(
                                 stringResource(R.string.nav_books),
-                                color = colors.primaryText,
-                                fontSize = textSizes.subtitle,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                style = galleryTypography.bodySecondary.copy(color = colors.primaryText),
+                                modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_medium), vertical = dimensionResource(R.dimen.spacing_small))
                             )
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
-                                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(start = dimensionResource(R.dimen.spacing_base), end = dimensionResource(R.dimen.spacing_base), bottom = dimensionResource(R.dimen.spacing_large)),
+                                horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
+                                verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 items(trashedBooks) { book ->
@@ -187,13 +186,12 @@ fun TrashScreen(
 @Composable
 private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
     val colors = GalleryThemeTokens.colors
-    val textSizes = GalleryThemeTokens.textSizes
     Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
                 .background(colors.surfaceVariant)
         ) {
             if (book.thumbnailPath != null) {
@@ -206,25 +204,24 @@ private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
             }
             Surface(
                 color = colorResource(R.color.book_badge_color),
-                shape = RoundedCornerShape(999.dp),
-                modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
+                shape = RoundedCornerShape(dimensionResource(R.dimen.radius_full)),
+                modifier = Modifier.align(Alignment.TopStart).padding(dimensionResource(R.dimen.spacing_tiny))
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                    modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny), vertical = dimensionResource(R.dimen.spacing_micro) + dimensionResource(R.dimen.spacing_micro) / 2), // 3.dp
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = colors.primaryText, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(stringResource(R.string.nav_books), color = colors.primaryText, fontSize = textSizes.tiny)
+                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = colors.primaryText, modifier = Modifier.size(dimensionResource(R.dimen.icon_size_deselect)))
+                    Spacer(Modifier.width(dimensionResource(R.dimen.spacing_micro) + dimensionResource(R.dimen.spacing_micro) / 2))
+                    Text(stringResource(R.string.nav_books), style = galleryTypography.tiny.copy(color = colors.primaryText))
                 }
             }
         }
         Text(
             book.title,
-            color = colors.primaryText,
-            fontSize = textSizes.small,
+            style = galleryTypography.small.copy(color = colors.primaryText),
             maxLines = 2,
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_tiny))
         )
     }
 }

@@ -23,6 +23,8 @@
     <color name="accent_soft_dark">#FF163B5F</color>
     <color name="danger_dark">#FFFF6B7A</color>
     <color name="success_dark">#FF47D18C</color>
+    <color name="warning_dark">#FFFFB300</color>
+    <color name="info_dark">#FF0288D1</color>
     <color name="divider_dark">#33FFFFFF</color>
     <color name="disabled_dark">#FF6E7A86</color>
 
@@ -41,6 +43,8 @@
     <color name="accent_soft_light">#FFD8ECFF</color>
     <color name="danger_light">#FFD9364E</color>
     <color name="success_light">#FF168A52</color>
+    <color name="warning_light">#FFFBC02D</color>
+    <color name="info_light">#FF0288D1</color>
     <color name="divider_light">#1F000000</color>
     <color name="disabled_light">#FF9AA8B6</color>
 
@@ -52,4 +56,229 @@
     <color name="yellow">#FFFFFF00</color>
     <color name="red">#FFFF0000</color>
     <color name="book_badge_color">#FF1E88E5</color>
+
+    <!-- Theme Presets -->
+    <!-- Midnight (Dark) & Paper (Light) are already defined above as bg_dark/bg_light etc. -->
+
+    <!-- Sunrise -->
+    <color name="preset_sunrise_bg">#FFFFF7ED</color>
+    <color name="preset_sunrise_surface">#FFFFFBF5</color>
+    <color name="preset_sunrise_text_primary">#FF2D1B16</color>
+    <color name="preset_sunrise_text_secondary">#FF6F4A3E</color>
+    <color name="preset_sunrise_accent">#FFE65F3C</color>
+    <color name="preset_sunrise_danger">#FFD6384D</color>
+    <color name="preset_sunrise_success">#FF2D9A68</color>
+    <color name="preset_sunrise_divider">#24000000</color>
+
+    <!-- Sunset -->
+    <color name="preset_sunset_bg">#FF171018</color>
+    <color name="preset_sunset_surface">#FF241525</color>
+    <color name="preset_sunset_text_primary">#FFFFF2E8</color>
+    <color name="preset_sunset_text_secondary">#FFE0BBAA</color>
+    <color name="preset_sunset_accent">#FFFF8A3D</color>
+    <color name="preset_sunset_danger">#FFFF6175</color>
+    <color name="preset_sunset_success">#FF62D58E</color>
+    <color name="preset_sunset_divider">#33FFFFFF</color>
+
+    <!-- Gorgeous -->
+    <color name="preset_gorgeous_bg">#FF100B12</color>
+    <color name="preset_gorgeous_surface">#FF1A121D</color>
+    <color name="preset_gorgeous_text_primary">#FFFFF7E2</color>
+    <color name="preset_gorgeous_text_secondary">#FFE8D2A0</color>
+    <color name="preset_gorgeous_accent">#FFFFC857</color>
+    <color name="preset_gorgeous_danger">#FFFF6678</color>
+    <color name="preset_gorgeous_success">#FF5DDD9B</color>
+    <color name="preset_gorgeous_divider">#40FFDFA3</color>
+
+    <!-- Calm -->
+    <color name="preset_calm_bg">#FF121715</color>
+    <color name="preset_calm_surface">#FF17201D</color>
+    <color name="preset_calm_text_primary">#FFEFF8F2</color>
+    <color name="preset_calm_text_secondary">#FFC3D5CA</color>
+    <color name="preset_calm_accent">#FF8FD19E</color>
+    <color name="preset_calm_danger">#FFFF7480</color>
+    <color name="preset_calm_success">#FF67D695</color>
+    <color name="preset_calm_divider">#2EFFFFFF</color>
+
+    <!-- Spring -->
+    <color name="preset_spring_bg">#FFFFF7FB</color>
+    <color name="preset_spring_surface">#FFFFFFFF</color>
+    <color name="preset_spring_text_primary">#FF25151D</color>
+    <color name="preset_spring_text_secondary">#FF69485A</color>
+    <color name="preset_spring_accent">#FFE85D93</color>
+    <color name="preset_spring_danger">#FFD83A55</color>
+    <color name="preset_spring_success">#FF2BA86B</color>
+    <color name="preset_spring_divider">#22000000</color>
+
+    <!-- Summer -->
+    <color name="preset_summer_bg">#FFF1FBFF</color>
+    <color name="preset_summer_surface">#FFFFFFFF</color>
+    <color name="preset_summer_text_primary">#FF0C2430</color>
+    <color name="preset_summer_text_secondary">#FF315D6E</color>
+    <color name="preset_summer_accent">#FF00A7C8</color>
+    <color name="preset_summer_danger">#FFD93A4E</color>
+    <color name="preset_summer_success">#FF149B70</color>
+    <color name="preset_summer_divider">#20000000</color>
+
+    <!-- Winter -->
+    <color name="preset_winter_bg">#FF0E141B</color>
+    <color name="preset_winter_surface">#FF141D27</color>
+    <color name="preset_winter_text_primary">#FFF2FAFF</color>
+    <color name="preset_winter_text_secondary">#FFC5D8E6</color>
+    <color name="preset_winter_accent">#FF8ED8FF</color>
+    <color name="preset_winter_danger">#FFFF7180</color>
+    <color name="preset_winter_success">#FF64D69A</color>
+    <color name="preset_winter_divider">#33FFFFFF</color>
+
+    <!-- Forest -->
+    <color name="preset_forest_bg">#FF0F1711</color>
+    <color name="preset_forest_surface">#FF172119</color>
+    <color name="preset_forest_text_primary">#FFF0F8EF</color>
+    <color name="preset_forest_text_secondary">#FFC6D8C1</color>
+    <color name="preset_forest_accent">#FF7ACB6A</color>
+    <color name="preset_forest_danger">#FFFF746F</color>
+    <color name="preset_forest_success">#FF6FDA83</color>
+    <color name="preset_forest_divider">#2EFFFFFF</color>
+
+    <!-- Neon -->
+    <color name="preset_neon_bg">#FF090B12</color>
+    <color name="preset_neon_surface">#FF10131F</color>
+    <color name="preset_neon_text_primary">#FFF1FFF9</color>
+    <color name="preset_neon_text_secondary">#FFB8F7E6</color>
+    <color name="preset_neon_accent">#FF49F2C2</color>
+    <color name="preset_neon_danger">#FFFF4D8A</color>
+    <color name="preset_neon_success">#FF6DFF85</color>
+    <color name="preset_neon_divider">#4049F2C2</color>
+
+    <!-- Mono -->
+    <color name="preset_mono_bg">#FF111315</color>
+    <color name="preset_mono_surface">#FF191C1F</color>
+    <color name="preset_mono_text_primary">#FFF2F4F6</color>
+    <color name="preset_mono_text_secondary">#FFC6CBD0</color>
+    <color name="preset_mono_accent">#FFE6EAF0</color>
+    <color name="preset_mono_danger">#FFFF6B76</color>
+    <color name="preset_mono_success">#FF7FD39A</color>
+    <color name="preset_mono_divider">#33FFFFFF</color>
+
+    <!-- Sakura Mist -->
+    <color name="preset_sakura_mist_bg">#FFFFF4F8</color>
+    <color name="preset_sakura_mist_surface">#FFFFFBFD</color>
+    <color name="preset_sakura_mist_text_primary">#FF2D1821</color>
+    <color name="preset_sakura_mist_text_secondary">#FF704B5A</color>
+    <color name="preset_sakura_mist_accent">#FFD95F8D</color>
+    <color name="preset_sakura_mist_danger">#FFD94359</color>
+    <color name="preset_sakura_mist_success">#FF2F9E71</color>
+    <color name="preset_sakura_mist_divider">#22000000</color>
+
+    <!-- Fresh Leaf -->
+    <color name="preset_fresh_leaf_bg">#FFF5FFF2</color>
+    <color name="preset_fresh_leaf_surface">#FFFFFFFF</color>
+    <color name="preset_fresh_leaf_text_primary">#FF142314</color>
+    <color name="preset_fresh_leaf_text_secondary">#FF3F633F</color>
+    <color name="preset_fresh_leaf_accent">#FF3FA35B</color>
+    <color name="preset_fresh_leaf_danger">#FFD94050</color>
+    <color name="preset_fresh_leaf_success">#FF1D9B5A</color>
+    <color name="preset_fresh_leaf_divider">#20000000</color>
+
+    <!-- Deep Sea -->
+    <color name="preset_deep_sea_bg">#FF071218</color>
+    <color name="preset_deep_sea_surface">#FF0D1D25</color>
+    <color name="preset_deep_sea_text_primary">#FFE9FCFF</color>
+    <color name="preset_deep_sea_text_secondary">#FFB5DCE3</color>
+    <color name="preset_deep_sea_accent">#FF38C6D9</color>
+    <color name="preset_deep_sea_danger">#FFFF6576</color>
+    <color name="preset_deep_sea_success">#FF58D899</color>
+    <color name="preset_deep_sea_divider">#3338C6D9</color>
+
+    <!-- Starry -->
+    <color name="preset_starry_bg">#FF080A18</color>
+    <color name="preset_starry_surface">#FF11142A</color>
+    <color name="preset_starry_text_primary">#FFF3F6FF</color>
+    <color name="preset_starry_text_secondary">#FFC8D2FF</color>
+    <color name="preset_starry_accent">#FFB7C7FF</color>
+    <color name="preset_starry_danger">#FFFF6B82</color>
+    <color name="preset_starry_success">#FF6CE0A2</color>
+    <color name="preset_starry_divider">#33FFFFFF</color>
+
+    <!-- Coffee -->
+    <color name="preset_coffee_bg">#FF15100C</color>
+    <color name="preset_coffee_surface">#FF211811</color>
+    <color name="preset_coffee_text_primary">#FFF4E7FF</color>
+    <color name="preset_coffee_text_secondary">#FFE2C4A0</color>
+    <color name="preset_coffee_accent">#FFD7A86E</color>
+    <color name="preset_coffee_danger">#FFFF6B70</color>
+    <color name="preset_coffee_success">#FF75D18E</color>
+    <color name="preset_coffee_divider">#35FFE0B8</color>
+
+    <!-- Jade -->
+    <color name="preset_jade_bg">#FF071410</color>
+    <color name="preset_jade_surface">#FF10231D</color>
+    <color name="preset_jade_text_primary">#FFE9FFF6</color>
+    <color name="preset_jade_text_secondary">#FFB9E6D4</color>
+    <color name="preset_jade_accent">#FF59D6A3</color>
+    <color name="preset_jade_danger">#FFFF6776</color>
+    <color name="preset_jade_success">#FF73E28F</color>
+    <color name="preset_jade_divider">#3359D6A3</color>
+
+    <!-- Grape -->
+    <color name="preset_grape_bg">#FF150C18</color>
+    <color name="preset_grape_surface">#FF211126</color>
+    <color name="preset_grape_text_primary">#FFFFF0FF</color>
+    <color name="preset_grape_text_secondary">#FFE0B8ED</color>
+    <color name="preset_grape_accent">#FFD083FF</color>
+    <color name="preset_grape_danger">#FFFF657C</color>
+    <color name="preset_grape_success">#FF68D99A</color>
+    <color name="preset_grape_divider">#35FFFFFF</color>
+
+    <!-- Porcelain -->
+    <color name="preset_porcelain_bg">#FFF8FAFC</color>
+    <color name="preset_porcelain_surface">#FFFFFFFF</color>
+    <color name="preset_porcelain_text_primary">#FF17202A</color>
+    <color name="preset_porcelain_text_secondary">#FF4B5E72</color>
+    <color name="preset_porcelain_accent">#FF527AA3</color>
+    <color name="preset_porcelain_danger">#FFD83E50</color>
+    <color name="preset_porcelain_success">#FF218F62</color>
+    <color name="preset_porcelain_divider">#1F000000</color>
+
+    <!-- Autumn Leaf -->
+    <color name="preset_autumn_leaf_bg">#FFFFF8F0</color>
+    <color name="preset_autumn_leaf_surface">#FFFFFCF8</color>
+    <color name="preset_autumn_leaf_text_primary">#FF2B1A11</color>
+    <color name="preset_autumn_leaf_text_secondary">#FF6B4936</color>
+    <color name="preset_autumn_leaf_accent">#FFC65A2E</color>
+    <color name="preset_autumn_leaf_danger">#FFD33E4E</color>
+    <color name="preset_autumn_leaf_success">#FF2C955F</color>
+    <color name="preset_autumn_leaf_divider">#22000000</color>
+
+    <!-- Jewel -->
+    <color name="preset_jewel_bg">#FF0B0A12</color>
+    <color name="preset_jewel_surface">#FF151326</color>
+    <color name="preset_jewel_text_primary">#FFFFF4FF</color>
+    <color name="preset_jewel_text_secondary">#FFE2C4FF</color>
+    <color name="preset_jewel_accent">#FFFF4FD8</color>
+    <color name="preset_jewel_danger">#FFFF667B</color>
+    <color name="preset_jewel_success">#FF65E2A0</color>
+    <color name="preset_jewel_divider">#33FFFFFF</color>
+
+    <!-- Palette Swatches -->
+    <color name="swatch_01">#000000</color>
+    <color name="swatch_02">#101418</color>
+    <color name="swatch_03">#1D2630</color>
+    <color name="swatch_04">#404040</color>
+    <color name="swatch_05">#FFFFFF</color>
+    <color name="swatch_06">#006ACB</color>
+    <color name="swatch_07">#4DA3FF</color>
+    <color name="swatch_08">#00A7C8</color>
+    <color name="swatch_09">#38C6D9</color>
+    <color name="swatch_10">#B7C7FF</color>
+    <color name="swatch_11">#168A52</color>
+    <color name="swatch_12">#47D18C</color>
+    <color name="swatch_13">#7ACB6A</color>
+    <color name="swatch_14">#D7A86E</color>
+    <color name="swatch_15">#FFFFC857</color>
+    <color name="swatch_16">#D9364E</color>
+    <color name="swatch_17">#FFFF6B7A</color>
+    <color name="swatch_18">#FFFF8A3D</color>
+    <color name="swatch_19">#D083FF</color>
+    <color name="swatch_20">#FFFF4FD8</color>
 </resources>

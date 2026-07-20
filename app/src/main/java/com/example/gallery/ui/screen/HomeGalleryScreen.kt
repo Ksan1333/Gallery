@@ -1,5 +1,6 @@
 package com.example.gallery.ui.screen
 
+import android.content.Context
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -14,10 +15,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -28,6 +30,7 @@ import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.search.filterGallerySearchResults
 import com.example.gallery.ui.theme.GalleryThemeTokens
+import com.example.gallery.ui.theme.GalleryAlphaTokens
 import com.example.gallery.ui.state.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,6 +59,11 @@ fun HomeGalleryScreen(
     val initialScrollIndex = 0
     val initialScrollOffset = 0
     val configuration = LocalConfiguration.current
+    val context = LocalContext.current
+    val homeShowVideos by remember(context) {
+        val prefs = context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
+        mutableStateOf(prefs.getBoolean("homeShowVideos", false))
+    }
     val deviceAspectRatio = configuration.screenHeightDp.toFloat() / configuration.screenWidthDp.toFloat()
 
     val pagingItems = remember(
@@ -65,10 +73,16 @@ fun HomeGalleryScreen(
         galleryState.sortMode,
         galleryState.isAscending,
         galleryState.groupingMode,
-        galleryState.refreshTrigger
+        galleryState.refreshTrigger,
+        homeShowVideos
     ) {
+        val mediaType = if (!homeShowVideos && galleryState.mediaTypeFilter == MediaTypeFilter.ALL) {
+            MediaTypeFilter.IMAGE
+        } else {
+            galleryState.mediaTypeFilter
+        }
         galleryState.repository.getGridItemPagingFlow(
-            mediaType = galleryState.mediaTypeFilter,
+            mediaType = mediaType,
             ageRating = galleryState.ageRatingFilter,
             deviceFilter = galleryState.deviceFilter,
             deviceAspectRatio = deviceAspectRatio,
@@ -260,7 +274,13 @@ fun HomeGalleryScreen(
             galleryState.repository.syncMediaStoreToRoom()
             
             // 2. Viewer用の全リスト同期などのためにDBから取得
-            val updatedMedia = galleryState.repository.getAllMedia(forceRefresh = true)
+            val updatedMedia = galleryState.repository.getAllMedia(forceRefresh = true).let { list ->
+                if (!homeShowVideos && galleryState.mediaTypeFilter == MediaTypeFilter.ALL) {
+                    list.filter { !it.isVideo }
+                } else {
+                    list
+                }
+            }
             withContext(Dispatchers.Main) {
                 imageList = updatedMedia
                 isLoading = false
@@ -496,8 +516,8 @@ fun HomeGalleryScreen(
                     ) {
                         if (isAiAnalysisRunning) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(ButtonDefaults.IconSize),
-                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_small)), // ButtonDefaults.IconSize is ~18dp
+                                strokeWidth = dimensionResource(R.dimen.spacing_micro),
                                 color = GalleryThemeTokens.colors.accent
                             )
                         } else {
@@ -561,7 +581,7 @@ fun HomeGalleryScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(GalleryThemeTokens.colors.background.copy(alpha = 0.55f)),
+                    .background(GalleryThemeTokens.colors.background.copy(alpha = GalleryAlphaTokens.Overlay)),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = GalleryThemeTokens.colors.accent)

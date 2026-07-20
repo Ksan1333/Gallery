@@ -194,8 +194,11 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFolderOrder(order: com.example.gallery.data.local.entity.FolderOrderEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun bulkInsertFolderOrders(orders: List<com.example.gallery.data.local.entity.FolderOrderEntity>)
+
     @Query("SELECT * FROM folder_order ORDER BY position ASC")
-    fun getAllFolderOrders(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.FolderOrderEntity>>
+    fun getAllFolderOrders(): Flow<List<com.example.gallery.data.local.entity.FolderOrderEntity>>
 
     @Query("DELETE FROM folder_order WHERE id = :id")
     suspend fun deleteFolderOrder(id: String)
@@ -205,13 +208,13 @@ interface MediaDao {
     suspend fun insertManagedFolder(folder: com.example.gallery.data.local.entity.ManagedFolderEntity)
 
     @Query("SELECT * FROM managed_folders")
-    fun getAllManagedFolders(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.ManagedFolderEntity>>
+    fun getAllManagedFolders(): Flow<List<com.example.gallery.data.local.entity.ManagedFolderEntity>>
 
     @Query("UPDATE managed_folders SET customThumbnailUri = :uri WHERE folderName = :folderName")
     suspend fun updateFolderThumbnail(folderName: String, uri: String?)
 
     @Query("SELECT folderName FROM managed_folders")
-    fun getAllManagedFolderNames(): kotlinx.coroutines.flow.Flow<List<String>>
+    fun getAllManagedFolderNames(): Flow<List<String>>
 
     // タグ翻訳用
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -225,7 +228,7 @@ interface MediaDao {
     suspend fun insertVideoDownload(download: com.example.gallery.data.local.entity.VideoDownloadEntity)
 
     @Query("SELECT * FROM video_downloads ORDER BY downloadDate DESC")
-    fun getAllVideoDownloads(): kotlinx.coroutines.flow.Flow<List<com.example.gallery.data.local.entity.VideoDownloadEntity>>
+    fun getAllVideoDownloads(): Flow<List<com.example.gallery.data.local.entity.VideoDownloadEntity>>
 
     @Query("SELECT EXISTS(SELECT 1 FROM video_downloads WHERE url = :url OR url LIKE :url || '#gallery-media=%')")
     suspend fun isVideoDownloaded(url: String): Boolean
