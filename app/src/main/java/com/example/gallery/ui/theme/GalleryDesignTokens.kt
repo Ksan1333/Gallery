@@ -229,6 +229,17 @@ object GalleryColorTokens {
 data class ThemePreset(val labelRes: Int, val value: String, val colors: GalleryColors?)
 
 object GalleryThemePresets {
+    private val visibleValues = setOf(
+        "DEFAULT",
+        "CUSTOM",
+        "MIDNIGHT",
+        "PAPER",
+        "SUNRISE",
+        "FOREST",
+        "DEEP_SEA",
+        "NEON"
+    )
+
     val List: List<ThemePreset>
         @Composable
         @ReadOnlyComposable
@@ -437,7 +448,7 @@ object GalleryThemePresets {
                 success = colorResource(R.color.preset_jewel_success),
                 divider = colorResource(R.color.preset_jewel_divider)
             ))
-        )
+        ).filter { it.value in visibleValues }
 }
 
 object GalleryPaletteSwatches {

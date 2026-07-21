@@ -664,8 +664,8 @@ fun AppNavigation(
         unselectedTextColor = colors.primaryText,
         unselectedIconColor = colors.primaryText,
         selectedContainerColor = colors.accentSoft,
-        selectedTextColor = colors.accent,
-        selectedIconColor = colors.accent
+        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer
     )
     val isDrawerRoute = currentRouteForDrawer in setOf(
         AppRoutes.HOME,
@@ -884,7 +884,8 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_handy_features),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        style = galleryTypography.label
+                        style = galleryTypography.label,
+                        color = colors.secondaryText
                     )
                     NavigationDrawerItem(
                         label = { Text(stringResource(R.string.nav_references)) },
@@ -955,7 +956,8 @@ fun AppNavigation(
                     Text(
                         stringResource(R.string.drawer_info),
                         modifier = Modifier.padding(16.dp, 8.dp),
-                        style = galleryTypography.label
+                        style = galleryTypography.label,
+                        color = colors.secondaryText
                     )
 
                     NavigationDrawerItem(
@@ -997,7 +999,8 @@ fun AppNavigation(
                     Text(
                         "Version ${BuildConfig.VERSION_NAME}",
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                        style = galleryTypography.label
+                        style = galleryTypography.label,
+                        color = colors.secondaryText
                     )
 
                     Spacer(Modifier.height(12.dp))

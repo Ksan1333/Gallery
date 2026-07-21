@@ -113,6 +113,7 @@ import com.example.gallery.ui.theme.GalleryColors
 import com.example.gallery.ui.theme.GalleryThemeMode
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryThemePresets
+import com.example.gallery.ui.theme.ThemePreset
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
@@ -776,7 +777,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.themeSettingsItems(
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
         val fallbackPalette = if (themeMode == GalleryThemeMode.LIGHT) GalleryColorTokens.Light else GalleryColorTokens.Dark
-        var themePreset by remember { mutableStateOf(prefs.getString(THEME_PRESET_PREF, if (customPalette == null) "DEFAULT" else "CUSTOM") ?: "DEFAULT") }
+        val presets = GalleryThemePresets.List
+        val availablePresetValues = remember(presets) { presets.map { it.value }.toSet() }
+        val storedThemePreset = prefs.getString(
+            THEME_PRESET_PREF,
+            if (customPalette == null) "DEFAULT" else "CUSTOM"
+        ) ?: "DEFAULT"
+        var themePreset by remember {
+            mutableStateOf(
+                storedThemePreset.takeIf { it in availablePresetValues }
+                    ?: if (customPalette == null) "DEFAULT" else "CUSTOM"
+            )
+        }
         var editablePalette by remember(customPalette, themeMode) { mutableStateOf(customPalette ?: fallbackPalette) }
         var showColorPickerFor by remember { mutableStateOf<ColorField?>(null) }
 
@@ -795,12 +807,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.themeSettingsItems(
             onCustomPaletteChange(next)
         }
 
-        val presets = GalleryThemePresets.List
         SettingsSectionCard(stringResource(R.string.settings_color_palette), stringResource(R.string.settings_color_palette_desc)) {
-            SettingsChoiceRow(
+            ThemePresetPicker(
                 title = stringResource(R.string.settings_theme_preset),
-                options = presets.map { it.labelRes to it.value },
+                presets = presets,
                 selected = themePreset,
+                defaultPalette = fallbackPalette,
+                customPalette = editablePalette,
                 description = stringResource(R.string.desc_theme_preset)
             ) { value ->
                 applyPalette(value, presets.find { it.value == value }?.colors)
@@ -1710,6 +1723,98 @@ private fun SettingsChoiceRow(
                         )
                     }
                     repeat(columns - rowOptions.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePresetPicker(
+    title: String,
+    presets: List<ThemePreset>,
+    selected: String,
+    defaultPalette: GalleryColors,
+    customPalette: GalleryColors,
+    description: String,
+    onSelected: (String) -> Unit
+) {
+    val colors = GalleryThemeTokens.colors
+    Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
+        Text(title, style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.primaryText)
+        Text(description, style = galleryTypography.body, color = colors.secondaryText)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(presets, key = { it.value }) { preset ->
+                val previewPalette = when (preset.value) {
+                    "DEFAULT" -> defaultPalette
+                    "CUSTOM" -> customPalette
+                    else -> preset.colors ?: defaultPalette
+                }
+                ThemePresetPreviewCard(
+                    label = stringResource(preset.labelRes),
+                    palette = previewPalette,
+                    selected = selected == preset.value,
+                    onClick = { onSelected(preset.value) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePresetPreviewCard(
+    label: String,
+    palette: GalleryColors,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = GalleryThemeTokens.colors
+    Surface(
+        color = palette.background,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(
+            if (selected) 2.dp else 1.dp,
+            if (selected) colors.accent else palette.divider
+        ),
+        modifier = Modifier
+            .width(156.dp)
+            .height(124.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp)
+                    .background(palette.topBar)
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Aa", color = palette.primaryText, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(palette.accent, CircleShape)
+                )
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(label, color = palette.primaryText, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                Surface(color = palette.surface, shape = RoundedCornerShape(8.dp)) {
+                    Text(
+                        "プレビュー",
+                        color = palette.secondaryText,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(Modifier.size(18.dp).background(palette.accent, CircleShape))
+                    Box(Modifier.size(18.dp).background(palette.success, CircleShape))
+                    Box(Modifier.size(18.dp).background(palette.danger, CircleShape))
                 }
             }
         }
