@@ -196,10 +196,17 @@ fun HomeGalleryScreen(
         onHideViewer()
     }
 
-    BackHandler(enabled = isSelectionModeActive || selectedIndex != null) {
+    BackHandler(
+        enabled = isSelectionModeActive ||
+            selectedIndex != null ||
+            galleryState.returnToUnfilteredHomeOnBack
+    ) {
         if (selectedIndex != null) {
             closeViewer("back")
         } else if (isSelectionModeActive) clearSelectionSignal++
+        else if (galleryState.returnToUnfilteredHomeOnBack) {
+            galleryState.clearHomeSearch()
+        }
     }
 
     fun requestSavedScrollRestore(reason: String) {
@@ -598,6 +605,7 @@ fun HomeGalleryScreen(
                     galleryState = galleryState,
                     onNavigateToTag = { tag ->
                         closeViewer("tag", restoreViewedMedia = false)
+                        galleryState.returnToUnfilteredHomeOnBack = true
                         onNavigateToTag?.invoke(tag)
                     },
                     onPageSelected = {

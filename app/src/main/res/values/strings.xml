@@ -326,13 +326,14 @@
     <string name="edit_target_age">対象年齢</string>
     <string name="edit_tag_settings">タグ設定</string>
     <string name="edit_new_tag">新しいタグ</string>
+    <string name="edit_tag_input_placeholder">タグを入力して検索・追加</string>
     <string name="edit_add_tags">追加するタグ:</string>
     <string name="edit_select_existing_tags">既存のタグから選択:</string>
     <string name="edit_search_tags">タグを検索…</string>
     <string name="edit_bulk">一括編集</string>
     <string name="edit_move_folder">フォルダ移動</string>
     <string name="edit_bulk_tags_rating">一括タグ・評価編集</string>
-    <string name="edit_bulk_title_format">一括タグ・評価編集 (%1$d 件)</string>
+    <string name="edit_bulk_title_format">一括編集(%1$d件)</string>
     <string name="edit_set_folder_thumbnail">フォルダのサムネイルに設定</string>
     <string name="edit_tags">タグを編集</string>
     <string name="edit_selected_items">選択中のアイテム</string>
@@ -386,7 +387,9 @@
     <string name="settings_random_playback">ランダム再生</string>
     <string name="settings_continuous_playback">連続再生</string>
     <string name="settings_section_operation">操作</string>
-    <string name="settings_section_operation_desc">長押し、ダブルタップ、タッチ表示、自動非表示を設定します。</string>
+    <string name="settings_section_operation_desc">サイドバー引き出し、長押し、ダブルタップ、タッチ表示、自動非表示を設定します。</string>
+    <string name="settings_edge_swipe_drawer">右スワイプでサイドバーを表示</string>
+    <string name="desc_edge_swipe_drawer">画面左端からの右スワイプでサイドバー（メニュー）を引き出せるようにします。オフにすると上下スクロールが優先されます。</string>
     <string name="settings_long_press_magnifier">長押し拡大鏡</string>
     <string name="settings_double_tap_zoom">ダブルタップ高速ズーム</string>
     <string name="settings_touch_indicator">タッチインジケーター</string>
@@ -830,6 +833,9 @@
     <string name="label_frame_bar_status_single">シークバーのみ</string>
     <string name="label_rec_random">レコメンド: ランダム画像を表示</string>
     <string name="label_rec_similar">レコメンド: 似ている画像を表示</string>
+    <string name="label_rec_panel_size">レコメンドの表示サイズ</string>
+    <string name="label_rec_panel_size_max">画面いっぱい</string>
+    <string name="label_rec_panel_size_min">従来の42%表示</string>
     <string name="label_swipe_up_rec">上スワイプでレコメンド表示</string>
     <string name="label_swipe_down_close">下スワイプで閉じる</string>
     <string name="label_double_tap_zoom">ダブルタップでズーム</string>
@@ -839,6 +845,7 @@
     <string name="desc_frame_bar">動画やGIFのコマ送りバーを表示します</string>
     <string name="desc_rec_random">関連するランダム画像を下に表示します</string>
     <string name="desc_rec_similar">AI分析による似た雰囲気の画像を下に表示します</string>
+    <string name="desc_rec_panel_size">レコメンドパネルを画面いっぱいにするか、従来の42%の高さにするかを設定します</string>
     <string name="desc_swipe_up_rec">上スワイプ操作でレコメンドを呼び出します</string>
     <string name="desc_swipe_down_close">下スワイプ操作でビューアを閉じます</string>
     <string name="desc_double_tap_zoom_viewer">ダブルタップで素早くズーム倍率を切り替えます</string>

@@ -594,11 +594,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.globalSettingsItems(
         var controlPanelAutoHideMs by remember { mutableIntStateOf(prefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS)) }
         var selectionLongPressMs by remember { mutableIntStateOf(prefs.getInt("selectionLongPressMs", AppDefaults.SELECTION_LONG_PRESS_MS)) }
         var searchHistoryLimit by remember { mutableIntStateOf(prefs.getInt("searchHistoryLimit", 5).coerceIn(1, 10)) }
+        var edgeSwipeForDrawer by remember { mutableStateOf(prefs.getBoolean(PreferenceManager.EDGE_SWIPE_FOR_DRAWER, true)) }
 
         fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
         fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
 
         SettingsSectionCard(stringResource(R.string.settings_section_operation), stringResource(R.string.settings_section_operation_desc)) {
+            SwitchSetting(stringResource(R.string.settings_edge_swipe_drawer), edgeSwipeForDrawer, description = stringResource(R.string.desc_edge_swipe_drawer)) {
+                edgeSwipeForDrawer = it
+                saveBoolean(PreferenceManager.EDGE_SWIPE_FOR_DRAWER, it)
+            }
             SwitchSetting(stringResource(R.string.settings_long_press_magnifier), longPressMagnifier, description = stringResource(R.string.desc_long_press_magnifier)) { longPressMagnifier = it; saveBoolean("longPressMagnifier", it) }
             SwitchSetting(stringResource(R.string.settings_double_tap_zoom), doubleTapFastZoom, description = stringResource(R.string.desc_double_tap_zoom)) { doubleTapFastZoom = it; saveBoolean("doubleTapFastZoom", it) }
             SwitchSetting(stringResource(R.string.settings_confirm_delete), confirmDelete, description = stringResource(R.string.desc_confirm_delete)) { confirmDelete = it; saveBoolean("confirmDelete", it) }
@@ -846,10 +851,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.mediaViewerSettingsIt
 
         val prefs = remember { context.getSharedPreferences(MEDIA_VIEWER_PREFS, Context.MODE_PRIVATE) }
         var showInfoOverlay by remember { mutableStateOf(prefs.getBoolean("showInfoOverlay", false)) }
-        var loopGif by remember { mutableStateOf(prefs.getBoolean("loopGif", true)) }
         var showFrameBar by remember { mutableStateOf(prefs.getBoolean("showFrameBar", false)) }
         var showRandomRecs by remember { mutableStateOf(prefs.getBoolean("showRandomRecs", true)) }
         var showSimilarRecs by remember { mutableStateOf(prefs.getBoolean("showSimilarRecs", true)) }
+        var recommendationPanelSize by remember {
+            mutableStateOf(
+                prefs.getString(PreferenceManager.RECOMMENDATION_PANEL_SIZE, "MAX") ?: "MAX"
+            )
+        }
         var swipeUpRecs by remember { mutableStateOf(prefs.getBoolean("swipeUpRecs", true)) }
         var swipeDownClose by remember { mutableStateOf(prefs.getBoolean("swipeDownClose", true)) }
         var doubleTapZoom by remember { mutableStateOf(prefs.getBoolean("doubleTapZoom", true)) }
@@ -861,7 +870,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.mediaViewerSettingsIt
 
         SettingsSectionCard(stringResource(R.string.settings_media_viewer), stringResource(R.string.settings_media_viewer_desc)) {
             SwitchSetting(stringResource(R.string.settings_show_info_overlay), showInfoOverlay, description = stringResource(R.string.desc_show_info_overlay)) { showInfoOverlay = it; saveBoolean("showInfoOverlay", it) }
-            SwitchSetting(stringResource(R.string.viewer_gif_stepping_stop), loopGif, description = stringResource(R.string.viewer_gif_stepping_stop)) { loopGif = it; saveBoolean("loopGif", it) }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = GalleryThemeTokens.colors.divider)
 
@@ -869,6 +877,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.mediaViewerSettingsIt
             SwitchSetting(stringResource(R.string.label_frame_bar), showFrameBar, statusText = if (showFrameBar) stringResource(R.string.label_frame_bar_status_dual) else stringResource(R.string.label_frame_bar_status_single), description = stringResource(R.string.desc_frame_bar)) { showFrameBar = it; saveBoolean("showFrameBar", it) }
             SwitchSetting(stringResource(R.string.label_rec_random), showRandomRecs, description = stringResource(R.string.desc_rec_random)) { showRandomRecs = it; saveBoolean("showRandomRecs", it) }
             SwitchSetting(stringResource(R.string.label_rec_similar), showSimilarRecs, description = stringResource(R.string.desc_similar_image_grouping)) { showSimilarRecs = it; saveBoolean("showSimilarRecs", it) }
+            SettingsChoiceRow(
+                title = stringResource(R.string.label_rec_panel_size),
+                options = listOf(
+                    R.string.label_rec_panel_size_max to "MAX",
+                    R.string.label_rec_panel_size_min to "MIN"
+                ),
+                selected = recommendationPanelSize,
+                description = stringResource(R.string.desc_rec_panel_size),
+                selectedOutlineColor = Color(0xFF2196F3)
+            ) { value ->
+                recommendationPanelSize = value
+                saveString(PreferenceManager.RECOMMENDATION_PANEL_SIZE, value)
+            }
             SwitchSetting(stringResource(R.string.label_swipe_up_rec), swipeUpRecs, description = stringResource(R.string.desc_swipe_up_rec)) { swipeUpRecs = it; saveBoolean("swipeUpRecs", it) }
             SwitchSetting(stringResource(R.string.label_swipe_down_close), swipeDownClose, description = stringResource(R.string.desc_swipe_down_close)) { swipeDownClose = it; saveBoolean("swipeDownClose", it) }
             SwitchSetting(stringResource(R.string.label_double_tap_zoom), doubleTapZoom, description = stringResource(R.string.desc_double_tap_zoom_viewer)) { doubleTapZoom = it; saveBoolean("doubleTapZoom", it) }
@@ -1044,7 +1065,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.viewerAssignmentItems
         AppConstants.ACTION_TRASH,
         AppConstants.ACTION_FAVORITE,
         AppConstants.ACTION_SLIDESHOW,
-        AppConstants.ACTION_GIF,
         AppConstants.ACTION_ASCII2D,
         AppConstants.ACTION_WALLPAPER,
         AppConstants.ACTION_THUMBNAIL,
@@ -1620,6 +1640,7 @@ private fun SettingsChoiceRow(
     selected: String,
     description: String? = null,
     columns: Int = 2,
+    selectedOutlineColor: Color? = null,
     onSelected: (String) -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
@@ -1676,7 +1697,15 @@ private fun SettingsChoiceRow(
                         FilterChip(
                             selected = selected == value,
                             onClick = { onSelected(value) },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(
+                                    if (selected == value && selectedOutlineColor != null) {
+                                        Modifier.border(2.dp, selectedOutlineColor, RoundedCornerShape(50))
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
                             label = { Text(stringResource(labelRes), style = galleryTypography.body, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         )
                     }

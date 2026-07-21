@@ -24,6 +24,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
@@ -57,6 +59,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
@@ -70,12 +74,18 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -123,7 +133,9 @@ import java.text.SimpleDateFormat
 import kotlin.math.roundToInt
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.ui.AppRoutes
+import com.example.gallery.data.local.PreferenceManager
 import com.example.gallery.data.model.MediaData
+import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.AgeRatingFilter
 import com.example.gallery.service.TagTranslationService
@@ -192,7 +204,8 @@ private fun isViewerOverflowAction(function: String, context: Context): Boolean 
 
 private fun isMediaViewerActionAvailable(function: String, mediaItem: MediaData, context: Context): Boolean {
     return when (function) {
-        context.getString(R.string.label_action_gif) -> mediaItem.isGif
+        // Hide the retired GIF frame-stepping action from old saved assignments.
+        context.getString(R.string.label_action_gif) -> false
         context.getString(R.string.label_action_ascii2d) -> !mediaItem.isVideo
         else -> true
     }
@@ -220,6 +233,7 @@ fun MediaViewerScreen(
     keepNavigationBarsHidden: Boolean = false
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { imageList.size })
     val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
@@ -250,10 +264,13 @@ fun MediaViewerScreen(
 
     val mediaViewerPrefs = remember { context.getSharedPreferences("media_viewer_settings", Context.MODE_PRIVATE) }
     val showInfoOverlayEnabled = mediaViewerPrefs.getBoolean("showInfoOverlay", false)
-    mediaViewerPrefs.getBoolean("loopGif", true)
     val showFrameBar = mediaViewerPrefs.getBoolean("showFrameBar", false)
     val showRandomRecs = mediaViewerPrefs.getBoolean("showRandomRecs", true)
     val showSimilarRecs = mediaViewerPrefs.getBoolean("showSimilarRecs", true)
+    val recommendationPanelSize = mediaViewerPrefs
+        .getString(PreferenceManager.RECOMMENDATION_PANEL_SIZE, "MAX")
+        ?: "MAX"
+    val recommendationPanelHeightFraction = if (recommendationPanelSize == "MIN") 0.42f else 1f
     val swipeUpRecs = mediaViewerPrefs.getBoolean("swipeUpRecs", true)
     val swipeDownClose = mediaViewerPrefs.getBoolean("swipeDownClose", true)
     val doubleTapZoomEnabled = mediaViewerPrefs.getBoolean("doubleTapZoom", true)
@@ -281,6 +298,7 @@ fun MediaViewerScreen(
 
     var isUiVisible by rememberSaveable { mutableStateOf(false) }
     var showTagDialog by remember { mutableStateOf(false) }
+    var showRecommendationTagEditor by remember { mutableStateOf(false) }
     val configuredScreenOrientation = when (orientationMode) {
         "PORTRAIT" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         "LANDSCAPE" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -290,7 +308,17 @@ fun MediaViewerScreen(
     }
     var screenOrientation by rememberSaveable { mutableIntStateOf(configuredScreenOrientation) }
 
+    fun closeMediaViewer() {
+        // Reset a temporary rotate action before the parent swaps the viewer out.
+        // Waiting for DisposableEffect can otherwise leave the gallery locked in
+        // the viewer's orientation for a composition frame (or longer on a route change).
+        activity?.requestedOrientation = configuredScreenOrientation
+        onClickedClose()
+    }
+
     var isRecommendationVisible by rememberSaveable { mutableStateOf(showInfoOverlayEnabled) }
+    val shouldShowNavigationBarForRecommendation =
+        isRecommendationVisible && recommendationPanelSize == "MAX"
     val recommendationDragOffset = remember { Animatable(0f) }
 
     val currentMedia = remember(pagerState.currentPage, imageList) { imageList.getOrNull(pagerState.currentPage) }
@@ -332,6 +360,7 @@ fun MediaViewerScreen(
     var touchIndicatorPoint by remember { mutableStateOf<Offset?>(null) }
     var touchIndicatorToken by remember { mutableIntStateOf(0) }
     var suppressImageTapAfterMagnifier by remember { mutableStateOf(false) }
+    var suppressImageTapAfterGesture by remember { mutableStateOf(false) }
 
     fun showViewerTouchIndicator(position: Offset) {
         if (!touchIndicatorEnabled) return
@@ -354,6 +383,7 @@ fun MediaViewerScreen(
         isSeeking = false
         seekTargetPosition = -1L
         isVideoPlaying = true
+        showRecommendationTagEditor = false
     }
 
     LaunchedEffect(pagerState.currentPage, thumbnailOriginalIndices) {
@@ -378,13 +408,22 @@ fun MediaViewerScreen(
     }
 
     val imageLoader = context.imageLoader
-    val window = (context as? Activity)?.window
+    val window = activity?.window
     val insetsController = remember(window) {
         window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
     val configuration = LocalConfiguration.current
-    LaunchedEffect(isUiVisible, insetsController, keepNavigationBarsHidden, fullscreenMode, screenOrientation, configuration.orientation, showSystemBarsPref) {
+    LaunchedEffect(
+        isUiVisible,
+        insetsController,
+        keepNavigationBarsHidden,
+        fullscreenMode,
+        screenOrientation,
+        configuration.orientation,
+        showSystemBarsPref,
+        shouldShowNavigationBarForRecommendation
+    ) {
         window?.navigationBarColor = android.graphics.Color.TRANSPARENT
         window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -406,7 +445,7 @@ fun MediaViewerScreen(
             } else {
                 insetsController?.hide(hiddenTypes)
             }
-            if (isUiVisible) {
+            if (isUiVisible || shouldShowNavigationBarForRecommendation) {
                 insetsController?.show(WindowInsetsCompat.Type.navigationBars())
             } else {
                 insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
@@ -416,8 +455,8 @@ fun MediaViewerScreen(
 
     DisposableEffect(Unit) {
         window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
-        (context as? Activity)?.requestedOrientation = screenOrientation
-        onDispose { (context as? Activity)?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+        activity?.requestedOrientation = screenOrientation
+        onDispose { activity?.requestedOrientation = configuredScreenOrientation }
     }
 
     LaunchedEffect(isRecommendationVisible, pagerState.currentPage) {
@@ -628,7 +667,7 @@ fun MediaViewerScreen(
                             if (scale.value < 0.95f) {
                                 scope.launch { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } }
                             } else if (scale.value <= 1.05f) {
-                                if (swipeDownClose && offsetY.value > 200f) onClickedClose()
+                                if (swipeDownClose && offsetY.value > 200f) closeMediaViewer()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
@@ -701,7 +740,7 @@ fun MediaViewerScreen(
                             } else if (scale.value <= 1.05f) {
                                 // A magnified GIF uses offsetY for panning.  Do not mistake that
                                 // panning distance for the swipe-down-to-close gesture.
-                                if (swipeDownClose && offsetY.value > 200f) onClickedClose()
+                                if (swipeDownClose && offsetY.value > 200f) closeMediaViewer()
                                 else scope.launch { offsetY.animateTo(0f) }
                             }
                         },
@@ -765,6 +804,7 @@ fun MediaViewerScreen(
                                             while (true) {
                                                 val event = awaitPointerEvent()
                                                 if (event.changes.count { it.pressed } > 1) {
+                                                    suppressImageTapAfterGesture = true
                                                     longPressCancelReason = "multi_touch"
                                                     return@withTimeoutOrNull false
                                                 }
@@ -852,6 +892,7 @@ fun MediaViewerScreen(
                                         val currentScale = scale.value
                                         val isZoomed = currentScale > 1.01f
                                         if (isMagnifierActive && event.changes.size == 1 && panChange != Offset.Zero) {
+                                            suppressImageTapAfterGesture = true
                                             magnifierDragOffset += panChange
                                             scope.launch {
                                                 val targetScale = (magnifierBaseScale * magnifierScale).coerceIn(1f, 5f)
@@ -877,6 +918,7 @@ fun MediaViewerScreen(
                                             val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
                                             if (shouldHandleTransform && (zoomChange != 1f || panChange != Offset.Zero)) {
                                                 isTransforming = true
+                                                suppressImageTapAfterGesture = true
                                                 scope.launch {
                                                     val newScale = (currentScale * zoomChange).coerceIn(1f, 5f)
                                                     scale.snapTo(newScale)
@@ -900,6 +942,7 @@ fun MediaViewerScreen(
                                                         verticalSwipeStarted = true
                                                         isVerticalSwiping = true
                                                     }
+                                                    suppressImageTapAfterGesture = true
                                                     scope.launch {
                                         if (swipeUpRecs && isRecommendationVisible) {
                                                             val currentRecOffset = recommendationDragOffset.value
@@ -937,7 +980,7 @@ fun MediaViewerScreen(
                                                 }
 
                                                 if (scale.value <= 1.05f) {
-                                                    if (swipeDownClose && offsetY.value > 200f) onClickedClose()
+                                                    if (swipeDownClose && offsetY.value > 200f) closeMediaViewer()
                                                     else scope.launch { offsetY.animateTo(0f) }
                                                 }
                                             }
@@ -948,21 +991,24 @@ fun MediaViewerScreen(
                             }
                             .pointerInput(Unit) {
                                 detectTapGestures(onPress = {
+                                    suppressImageTapAfterGesture = false
                                     showViewerTouchIndicator(it)
                                     tryAwaitRelease()
                                 }, onTap = {
                                     showViewerTouchIndicator(it)
-                                    if (suppressImageTapAfterMagnifier) {
+                                    if (suppressImageTapAfterMagnifier || suppressImageTapAfterGesture) {
                                         suppressImageTapAfterMagnifier = false
+                                        suppressImageTapAfterGesture = false
                                     } else {
                                         onToggle()
                                     }
                                 }, onDoubleTap = {
                                     showViewerTouchIndicator(it)
-                                    if (doubleTapZoomEnabled && doubleTapFastZoom) {
+                                    if (!suppressImageTapAfterGesture && doubleTapZoomEnabled && doubleTapFastZoom) {
                                         val targetScale = if (scale.value > 1.1f) 1f else 3.0f
                                         scope.launch { if (targetScale == 1f) { launch { scale.animateTo(1f) }; launch { offsetX.animateTo(0f) }; launch { offsetY.animateTo(0f) } } else scale.animateTo(3.0f) }
                                     }
+                                    suppressImageTapAfterGesture = false
                                 })
                             },
                         contentScale = ContentScale.Fit
@@ -1155,7 +1201,6 @@ fun MediaViewerScreen(
                     val actionRotate = stringResource(R.string.label_action_rotate)
                     val actionFavorite = stringResource(R.string.label_action_favorite)
                     val actionSlideshow = stringResource(R.string.label_action_slideshow)
-                    val actionGif = stringResource(R.string.label_action_gif)
                     val actionAscii2d = stringResource(R.string.label_action_ascii2d)
                     val actionScreenshot = stringResource(R.string.label_action_screenshot)
                     val actionWallpaper = stringResource(R.string.label_action_wallpaper)
@@ -1166,12 +1211,12 @@ fun MediaViewerScreen(
 
                     val mediaActionCatalog = remember(
                         actionTrash, actionSettings, actionRotate, actionFavorite,
-                        actionSlideshow, actionGif, actionAscii2d, actionScreenshot,
+                        actionSlideshow, actionAscii2d, actionScreenshot,
                         actionWallpaper, actionFolderThumbnail, actionTag
                     ) {
                         listOf(
                             actionTrash, actionSettings, actionRotate, actionFavorite,
-                            actionSlideshow, actionGif, actionAscii2d, actionScreenshot,
+                            actionSlideshow, actionAscii2d, actionScreenshot,
                             actionWallpaper, actionFolderThumbnail, actionTag
                         )
                     }
@@ -1230,7 +1275,7 @@ fun MediaViewerScreen(
                                             videoPosition = videoPosition,
                                             isFrameSteppingVisible = isFrameSteppingVisible,
                                             gifFrames = gifFrames,
-                                            onClickedClose = onClickedClose,
+                                            onClickedClose = ::closeMediaViewer,
                                             onRotate = {
                                                 val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                 screenOrientation = target
@@ -1302,7 +1347,7 @@ fun MediaViewerScreen(
                                                         videoPosition = videoPosition,
                                                         isFrameSteppingVisible = isFrameSteppingVisible,
                                                         gifFrames = gifFrames,
-                                                        onClickedClose = onClickedClose,
+                                                        onClickedClose = ::closeMediaViewer,
                                                         onRotate = {
                                                             val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                             screenOrientation = target
@@ -1345,7 +1390,6 @@ fun MediaViewerScreen(
                         }
                     }
                 }
-                if (showTagDialog) { galleryState?.let { state -> UnifiedMediaEditDialog(uris = listOf(currentMediaItem.uri), repository = state.repository, onDismiss = { showTagDialog = false }) } }
                 ascii2dUploadData?.let { uploadData -> Ascii2dSearchDialog(uploadData = uploadData, onDismiss = { ascii2dUploadData = null }) }
             }
         }
@@ -1406,9 +1450,47 @@ fun MediaViewerScreen(
         AnimatedVisibility(visible = isRecommendationVisible, enter = slideInVertically(initialOffsetY = { it }) + fadeIn(), exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             val density = LocalDensity.current
             val maxDrag = with(density) { dimensionResource(R.dimen.search_section_tags_max_height).toPx() }
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.42f).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = GalleryAlphaTokens.Recommendation)).pointerInput(Unit) { detectDragGestures(onDragEnd = { if (recommendationDragOffset.value > 100f) { scope.launch { recommendationDragOffset.animateTo(maxDrag, tween(250)); isRecommendationVisible = false; delay(250); recommendationDragOffset.snapTo(0f) } } else { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } } }, onDragCancel = { scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) } }, onDrag = { change, dragAmount -> change.consume(); scope.launch { recommendationDragOffset.snapTo((recommendationDragOffset.value + dragAmount.y).coerceAtLeast(0f)) } }) }) {
+            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(recommendationPanelHeightFraction).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = GalleryAlphaTokens.Recommendation))) {
                 Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
-                    Box(modifier = Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) { Surface(modifier = Modifier.width(40.dp).height(4.dp), color = Color.Gray.copy(alpha = 0.5f), shape = CircleShape) {} }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(24.dp)
+                            .pointerInput(Unit) {
+                                detectDragGestures(
+                                    onDragEnd = {
+                                        if (recommendationDragOffset.value > 100f) {
+                                            scope.launch {
+                                                recommendationDragOffset.animateTo(maxDrag, tween(250))
+                                                isRecommendationVisible = false
+                                                delay(250)
+                                                recommendationDragOffset.snapTo(0f)
+                                            }
+                                        } else {
+                                            scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) }
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        scope.launch { recommendationDragOffset.animateTo(0f, tween(150)) }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        scope.launch {
+                                            recommendationDragOffset.snapTo(
+                                                (recommendationDragOffset.value + dragAmount.y).coerceAtLeast(0f)
+                                            )
+                                        }
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            modifier = Modifier.width(40.dp).height(4.dp),
+                            color = Color.Gray.copy(alpha = 0.5f),
+                            shape = CircleShape
+                        ) {}
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1426,7 +1508,10 @@ fun MediaViewerScreen(
                             modifier = Modifier.clickable { isRecommendationVisible = false }.padding(8.dp)
                         )
                     }
-                    androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier.fillMaxSize().imePadding(),
+                        contentPadding = PaddingValues(bottom = 32.dp)
+                    ) {
                         val currentMediaItem = imageList.getOrNull(pagerState.currentPage)
                         if (currentMediaItem != null) {
                             // Visual recommendations.
@@ -1588,11 +1673,20 @@ fun MediaViewerScreen(
                                         }
                                         if (!isTrashMode) {
                                             IconButton(
-                                                onClick = { showTagDialog = true },
+                                                onClick = { showRecommendationTagEditor = true },
                                                 modifier = Modifier.size(32.dp).background(colors.primaryText.copy(alpha = 0.1f), CircleShape)
                                             ) {
                                                 Icon(Icons.Default.Add, contentDescription = stringResource(R.string.edit_new_tag), tint = colors.primaryText, modifier = Modifier.size(16.dp))
                                             }
+                                        }
+                                    }
+                                    if (showRecommendationTagEditor && !isTrashMode) {
+                                        galleryState?.let { state ->
+                                            RecommendationTagEditor(
+                                                mediaUri = currentMediaItem.uri,
+                                                repository = state.repository,
+                                                onDismiss = { showRecommendationTagEditor = false }
+                                            )
                                         }
                                     }
                                 }
@@ -1628,6 +1722,21 @@ fun MediaViewerScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // This must be a sibling above the recommendation sheet.  The sheet hides
+        // the normal viewer controls, so composing the dialog from those controls
+        // made the tag-add button appear to do nothing.
+        if (showTagDialog) {
+            currentMedia?.let { media ->
+                galleryState?.let { state ->
+                    UnifiedMediaEditDialog(
+                        uris = listOf(media.uri),
+                        repository = state.repository,
+                        onDismiss = { showTagDialog = false }
+                    )
                 }
             }
         }
@@ -2278,6 +2387,7 @@ fun VideoPlayer(
 
     val lastInternalSeek = remember { mutableLongStateOf(-1L) }
     var scrubbingTouchPoint by remember { mutableStateOf<Offset?>(null) }
+    var suppressTapAfterGesture by remember { mutableStateOf(false) }
 
     // Apply external seek requests.
     LaunchedEffect(seekToPosition) {
@@ -2293,13 +2403,24 @@ fun VideoPlayer(
     Box(modifier = modifier.background(Color.Black)
         .pointerInput(Unit) {
             detectTapGestures(
+                onPress = {
+                    suppressTapAfterGesture = false
+                    onTouchIndicator(it)
+                    tryAwaitRelease()
+                },
                 onTap = {
                     onTouchIndicator(it)
-                    onToggleUi()
+                    if (!suppressTapAfterGesture) {
+                        onToggleUi()
+                    }
+                    suppressTapAfterGesture = false
                 },
                 onDoubleTap = {
                     onTouchIndicator(it)
-                    onDoubleTap()
+                    if (!suppressTapAfterGesture) {
+                        onDoubleTap()
+                    }
+                    suppressTapAfterGesture = false
                 }
             )
         }
@@ -2321,6 +2442,7 @@ fun VideoPlayer(
                         event.calculatePan()
 
                         if (event.changes.size >= 2) {
+                            suppressTapAfterGesture = true
                             if (event.changes.all { !it.pressed }) break
                             continue
                         }
@@ -2360,11 +2482,13 @@ fun VideoPlayer(
                                     }
                                     dragChange.consume()
                                 } else {
+                                    suppressTapAfterGesture = true
                                     onVerticalDrag(delta.y)
                                     dragChange.consume()
                                 }
                             } else {
                                 if (!isHorizontal && Math.abs(totalDragY) > Math.abs(totalDragX) * 1.5f) {
+                                    suppressTapAfterGesture = true
                                     onVerticalDrag(delta.y)
                                     dragChange.consume()
                                 }
@@ -2497,6 +2621,7 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
         .pointerInput(Unit) {
             detectTapGestures(
                 onPress = {
+                    suppressNextTap = false
                     onTouchIndicator(it)
                     if (!longPressEnabled) {
                         tryAwaitRelease()
@@ -2525,7 +2650,10 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
                 },
                 onDoubleTap = {
                     onTouchIndicator(it)
-                    onDoubleTap()
+                    if (!suppressNextTap) {
+                        onDoubleTap()
+                    }
+                    suppressNextTap = false
                 }
             )
         }
@@ -2542,10 +2670,12 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
                         val shouldHandleTransform = event.changes.size >= 2 || isTransforming || accumulatedPan.getDistance() > 8f
                         if (shouldHandleTransform) {
                             isTransforming = true
+                            suppressNextTap = true
                             onZoomPan(zoomChange, panChange)
                             event.changes.forEach { it.consume() }
                         }
                     } else if (panChange != Offset.Zero && Math.abs(panChange.y) > Math.abs(panChange.x) * 2.5f) {
+                        suppressNextTap = true
                         onVerticalDrag(panChange.y)
                         event.changes.forEach { it.consume() }
                     }
@@ -2559,6 +2689,178 @@ fun GifPlayer(uri: String, isUiVisible: Boolean, onToggleUi: () -> Unit, scale: 
             Image(bitmap = gifFrames[currentFrameIndex].asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         } else {
             Image(painter = painter, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        }
+    }
+}
+
+@Composable
+private fun RecommendationTagEditor(
+    mediaUri: String,
+    repository: MediaRepository,
+    onDismiss: () -> Unit
+) {
+    val colors = GalleryThemeTokens.colors
+    val tagSuffixGroup = stringResource(R.string.label_tag_suffix_group)
+    val tagCounts by repository.getAllTagsWithCounts().collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusRequester = remember { FocusRequester() }
+    var tagInput by remember(mediaUri) { mutableStateOf("") }
+    var suggestionsDismissed by remember(mediaUri) { mutableStateOf(false) }
+    var isSaving by remember(mediaUri) { mutableStateOf(false) }
+    var tagInputWidthPx by remember(mediaUri) { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val tagInputWidth = with(density) { tagInputWidthPx.toDp() }
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val tagSuggestionPositionProvider = remember(imeBottomPx) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize
+            ): IntOffset {
+                val gapPx = 4
+                val keyboardTop = (windowSize.height - imeBottomPx).coerceAtLeast(0)
+                val belowY = anchorBounds.bottom + gapPx
+                val aboveY = anchorBounds.top - popupContentSize.height - gapPx
+                val popupY = when {
+                    belowY + popupContentSize.height <= keyboardTop -> belowY
+                    aboveY >= 0 -> aboveY
+                    else -> (keyboardTop - popupContentSize.height - gapPx).coerceAtLeast(0)
+                }
+                return IntOffset(anchorBounds.left, popupY)
+            }
+        }
+    }
+
+    val matchingTags = remember(tagCounts, tagInput, tagSuffixGroup) {
+        val query = tagInput.trim()
+        if (query.isBlank()) {
+            emptyList()
+        } else {
+            tagCounts.asSequence()
+                .filter { !it.tag.endsWith(tagSuffixGroup) }
+                .filter {
+                    TagTranslationService.matchesSearch(it.tag, query) ||
+                        TagTranslationService.matchesSearch(TagTranslationService.translate(it.tag), query)
+                }
+                .map { it.tag }
+                .distinct()
+                .toList()
+        }
+    }
+    val showSuggestions = !suggestionsDismissed && tagInput.isNotBlank() && matchingTags.isNotEmpty()
+
+    fun addTag(tag: String) {
+        val normalizedTag = tag.trim()
+        if (normalizedTag.isBlank() || isSaving) return
+        tagInput = ""
+        isSaving = true
+        scope.launch {
+            try {
+                repository.bulkAddTags(listOf(mediaUri), listOf(normalizedTag))
+            } finally {
+                isSaving = false
+            }
+        }
+    }
+
+    LaunchedEffect(mediaUri) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.weight(1f)) {
+                TextField(
+                    value = tagInput,
+                    onValueChange = {
+                        tagInput = it
+                        suggestionsDismissed = false
+                    },
+                    placeholder = { Text(stringResource(R.string.edit_new_tag)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .onGloballyPositioned { tagInputWidthPx = it.size.width },
+                    singleLine = true,
+                    enabled = !isSaving,
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = colors.primaryText,
+                        unfocusedTextColor = colors.primaryText,
+                        focusedContainerColor = colors.field,
+                        unfocusedContainerColor = colors.field,
+                        disabledContainerColor = colors.field
+                    )
+                )
+                if (showSuggestions) {
+                    Popup(
+                        popupPositionProvider = tagSuggestionPositionProvider,
+                        properties = PopupProperties(
+                            focusable = false,
+                            dismissOnClickOutside = false,
+                            clippingEnabled = true
+                        )
+                    ) {
+                        Surface(
+                            color = colors.surface,
+                            shape = RoundedCornerShape(12.dp),
+                            tonalElevation = 2.dp,
+                            shadowElevation = 8.dp,
+                            border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.55f)),
+                            modifier = if (tagInputWidthPx > 0) {
+                                Modifier.width(tagInputWidth)
+                            } else {
+                                Modifier.widthIn(min = 180.dp, max = 360.dp)
+                            }
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .heightIn(max = 224.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                matchingTags.forEachIndexed { index, tag ->
+                                    val translatedTag = TagTranslationService.translate(tag)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                suggestionsDismissed = false
+                                                addTag(tag)
+                                            }
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.LocalOffer,
+                                            contentDescription = null,
+                                            tint = colors.accent,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(translatedTag, color = colors.primaryText)
+                                            if (translatedTag != tag) {
+                                                Text(tag, color = colors.secondaryText, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+                                    if (index < matchingTags.lastIndex) {
+                                        HorizontalDivider(color = colors.divider.copy(alpha = 0.6f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            IconButton(onClick = { addTag(tagInput) }, enabled = tagInput.isNotBlank() && !isSaving) {
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.btn_create), tint = colors.primaryText)
+            }
+            IconButton(onClick = onDismiss, enabled = !isSaving) {
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_close), tint = colors.secondaryText)
+            }
         }
     }
 }

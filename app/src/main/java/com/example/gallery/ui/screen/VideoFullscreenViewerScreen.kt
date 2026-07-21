@@ -142,8 +142,7 @@ private fun handleVideoViewerAction(
     onNavigateToSettings: () -> Unit,
     onPreviousVideo: () -> Unit,
     onNextVideo: () -> Unit,
-    onTogglePlayback: () -> Unit,
-    onToggleVideoStrip: () -> Unit
+    onTogglePlayback: () -> Unit
 ) {
     val actionClose = context.getString(R.string.label_action_close_playback)
     val actionSettings = context.getString(R.string.settings_title)
@@ -152,7 +151,6 @@ private fun handleVideoViewerAction(
     val actionPrev = context.getString(R.string.label_action_previous_video)
     val actionNext = context.getString(R.string.label_action_next_video)
     val actionPlayPause = context.getString(R.string.label_action_play_pause)
-    val actionGif = context.getString(R.string.label_gif)
 
     when (function) {
         actionClose -> onClose()
@@ -162,7 +160,6 @@ private fun handleVideoViewerAction(
         actionPrev -> onPreviousVideo()
         actionNext -> onNextVideo()
         actionPlayPause -> onTogglePlayback()
-        actionGif -> onToggleVideoStrip()
     }
 }
 
@@ -273,6 +270,10 @@ fun VideoFullscreenViewerScreen(
     }
 
     fun closeViewer() {
+        // The caller removes this composable asynchronously.  Restore the activity
+        // orientation before changing its state so the gallery never inherits a
+        // temporary landscape lock while the viewer is being disposed.
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         restoreBrightness()
         window?.navigationBarColor = originalNavigationBarColor
         window?.statusBarColor = originalStatusBarColor
@@ -830,12 +831,11 @@ fun VideoFullscreenViewerScreen(
                     val actionPrev = stringResource(R.string.label_action_previous_video)
                     val actionNext = stringResource(R.string.label_action_next_video)
                     val actionPlayPause = stringResource(R.string.label_action_play_pause)
-                    val actionGif = stringResource(R.string.label_gif)
                     val actionOverflow = stringResource(R.string.label_3dot_menu)
                     val labelNone = stringResource(R.string.label_action_none)
 
-                    val videoActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGif) {
-                        listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGif)
+                    val videoActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause) {
+                        listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause)
                     }
                     val defaultBarAssignments = remember(actionRotate, actionPrev, actionPlayPause, actionNext, actionOverflow) {
                         listOf(actionRotate, actionPrev, actionPlayPause, actionNext, actionOverflow)
@@ -878,8 +878,7 @@ fun VideoFullscreenViewerScreen(
                                         onTogglePlayback = {
                                             isPlaying = !isPlaying
                                             exoPlayer?.playWhenReady = isPlaying
-                                        },
-                                        onToggleVideoStrip = { isVideoStripVisible = !isVideoStripVisible }
+                                        }
                                     )
                                 },
                                 iconSize = dimensionResource(R.dimen.icon_size_medium),
@@ -928,8 +927,7 @@ fun VideoFullscreenViewerScreen(
                                                     onTogglePlayback = {
                                                         isPlaying = !isPlaying
                                                         exoPlayer?.playWhenReady = isPlaying
-                                                    },
-                                                    onToggleVideoStrip = { isVideoStripVisible = !isVideoStripVisible }
+                                                    }
                                                 )
                                             }
                                         )

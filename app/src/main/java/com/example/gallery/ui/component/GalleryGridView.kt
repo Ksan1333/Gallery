@@ -56,6 +56,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -1150,7 +1152,6 @@ fun GalleryGridView(
             maxLineSpan = maxLineSpan,
             thumbSize = thumbSize,
             imageLoader = gridImageLoader,
-            getTopBarOffset = { topBarOffsetHeightPx },
             totalTopBarHeight = totalTopBarHeight,
             totalBottomPadding = totalBottomPadding,
             isSelectionMode = isSelectionMode,
@@ -1265,7 +1266,6 @@ private fun GalleryGridContent(
     maxLineSpan: Int,
     thumbSize: Int,
     imageLoader: ImageLoader,
-    getTopBarOffset: () -> Float,
     totalTopBarHeight: Dp,
     totalBottomPadding: Dp,
     isSelectionMode: Boolean,
@@ -1412,15 +1412,52 @@ private fun GalleryGridContent(
         else -> emptyList()
     }
 
+    fun mediaIndexAtGridPosition(position: Offset, allowNearest: Boolean = false): Int? {
+        val visibleItems = gridState.layoutInfo.visibleItemsInfo
+        val hit = visibleItems.firstOrNull { item ->
+            position.x >= item.offset.x &&
+                position.x <= item.offset.x + item.size.width &&
+                position.y >= item.offset.y &&
+                position.y <= item.offset.y + item.size.height &&
+                selectableUrisAtGridIndex(item.index).isNotEmpty()
+        }
+        if (hit != null) return hit.index
+
+        if (!allowNearest) return null
+        return visibleItems
+            .filter { selectableUrisAtGridIndex(it.index).isNotEmpty() }
+            .minByOrNull { item -> abs(position.y - (item.offset.y + item.size.height / 2f)) }
+            ?.index
+    }
+
     fun mediaIndexAtRootPosition(position: Offset, allowNearest: Boolean = false): Int? {
         val hit = itemBoundsInRoot.entries.firstOrNull { (_, bounds) -> bounds.contains(position) }
         if (hit != null) return hit.key
 
-        if (!allowNearest || itemBoundsInRoot.isEmpty()) return null
-        val nearest = itemBoundsInRoot.minByOrNull { (_, bounds) ->
-            abs(position.y - bounds.center.y)
+        if (allowNearest && itemBoundsInRoot.isNotEmpty()) {
+            return itemBoundsInRoot.minByOrNull { (_, bounds) ->
+                val horizontalDistance = when {
+                    position.x < bounds.left -> bounds.left - position.x
+                    position.x > bounds.right -> position.x - bounds.right
+                    else -> 0f
+                }
+                val verticalDistance = when {
+                    position.y < bounds.top -> bounds.top - position.y
+                    position.y > bounds.bottom -> position.y - bounds.bottom
+                    else -> 0f
+                }
+                horizontalDistance * horizontalDistance + verticalDistance * verticalDistance
+            }?.key
         }
-        return nearest?.key
+
+        val gridPosition = gridBoundsInRoot?.let { bounds ->
+            Offset(position.x - bounds.left, position.y - bounds.top)
+        }
+        gridPosition?.let { localPosition ->
+            mediaIndexAtGridPosition(localPosition, allowNearest)?.let { return it }
+        }
+
+        return null
     }
 
     fun applySelectionPreview(
@@ -1428,7 +1465,8 @@ private fun GalleryGridContent(
         startGridIndex: Int,
         endGridIndex: Int,
         shouldSelect: Boolean,
-        source: String
+        source: String,
+        activateSelectionMode: Boolean = true
     ) {
         val beforeCount = selectedUris.size
         selectedUris.clear()
@@ -1445,7 +1483,9 @@ private fun GalleryGridContent(
                 "shouldSelect=$shouldSelect base=${baseSelection.size} before=$beforeCount " +
                 "after=${selectedUris.size} mode=$isSelectionMode first=${traceUri(selectedUris.keys.firstOrNull())}"
         )
-        if (selectedUris.isEmpty()) onSelectionEmptied() else onSelectionModeChanged(true)
+        if (activateSelectionMode) {
+            if (selectedUris.isEmpty()) onSelectionEmptied() else onSelectionModeChanged(true)
+        }
     }
 
     fun dragAutoScrollSpeed(edgeDistance: Float, outsideDistance: Float, edgeZone: Float, holdMs: Long): Float {
@@ -1455,6 +1495,8 @@ private fun GalleryGridContent(
     }
 
     fun stopDragAutoScroll() {
+        val wasDragSelectionActive = dragSelectionActive
+        val shouldActivateSelectionMode = wasDragSelectionActive && selectedUris.isNotEmpty()
         if (dragSelectionActive || dragSelectionStartIndex >= 0 || dragAutoScrollDelta != 0f) {
             logSelectionTrace(
                 "drag_end start=$dragSelectionStartIndex last=$dragSelectionLastIndex " +
@@ -1471,6 +1513,13 @@ private fun GalleryGridContent(
         dragAutoScrollDirection = 0
         dragAutoScrollEdgeDistance = 0f
         dragAutoScrollOutsideDistance = 0f
+        if (wasDragSelectionActive) {
+            logSelectionTrace(
+                "drag_commit mode=${if (shouldActivateSelectionMode) "activate" else "clear"} " +
+                    "count=${selectedUris.size}"
+            )
+            if (shouldActivateSelectionMode) onSelectionModeChanged(true) else onSelectionEmptied()
+        }
     }
 
     LaunchedEffect(dragAutoScrollDelta) {
@@ -1505,7 +1554,14 @@ private fun GalleryGridContent(
                     if (delta < 0f) visible.minOrNull() else visible.maxOrNull()
                 }
             if (baseSelection != null && startIndex >= 0 && edgeIndex != null && edgeIndex != dragSelectionLastIndex) {
-                applySelectionPreview(baseSelection, startIndex, edgeIndex, dragSelectionShouldSelect, "auto_scroll")
+                applySelectionPreview(
+                    baseSelection,
+                    startIndex,
+                    edgeIndex,
+                    dragSelectionShouldSelect,
+                    "auto_scroll",
+                    activateSelectionMode = false
+                )
                 dragSelectionLastIndex = edgeIndex
             }
             logSelectionTrace(
@@ -1608,8 +1664,14 @@ private fun GalleryGridContent(
             "drag_begin gridIndex=$startGridIndex uri=${traceUri(startUris.firstOrNull())} groupSize=${startUris.size} " +
                 "base=${baseSelection.size} shouldSelect=$shouldSelect mode=$isSelectionMode"
         )
-        onSelectionModeChanged(true)
-        applySelectionPreview(baseSelection, startGridIndex, startGridIndex, shouldSelect, "drag_begin")
+        applySelectionPreview(
+            baseSelection,
+            startGridIndex,
+            startGridIndex,
+            shouldSelect,
+            "drag_begin",
+            activateSelectionMode = false
+        )
         return baseSelection to shouldSelect
     }
 
@@ -1740,7 +1802,14 @@ private fun GalleryGridContent(
                     "direction=$dragSelectionDirection " +
                     "first=${gridState.firstVisibleItemIndex}"
             )
-            applySelectionPreview(baseSelection, startGridIndex, currentGridIndex, shouldSelect, "drag_move")
+            applySelectionPreview(
+                baseSelection,
+                startGridIndex,
+                currentGridIndex,
+                shouldSelect,
+                "drag_move",
+                activateSelectionMode = false
+            )
             dragSelectionLastIndex = currentGridIndex
             return currentGridIndex
         }
@@ -1755,13 +1824,14 @@ private fun GalleryGridContent(
             .fillMaxSize()
             .background(colors.background)
             .padding(end = dimensionResource(R.dimen.grid_side_padding))
-            .graphicsLayer { translationY = getTopBarOffset() }
             .onGloballyPositioned { coordinates ->
                 if (!isScrollbarDragging) {
                     gridBoundsInRoot = coordinates.boundsInRoot()
                 }
             }
-            .pointerInput(maxLineSpan, selectionLongPressMs) {
+            .then(
+                if (maxLineSpan >= 28) {
+                    Modifier.pointerInput(maxLineSpan, selectionLongPressMs) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     var movedBeforeLongPress = false
@@ -1776,6 +1846,13 @@ private fun GalleryGridContent(
                                 ?: return@withTimeoutOrNull false
 
                             if (!change.pressed) {
+                                return@withTimeoutOrNull false
+                            }
+
+                            if (abs(change.position.x - down.position.x) > viewConfiguration.touchSlop &&
+                                abs(change.position.x - down.position.x) > abs(change.position.y - down.position.y)) {
+                                // Horizontal drag detected before long press: likely a drawer swipe
+                                movedBeforeLongPress = true
                                 return@withTimeoutOrNull false
                             }
 
@@ -1827,9 +1904,8 @@ private fun GalleryGridContent(
 
                     try {
                         while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id }
-                            if (change == null || !change.pressed) break
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
 
                             val rootPosition = gridBoundsInRoot?.let { bounds ->
                                 Offset(bounds.left + change.position.x, bounds.top + change.position.y)
@@ -1849,6 +1925,7 @@ private fun GalleryGridContent(
                                 )
                             }
                             change.consume()
+                            if (!change.pressed) break
                         }
                     } finally {
                         logSelectionTrace(
@@ -1857,8 +1934,12 @@ private fun GalleryGridContent(
                         )
                         stopDragAutoScroll()
                     }
+                    }
+                    }
+                } else {
+                    Modifier
                 }
-            }
+            )
             .pointerInput(maxLineSpan) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
@@ -2101,13 +2182,16 @@ private fun GridItemRenderer(
                 DenseMediaGridItem(
                     media = item.data,
                     modifier = modifier,
+                    gridIndex = gridIndex,
                     thumbSize = thumbSize,
                     imageLoader = imageLoader,
                     shouldLoadThumbnail = gridIndex in denseThumbnailStartIndex..denseThumbnailEndIndex,
                     isGridScrolling = isGridScrolling,
+                    isScrollbarDragging = isScrollbarDragging,
                     isSelected = selectedUris.containsKey(item.data.uri),
                     isFavorite = metadataMap[item.data.uri]?.isFavorite == true,
                     isHighlighted = highlightUri == item.data.uri,
+                    onBoundsChanged = onMediaBoundsChanged,
                     onClick = { onMediaClick(item) }
                 )
             } else {
@@ -2328,13 +2412,16 @@ private fun SimilarGroupGridItem(
 private fun DenseMediaGridItem(
     media: MediaData,
     modifier: Modifier = Modifier,
+    gridIndex: Int,
     thumbSize: Int,
     imageLoader: ImageLoader,
     shouldLoadThumbnail: Boolean,
     isGridScrolling: Boolean,
+    isScrollbarDragging: Boolean,
     isSelected: Boolean,
     isFavorite: Boolean,
     isHighlighted: Boolean,
+    onBoundsChanged: (Int, Rect?) -> Unit,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2351,11 +2438,19 @@ private fun DenseMediaGridItem(
     val model = remember(media.uri, thumbSize) {
         buildGridThumbnailRequest(context, media, thumbSize)
     }
+    DisposableEffect(gridIndex) {
+        onDispose { onBoundsChanged(gridIndex, null) }
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(gridItemGapPadding(28))
+            .onGloballyPositioned { coordinates ->
+                if (!isScrollbarDragging) {
+                    onBoundsChanged(gridIndex, coordinates.boundsInRoot())
+                }
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2515,60 +2610,134 @@ private fun MediaGridItem(
     // 強調表示と選択状態を graphicsLayer で処理し、レイアウト計算を避ける。
     val highlightCornerRadius = if (columnCount > 1) dimensionResource(R.dimen.radius_small) / 2 else dimensionResource(R.dimen.radius_large)
     val currentOnClick by rememberUpdatedState(onClick)
-    val currentSelectionLongPressMs by rememberUpdatedState(selectionLongPressMs)
-    val currentIsSelected by rememberUpdatedState(isSelected)
+    val itemBoundsInRootRef = remember(gridIndex) { arrayOfNulls<Rect>(1) }
+    val dragBaseSelectionRef = remember(gridIndex) { arrayOfNulls<Set<String>>(1) }
+    val dragShouldSelectRef = remember(gridIndex) { BooleanArray(1) }
+    val dragLastIndexRef = remember(gridIndex) { IntArray(1) { gridIndex } }
+    val dragMoveCountRef = remember(gridIndex) { IntArray(1) }
+    val suppressTapRef = remember(gridIndex) { BooleanArray(1) }
+    val interactionSource = remember { MutableInteractionSource() }
 
     DisposableEffect(gridIndex) {
-        onDispose { onBoundsChanged(gridIndex, null) }
+        onDispose {
+            itemBoundsInRootRef[0] = null
+            onBoundsChanged(gridIndex, null)
+        }
     }
 
     Box(
         modifier = itemModifier
             .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInRoot()
+                itemBoundsInRootRef[0] = bounds
                 if (!isScrollbarDragging) {
-                    val bounds = coordinates.boundsInRoot()
                     onBoundsChanged(gridIndex, bounds)
                 }
             }
-            .pointerInput(gridIndex) {
+            .pointerInput(gridIndex, selectionLongPressMs) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    var movedBeforeLongPress = false
-                    val longPressReached = withTimeoutOrNull(currentSelectionLongPressMs) {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            if (event.changes.count { it.pressed } > 1) {
-                                return@withTimeoutOrNull false
-                            }
-
-                            val change = event.changes.firstOrNull { it.id == down.id }
-                                ?: return@withTimeoutOrNull false
-
-                            if (!change.pressed) {
-                                return@withTimeoutOrNull false
-                            }
-
-                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
-                                movedBeforeLongPress = true
-                                return@withTimeoutOrNull false
-                            }
-                        }
-                    } == null
-
-                    if (!longPressReached) {
-                        logSelectionTrace(
-                            "press_short gridIndex=$gridIndex uri=${traceUri(media.uri)} " +
-                                "moved=$movedBeforeLongPress longPressMs=$currentSelectionLongPressMs"
-                        )
-                        if (!movedBeforeLongPress) currentOnClick()
-                        return@awaitEachGesture
-                    }
-
+                    val startedAt = System.currentTimeMillis()
+                    var firstMoveLogged = false
                     logSelectionTrace(
-                        "long_press gridIndex=$gridIndex uri=${traceUri(media.uri)} " +
-                            "selected=$currentIsSelected longPressMs=$currentSelectionLongPressMs"
+                        "tile_raw_down index=$gridIndex uri=${traceUri(media.uri)} " +
+                            "x=${down.position.x.roundToInt()} y=${down.position.y.roundToInt()}"
                     )
-                    return@awaitEachGesture
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Final)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) {
+                            logSelectionTrace(
+                                "tile_raw_up index=$gridIndex held=${System.currentTimeMillis() - startedAt}ms " +
+                                    "moved=$firstMoveLogged consumed=${change.isConsumed}"
+                            )
+                            break
+                        }
+                        if (!firstMoveLogged &&
+                            (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                            firstMoveLogged = true
+                            logSelectionTrace(
+                                "tile_raw_move index=$gridIndex dx=${(change.position.x - down.position.x).roundToInt()} " +
+                                    "dy=${(change.position.y - down.position.y).roundToInt()} consumed=${change.isConsumed}"
+                            )
+                        }
+                    }
+                }
+            }
+            .pointerInput(gridIndex, selectionLongPressMs) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        val (baseSelection, shouldSelect) = onDragSelectionStart(gridIndex)
+                        dragBaseSelectionRef[0] = baseSelection
+                        dragShouldSelectRef[0] = shouldSelect
+                        dragLastIndexRef[0] = gridIndex
+                        dragMoveCountRef[0] = 0
+                        suppressTapRef[0] = true
+                        val bounds = itemBoundsInRootRef[0]
+                        logSelectionTrace(
+                            "tile_drag_start index=$gridIndex uri=${traceUri(media.uri)} " +
+                                "bounds=${bounds?.let { "${it.left.roundToInt()},${it.top.roundToInt()},${it.right.roundToInt()},${it.bottom.roundToInt()}" }} " +
+                                "longPressMs=$selectionLongPressMs"
+                        )
+                    },
+                    onDrag = { change, _ ->
+                        val baseSelection = dragBaseSelectionRef[0] ?: return@detectDragGesturesAfterLongPress
+                        val bounds = itemBoundsInRootRef[0]
+                        if (bounds != null) {
+                            val previousIndex = dragLastIndexRef[0]
+                            val rootPosition = Offset(
+                                bounds.left + change.position.x,
+                                bounds.top + change.position.y
+                            )
+                            dragLastIndexRef[0] = onDragSelectionMove(
+                                rootPosition,
+                                baseSelection,
+                                gridIndex,
+                                previousIndex,
+                                dragShouldSelectRef[0]
+                            )
+                            dragMoveCountRef[0] += 1
+                            if (dragMoveCountRef[0] == 1 || dragLastIndexRef[0] != previousIndex) {
+                                logSelectionTrace(
+                                    "tile_drag_move index=$gridIndex event=${dragMoveCountRef[0]} " +
+                                        "root=${rootPosition.x.roundToInt()},${rootPosition.y.roundToInt()} " +
+                                        "target=${dragLastIndexRef[0]} previous=$previousIndex consumed=${change.isConsumed}"
+                                )
+                            }
+                        } else {
+                            logSelectionTrace("tile_drag_missing_bounds index=$gridIndex")
+                        }
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        logSelectionTrace(
+                            "tile_drag_end index=$gridIndex events=${dragMoveCountRef[0]} " +
+                                "last=${dragLastIndexRef[0]} selected=${dragBaseSelectionRef[0]?.size ?: -1}"
+                        )
+                        dragBaseSelectionRef[0] = null
+                        onDragSelectionEnd()
+                    },
+                    onDragCancel = {
+                        logSelectionTrace(
+                            "tile_drag_cancel index=$gridIndex events=${dragMoveCountRef[0]} " +
+                                "last=${dragLastIndexRef[0]}"
+                        )
+                        dragBaseSelectionRef[0] = null
+                        suppressTapRef[0] = false
+                        onDragSelectionEnd()
+                    }
+                )
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) {
+                if (suppressTapRef[0]) {
+                    logSelectionTrace("tile_click_suppressed index=$gridIndex")
+                    suppressTapRef[0] = false
+                } else {
+                    logSelectionTrace("tile_click index=$gridIndex uri=${traceUri(media.uri)}")
+                    currentOnClick()
                 }
             }
             .background(itemBackgroundColor)
@@ -2760,6 +2929,7 @@ private fun GalleryScrollbar(
     val thumbOffset = dimensionResource(R.dimen.spacing_tiny)
     val labelOffsetPx = with(scrollbarDensity) { labelOffset.toPx() }
     val thumbOffsetPx = with(scrollbarDensity) { thumbOffset.toPx() }
+    val railOffsetPx = with(scrollbarDensity) { 2.dp.toPx() }
     var isPressed by remember { mutableStateOf(false) }
     val thumbWidth by animateDpAsState(
         targetValue = if (isPressed) dimensionResource(R.dimen.scrollbar_width_active) else dimensionResource(R.dimen.scrollbar_width_inactive),
@@ -2770,6 +2940,9 @@ private fun GalleryScrollbar(
     val totalItemsState = remember(gridState) { derivedStateOf { gridState.layoutInfo.totalItemsCount } }
     val visibleItemsSizeState = remember(gridState) { derivedStateOf { gridState.layoutInfo.visibleItemsInfo.size } }
     val firstVisibleIndexState = remember(gridState) { derivedStateOf { gridState.firstVisibleItemIndex } }
+    val firstVisibleScrollOffsetState = remember(gridState) {
+        derivedStateOf { gridState.firstVisibleItemScrollOffset }
+    }
     // Keep the latest requested index for the thumb preview. The grid follows at a
     // throttled rate while images and bounds work are paused by isScrollbarDragging.
     var scrollbarTargetIndex by remember { mutableIntStateOf(-1) }
@@ -2788,13 +2961,28 @@ private fun GalleryScrollbar(
         val total = totalItemsState.value
         if (total <= 1) {
             0f
+        } else if (!gridState.canScrollForward) {
+            // In a staggered grid the first visible item is not necessarily the
+            // final item at the bottom.  The actual scroll boundary is authoritative.
+            1f
+        } else if (!gridState.canScrollBackward) {
+            0f
         } else {
-            val previewIndex = (if (isPressed && scrollbarTargetIndex >= 0) {
-                scrollbarTargetIndex
+            val previewPosition = if (isPressed && scrollbarTargetIndex >= 0) {
+                scrollbarTargetIndex.toFloat()
             } else {
-                firstVisibleIndexState.value
-            }).coerceIn(0, total - 1)
-            previewIndex.toFloat() / (total - 1)
+                val firstIndex = firstVisibleIndexState.value
+                val firstItemHeight = gridState.layoutInfo.visibleItemsInfo
+                    .firstOrNull { it.index == firstIndex }
+                    ?.size
+                    ?.height
+                    ?.toFloat()
+                    ?.coerceAtLeast(1f)
+                    ?: 1f
+                firstIndex + (firstVisibleScrollOffsetState.value / firstItemHeight)
+                    .coerceIn(0f, 0.999f)
+            }.coerceIn(0f, (total - 1).toFloat())
+            previewPosition / (total - 1)
         }
     } }
     val currentPositionLabelState = remember(gridState, scrollbarDateLabels) {
@@ -2814,14 +3002,23 @@ private fun GalleryScrollbar(
     }
     var containerHeight by remember { mutableIntStateOf(0) }
     var labelHeight by remember { mutableIntStateOf(0) }
+    var dragSessionId by remember { mutableIntStateOf(0) }
 
     Box(
         modifier = modifier
             .fillMaxHeight()
             .width(dimensionResource(R.dimen.scrollbar_container_width))
-            .padding(top = totalTopBarHeight + dimensionResource(R.dimen.spacing_small), bottom = totalBottomPadding + dimensionResource(R.dimen.spacing_small))
+            .padding(top = totalTopBarHeight, bottom = totalBottomPadding)
             .zIndex(5f)
-            .onSizeChanged { containerHeight = it.height }
+    ) {
+        // Keep the date label wide enough to be readable, while limiting pointer
+        // capture to the rail at the far right so gallery scrolling still works.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .fillMaxHeight()
+                .width(dimensionResource(R.dimen.scrollbar_touch_area_width))
+                .onSizeChanged { containerHeight = it.height }
             .pointerInput(columnCount) {
                 awaitEachGesture {
                     fun currentTotalItems() = totalItemsState.value
@@ -2844,7 +3041,6 @@ private fun GalleryScrollbar(
                     }
 
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    down.consume()
                     val initialItemCount = currentTotalItems().coerceAtLeast(1)
                     val railHeight = size.height.toFloat().coerceAtLeast(1f)
                     val initialThumbRatio = (visibleItemsSizeState.value.toFloat() / initialItemCount)
@@ -2855,6 +3051,11 @@ private fun GalleryScrollbar(
                     val thumbHitSlop = 16.dp.toPx()
                     val startsOnThumb = down.position.y in
                         (initialThumbTop - thumbHitSlop)..(initialThumbTop + initialThumbHeight + thumbHitSlop)
+
+                    if (startsOnThumb) {
+                        down.consume()
+                    }
+
                     val longPressTimeoutMs = minOf(viewConfiguration.longPressTimeoutMillis, 380L)
                     val dragActivated = startsOnThumb || withTimeoutOrNull(longPressTimeoutMs) {
                         while (true) {
@@ -2867,14 +3068,21 @@ private fun GalleryScrollbar(
                             if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop * 2.5f) {
                                 return@withTimeoutOrNull false
                             }
-                            change.consume()
                         }
                     } == null
+
                     if (!dragActivated) {
                         Log.d(SCROLLBAR_TRACE, "short_touch ignored y=${down.position.y.roundToInt()} timeoutMs=$longPressTimeoutMs")
                         return@awaitEachGesture
                     }
-                    isPressed = true; isActive(true)
+
+                    if (!startsOnThumb) {
+                        down.consume()
+                    }
+                    isPressed = true
+                    dragSessionId += 1
+                    val sessionId = dragSessionId
+                    isActive(true)
                     var lastTouchY = down.position.y
                     val grabOffsetY = if (startsOnThumb) {
                         (down.position.y - initialThumbTop).coerceIn(0f, initialThumbHeight)
@@ -2893,6 +3101,9 @@ private fun GalleryScrollbar(
                     val liveFollowMinDelta = maxOf(columnCount / 2, 1)
                     fun requestLiveFollow(target: Int, force: Boolean = false) {
                         val now = System.currentTimeMillis()
+                        if (!force && target == lastLiveRequestedIndex) {
+                            return
+                        }
                         val deltaFromLast = abs(target - lastLiveRequestedIndex)
                         val sincePreviousMs = now - lastLiveRequestAt
                         if (!force) {
@@ -2928,10 +3139,8 @@ private fun GalleryScrollbar(
                             val latestTotal = currentTotalItems()
                             val newIdx = targetIndexForTouchY(lastTouchY, grabOffsetY)
                             val isEdgeTarget = newIdx == 0 || newIdx == latestTotal - 1
-                            if (isEdgeTarget || newIdx != scrollbarTargetIndex) {
-                                scrollbarTargetIndex = newIdx
-                                requestLiveFollow(newIdx, force = isEdgeTarget)
-                            }
+                            scrollbarTargetIndex = newIdx
+                            requestLiveFollow(newIdx, force = isEdgeTarget)
                         }
                         val finalTotal = currentTotalItems()
                         val finalTarget = when {
@@ -2962,14 +3171,65 @@ private fun GalleryScrollbar(
                         scrollbarTargetIndex = -1
                         scope.launch {
                             delay(180)
-                            isActive(false)
+                            if (dragSessionId == sessionId) {
+                                isActive(false)
+                            }
                         }
                     }
                 }
             }
-    ) {
+        )
+
         val positionLabel = currentPositionLabelState.value
         val colors = GalleryThemeTokens.colors
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .width(2.dp)
+                .fillMaxHeight()
+                .graphicsLayer { translationX = -thumbOffsetPx - railOffsetPx }
+                .background(colors.divider.copy(alpha = 0.7f), CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .width(12.dp)
+                .height(3.dp)
+                .graphicsLayer { translationX = -thumbOffsetPx }
+                .background(
+                    if (!gridState.canScrollBackward) colors.accent else colors.divider,
+                    CircleShape
+                )
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .width(12.dp)
+                .height(3.dp)
+                .graphicsLayer { translationX = -thumbOffsetPx }
+                .background(
+                    if (!gridState.canScrollForward) colors.accent else colors.divider,
+                    CircleShape
+                )
+        )
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowUp,
+            contentDescription = stringResource(R.string.label_slot_top),
+            tint = if (!gridState.canScrollBackward) colors.accent else colors.secondaryText,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 2.dp, end = 20.dp)
+                .size(16.dp)
+        )
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowDown,
+            contentDescription = stringResource(R.string.label_slot_bottom),
+            tint = if (!gridState.canScrollForward) colors.accent else colors.secondaryText,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 2.dp, end = 20.dp)
+                .size(16.dp)
+        )
         AnimatedVisibility(
             visible = isPressed && positionLabel != null,
             modifier = Modifier
@@ -2986,7 +3246,9 @@ private fun GalleryScrollbar(
                 }
         ) {
             Surface(
-                modifier = Modifier.onSizeChanged { labelHeight = it.height },
+                modifier = Modifier
+                    .widthIn(min = 96.dp, max = 128.dp)
+                    .onSizeChanged { labelHeight = it.height },
                 shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
                 color = colors.background.copy(alpha = GalleryAlphaTokens.Tooltip),
                 tonalElevation = 4.dp
@@ -2995,7 +3257,15 @@ private fun GalleryScrollbar(
                     text = positionLabel.orEmpty(),
                     color = colors.primaryText,
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.popup_padding_h), vertical = dimensionResource(R.dimen.popup_padding_v))
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = dimensionResource(R.dimen.popup_padding_h),
+                            vertical = dimensionResource(R.dimen.popup_padding_v)
+                        )
                 )
             }
         }

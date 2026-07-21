@@ -35,6 +35,8 @@ class PreferenceManager(context: Context) {
         const val SIMILAR_IMAGE_GROUPING = "similarImageGroupingEnabled"
         const val SIMILAR_IMAGE_THRESHOLD = "similarImageThreshold"
         const val FOLDER_GROUPS_DATA = "folderGroupsData"
+        const val EDGE_SWIPE_FOR_DRAWER = "edgeSwipeForDrawer"
+        const val RECOMMENDATION_PANEL_SIZE = "recommendationPanelSize"
     }
 
     // App Prefs

@@ -85,6 +85,27 @@ object TagTranslationService {
         return cleanText
     }
 
+    /**
+     * Normalizes Japanese kana so that hiragana input also matches katakana tags
+     * (and vice versa), while keeping ordinary text searches case-insensitive.
+     */
+    fun matchesSearch(text: String, query: String): Boolean {
+        val normalizedQuery = normalizeKanaForSearch(query)
+        return normalizedQuery.isBlank() || normalizeKanaForSearch(text).contains(normalizedQuery)
+    }
+
+    private fun normalizeKanaForSearch(value: String): String = buildString(value.length) {
+        value.forEach { character ->
+            append(
+                if (character in '\u3041'..'\u3096') {
+                    (character.code + 0x60).toChar()
+                } else {
+                    character
+                }
+            )
+        }
+    }.lowercase()
+
     fun close() {
         // Nothing to close now that ML Kit is gone
     }

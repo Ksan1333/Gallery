@@ -43,7 +43,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.zIndex
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -264,6 +263,20 @@ fun AppNavigation(
     val scope = rememberCoroutineScope()
     val startDestination = remember { loadStartupRoute(context) }
     val globalSettingsPrefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
+    var edgeSwipeForDrawer by remember(globalSettingsPrefs) {
+        mutableStateOf(
+            globalSettingsPrefs.getBoolean(PreferenceManager.EDGE_SWIPE_FOR_DRAWER, true)
+        )
+    }
+    DisposableEffect(globalSettingsPrefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            if (key == PreferenceManager.EDGE_SWIPE_FOR_DRAWER) {
+                edgeSwipeForDrawer = prefs.getBoolean(key, true)
+            }
+        }
+        globalSettingsPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { globalSettingsPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     val startupPasswordEnabled = remember {
         globalSettingsPrefs.getBoolean("startupPasswordEnabled", false)
     }
@@ -674,6 +687,73 @@ fun AppNavigation(
     val canOpenDrawerForRoute = isDrawerRoute && !isInteriorDrawerBlocked
     val isReferenceInteriorRoute = currentRouteForDrawer?.startsWith("reference_detail") == true ||
         currentRouteForDrawer?.startsWith("reference_search") == true
+    val isGalleryGridVisible =
+        currentRouteForDrawer == AppRoutes.HOME ||
+            currentRouteForDrawer == AppRoutes.FOLDERS ||
+            currentRouteForDrawer == AppRoutes.REFERENCES ||
+            currentRouteForDrawer == AppRoutes.BOOK_BOOKMARKS ||
+            (currentRouteForDrawer == AppRoutes.BOOKS && !isBookFolderOpen) ||
+            (currentRouteForDrawer == AppRoutes.VIDEOS && !isVideoFolderOpen) ||
+            currentRouteForDrawer == AppRoutes.TRASH ||
+            currentRouteForDrawer == "favorite_artists" ||
+            currentRouteForDrawer == "favorite_sites" ||
+            currentRouteForDrawer == "video_downloader" ||
+            currentRouteForDrawer == AppRoutes.SETTINGS
+    val isDrawerEdgeSwipeEnabled =
+        !drawerState.isOpen &&
+            canOpenDrawerForRoute &&
+            !isReferenceInteriorRoute &&
+            isGalleryGridVisible &&
+            !galleryState.isSelectionMode &&
+            !galleryState.isZooming &&
+            !galleryState.isMediaViewerOpen &&
+            edgeSwipeForDrawer
+    val drawerEdgeSwipeModifier = if (isDrawerEdgeSwipeEnabled) {
+        Modifier.pointerInput(edgeSwipeForDrawer) {
+            awaitPointerEventScope {
+                val edgeWidth = 25.dp.toPx()
+                while (true) {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (down.position.x > edgeWidth) {
+                        while (true) {
+                            if (awaitPointerEvent().changes.all { !it.pressed }) break
+                        }
+                        continue
+                    }
+
+                    var isOpening = false
+                    var isHorizontalDrawerDrag = false
+                    var isNonDrawerGesture = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+
+                        val totalX = change.position.x - down.position.x
+                        val totalY = change.position.y - down.position.y
+                        if (!isHorizontalDrawerDrag && !isNonDrawerGesture &&
+                            totalX * totalX + totalY * totalY >
+                            viewConfiguration.touchSlop * viewConfiguration.touchSlop
+                        ) {
+                            isHorizontalDrawerDrag =
+                                totalX > 0f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY)
+                            isNonDrawerGesture = !isHorizontalDrawerDrag
+                        }
+
+                        if (isHorizontalDrawerDrag) {
+                            change.consume()
+                            if (totalX > 40f && !isOpening) {
+                                isOpening = true
+                                scope.launch { drawerState.open() }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -924,75 +1004,13 @@ fun AppNavigation(
                 }
             }
         },
-        gesturesEnabled = canOpenDrawerForRoute &&
-            !isReferenceInteriorRoute &&
-            !galleryState.isSelectionMode &&
-            !galleryState.isZooming &&
-            !galleryState.isMediaViewerOpen
+        // Opening is handled by the direction-aware edge handler below.  Keeping the
+        // Material drawer disabled while closed prevents it from winning a vertical
+        // gallery drag that starts at the left edge.  It remains enabled while open
+        // so the drawer can still be closed by swiping left.
+        gesturesEnabled = drawerState.isOpen
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            val navBackStackEntryForDrawer by navController.currentBackStackEntryAsState()
-            val currentRouteForDrawer = navBackStackEntryForDrawer?.destination?.route
-            val isGalleryGridVisible =
-                currentRouteForDrawer == AppRoutes.HOME ||
-                    currentRouteForDrawer == AppRoutes.FOLDERS ||
-                    currentRouteForDrawer == AppRoutes.REFERENCES ||
-                    currentRouteForDrawer == AppRoutes.BOOK_BOOKMARKS ||
-                    (currentRouteForDrawer == AppRoutes.BOOKS && !isBookFolderOpen) ||
-                    (currentRouteForDrawer == AppRoutes.VIDEOS && !isVideoFolderOpen) ||
-                    currentRouteForDrawer == AppRoutes.TRASH ||
-                    currentRouteForDrawer == "favorite_artists" ||
-                    currentRouteForDrawer == "favorite_sites" ||
-                    currentRouteForDrawer == "video_downloader" ||
-                    currentRouteForDrawer == AppRoutes.SETTINGS
-
-            if (!drawerState.isOpen &&
-                canOpenDrawerForRoute &&
-                !isReferenceInteriorRoute &&
-                isGalleryGridVisible &&
-                !galleryState.isSelectionMode &&
-                !galleryState.isZooming &&
-                !galleryState.isMediaViewerOpen
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(25.dp)
-                        .align(Alignment.CenterStart)
-                        .zIndex(100f)
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    awaitFirstDown(requireUnconsumed = false)
-                                    var totalDrag = 0f
-                                    var isOpening = false
-
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val change = event.changes.first()
-
-                                        if (change.pressed) {
-                                            val dragAmount =
-                                                change.position.x - change.previousPosition.x
-                                            totalDrag += dragAmount
-
-                                            if (totalDrag > 40f && !isOpening) {
-                                                isOpening = true
-                                                scope.launch { drawerState.open() }
-                                            }
-
-                                            if (isOpening) {
-                                                change.consume()
-                                            }
-                                        } else {
-                                            break
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                )
-            }
+        Box(modifier = Modifier.fillMaxSize().then(drawerEdgeSwipeModifier)) {
 
             if (isStartupUnlocked) {
                 NavHost(

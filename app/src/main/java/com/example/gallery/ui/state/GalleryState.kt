@@ -69,6 +69,7 @@ class GalleryState(context: Context) {
     var homeGalleryScrollOffset by mutableIntStateOf(0)
     var homeGalleryScrollUri by mutableStateOf<String?>(null)
     var pendingHomeSearchTag by mutableStateOf<String?>(null)
+    var returnToUnfilteredHomeOnBack by mutableStateOf(false)
     var homeSearchQuery by mutableStateOf("")
     var homeSearchMatchMode by mutableStateOf(GallerySearchMatchMode.AND)
     var homeSearchAgeRatings by mutableStateOf<Set<AgeRatingFilter>>(emptySet())
@@ -89,6 +90,8 @@ class GalleryState(context: Context) {
             homeSearchFavoritesOnly
 
     fun clearHomeSearch() {
+        pendingHomeSearchTag = null
+        returnToUnfilteredHomeOnBack = false
         homeSearchQuery = ""
         homeSearchMatchMode = GallerySearchMatchMode.AND
         homeSearchAgeRatings = emptySet()

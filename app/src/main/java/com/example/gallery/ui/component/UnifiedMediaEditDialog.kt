@@ -1,7 +1,6 @@
 package com.example.gallery.ui.component
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,7 +27,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
@@ -59,20 +57,23 @@ fun UnifiedMediaEditDialog(
 
     // タグ検索用の状態
     val tagSuffixGroup = stringResource(R.string.label_tag_suffix_group)
-    var tagSearchQuery by remember { mutableStateOf("") }
-    val filteredTags = remember(tagCounts, tagSearchQuery, tagSuffixGroup) {
-        tagCounts
+    var newTagName by remember { mutableStateOf("") }
+    val visibleTags = remember(tagCounts, newTagName, tagSuffixGroup) {
+        val query = newTagName.trim()
+        val matchingTags = tagCounts.asSequence()
             .filter { !it.tag.endsWith(tagSuffixGroup) }
-            .filter { it.tag.contains(tagSearchQuery, ignoreCase = true) ||
-                      TagTranslationService.translate(it.tag).contains(tagSearchQuery, ignoreCase = true) }
+            .filter {
+                query.isBlank() ||
+                    TagTranslationService.matchesSearch(it.tag, query) ||
+                    TagTranslationService.matchesSearch(TagTranslationService.translate(it.tag), query)
+            }
             .map { it.tag }
+        if (query.isBlank()) matchingTags.take(20).toList() else matchingTags.toList()
     }
 
     val selectedTags = remember { mutableStateListOf<String>() }
-    var newTagName by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val keyboardController = LocalSoftwareKeyboardController.current
 
     // 進捗管理用の状態
     var isProcessing by remember { mutableStateOf(false) }
@@ -101,7 +102,7 @@ fun UnifiedMediaEditDialog(
                 contentColor = colors.primaryText,
                 disabledContentColor = colors.disabled,
                 actions = {
-                    TextButton(
+                    FilledTonalButton(
                         onClick = {
                             isProcessing = true
                             scope.launch {
@@ -122,9 +123,16 @@ fun UnifiedMediaEditDialog(
                                 onDismiss()
                             }
                         },
-                        enabled = !isProcessing
+                        enabled = !isProcessing,
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
                     ) {
-                        Text(stringResource(R.string.btn_save), color = if (!isProcessing) colors.primaryText else colors.disabled)
+                        Icon(
+                            Icons.Default.Save,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.btn_save))
                     }
                 }
             )
@@ -139,59 +147,95 @@ fun UnifiedMediaEditDialog(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
-
-            // 選択中の画像プレビュー
-            if (!isProcessing && uris.isNotEmpty()) {
-                Text(
-                    text = stringResource(R.string.edit_selected_items),
-                    color = colors.primaryText,
-                    fontSize = textSizes.small,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                )
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(dimensionResource(R.dimen.edit_dialog_preview_row_height)),
-                    horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))
-                ) {
-                    // 2つずつペアにして表示することで縦2段を実現
-                    val pairs = uris.chunked(2)
-                    items(pairs) { pair ->
-                        Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))) {
-                            pair.forEach { uri ->
-                                AsyncImage(
-                                    model = remember(uri) {
-                                        ImageRequest.Builder(context)
-                                            .data(uri)
-                                            .videoFrameMillis(1000)
-                                            .crossfade(true)
-                                            .build()
-                                    },
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(dimensionResource(R.dimen.edit_dialog_thumbnail_size))
-                                        .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small))),
-                                    contentScale = ContentScale.Crop
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .imePadding(),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (!isProcessing && uris.isNotEmpty()) {
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            color = colors.surface,
+                            tonalElevation = 1.dp,
+                            shadowElevation = 2.dp
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = stringResource(R.string.edit_selected_items),
+                                    color = colors.primaryText,
+                                    style = MaterialTheme.typography.titleSmall
                                 )
-                            }
-                            // 奇数個の場合に高さを合わせるための空き
-                            if (pair.size < 2) {
-                                Spacer(modifier = Modifier.size(dimensionResource(R.dimen.edit_dialog_thumbnail_size)))
+                                Spacer(Modifier.height(10.dp))
+                                LazyRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(dimensionResource(R.dimen.edit_dialog_preview_row_height)),
+                                    horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))
+                                ) {
+                                    val pairs = uris.chunked(2)
+                                    items(pairs) { pair ->
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(
+                                                dimensionResource(R.dimen.spacing_tiny)
+                                            )
+                                        ) {
+                                            pair.forEach { uri ->
+                                                AsyncImage(
+                                                    model = remember(uri) {
+                                                        ImageRequest.Builder(context)
+                                                            .data(uri)
+                                                            .videoFrameMillis(1000)
+                                                            .crossfade(true)
+                                                            .build()
+                                                    },
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .size(dimensionResource(R.dimen.edit_dialog_thumbnail_size))
+                                                        .clip(
+                                                            RoundedCornerShape(
+                                                                dimensionResource(R.dimen.radius_small)
+                                                            )
+                                                        ),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
+                                            if (pair.size < 2) {
+                                                Spacer(
+                                                    modifier = Modifier.size(
+                                                        dimensionResource(R.dimen.edit_dialog_thumbnail_size)
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
 
-            // if (isProcessing) は削除。GlobalProgressOverlay が表示するため。
-
-            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 item {
-                    Text(stringResource(R.string.edit_target_age), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = colors.primaryText)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = colors.surface,
+                        tonalElevation = 1.dp,
+                        shadowElevation = 2.dp
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        stringResource(R.string.edit_target_age),
+                        color = colors.primaryText,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(8.dp))
                     FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = dimensionResource(R.dimen.spacing_small)),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
                     ) {
                         listOf(null to stringResource(R.string.opt_no_change), AppConstants.RATING_SFW to stringResource(R.string.opt_age_sfw), AppConstants.RATING_R15 to stringResource(R.string.opt_age_r15), AppConstants.RATING_R18 to stringResource(R.string.opt_age_r18)).forEach { (code, label) ->
@@ -210,19 +254,34 @@ fun UnifiedMediaEditDialog(
                             }
                         }
                     }
+                        }
+                    }
                 }
 
                 item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(stringResource(R.string.edit_tag_settings), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = colors.primaryText)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = colors.surface,
+                        tonalElevation = 1.dp,
+                        shadowElevation = 2.dp
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        stringResource(R.string.edit_tag_settings),
+                        color = colors.primaryText,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(8.dp))
 
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         TextField(
                             value = newTagName,
                             onValueChange = { newTagName = it },
-                            placeholder = { Text(stringResource(R.string.edit_new_tag)) },
+                            placeholder = { Text(stringResource(R.string.edit_tag_input_placeholder)) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
                             enabled = !isProcessing,
                             colors = TextFieldDefaults.colors(
                                 focusedTextColor = colors.primaryText,
@@ -232,17 +291,22 @@ fun UnifiedMediaEditDialog(
                                 disabledContainerColor = colors.field
                             )
                         )
-                        IconButton(
+                        FilledIconButton(
                             onClick = {
                                 if (newTagName.isNotBlank()) {
                                     if (!selectedTags.contains(newTagName)) selectedTags.add(newTagName)
                                     newTagName = ""
-                                    keyboardController?.hide()
                                 }
                             },
-                            enabled = !isProcessing
+                            enabled = !isProcessing,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = colors.accent,
+                                contentColor = colors.background,
+                                disabledContainerColor = colors.field,
+                                disabledContentColor = colors.disabled
+                            )
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.btn_create), tint = if (!isProcessing) colors.primaryText else colors.disabled)
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.btn_create))
                         }
                     }
 
@@ -269,26 +333,13 @@ fun UnifiedMediaEditDialog(
                         }
                     }
 
-                    if (filteredTags.isNotEmpty()) {
+                    if (visibleTags.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.edit_select_existing_tags), fontSize = textSizes.small, color = colors.mutedText, modifier = Modifier.weight(1f))
-                            // タグ検索フィールド
-                            OutlinedTextField(
-                                value = tagSearchQuery,
-                                onValueChange = { tagSearchQuery = it },
-                                placeholder = { Text(stringResource(R.string.edit_search_tags), fontSize = textSizes.tiny) },
-                                modifier = Modifier.width(dimensionResource(R.dimen.edit_dialog_tag_search_width)).height(dimensionResource(R.dimen.icon_size_extra_large)), // icon_size_extra_large is 40dp
-                                singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = textSizes.small),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = colors.primaryText,
-                                    unfocusedTextColor = colors.primaryText,
-                                    focusedBorderColor = colors.accent,
-                                    unfocusedBorderColor = colors.divider
-                                )
-                            )
-                        }
+                        Text(
+                            stringResource(R.string.edit_select_existing_tags),
+                            fontSize = textSizes.small,
+                            color = colors.mutedText
+                        )
 
                         // 高さを制限してスクロール可能にする
                         Box(
@@ -296,14 +347,14 @@ fun UnifiedMediaEditDialog(
                                 .fillMaxWidth()
                                 .heightIn(max = dimensionResource(R.dimen.edit_dialog_tag_list_max_height))
                                 .padding(vertical = dimensionResource(R.dimen.spacing_tiny))
-                                .background(colors.background.copy(alpha = GalleryAlphaTokens.SubtleBackground), RoundedCornerShape(dimensionResource(R.dimen.radius_small)))
+                                .background(colors.surfaceVariant.copy(alpha = GalleryAlphaTokens.SubtleBackground), RoundedCornerShape(12.dp))
                                 .verticalScroll(rememberScrollState())
                         ) {
                             FlowRow(
                                 modifier = Modifier.fillMaxWidth().padding(dimensionResource(R.dimen.spacing_small)),
                                 horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_tiny))
                             ) {
-                                filteredTags.forEach { tag ->
+                                visibleTags.forEach { tag ->
                                     FilterChip(
                                         selected = selectedTags.contains(tag),
                                         onClick = {
@@ -322,6 +373,8 @@ fun UnifiedMediaEditDialog(
                                     )
                                 }
                             }
+                        }
+                    }
                         }
                     }
                 }
