@@ -134,6 +134,16 @@ object GalleryTextSizeTokens {
     }
 }
 
+private fun softAccent(accent: Color, surface: Color): Color {
+    val accentRatio = 0.22f
+    return Color(
+        red = surface.red + (accent.red - surface.red) * accentRatio,
+        green = surface.green + (accent.green - surface.green) * accentRatio,
+        blue = surface.blue + (accent.blue - surface.blue) * accentRatio,
+        alpha = 1f
+    )
+}
+
 object GalleryColorTokens {
     @Composable
     @ReadOnlyComposable
@@ -150,9 +160,9 @@ object GalleryColorTokens {
         topBar: Color = background,
         drawer: Color = background,
         card: Color = surface,
-        field: Color = surfaceVariant,
+        field: Color = surface,
         mutedText: Color = secondaryText,
-        accentSoft: Color = accent,
+        accentSoft: Color = softAccent(accent, surface),
         warning: Color = colorResource(R.color.warning_dark),
         info: Color = accent,
         disabled: Color = secondaryText
@@ -226,18 +236,44 @@ object GalleryColorTokens {
         )
 }
 
-data class ThemePreset(val labelRes: Int, val value: String, val colors: GalleryColors?)
+enum class ThemePresetGroup { BASE, DARK, LIGHT }
+
+data class ThemePreset(
+    val labelRes: Int,
+    val value: String,
+    val colors: GalleryColors?,
+    val group: ThemePresetGroup = when (value) {
+        "DEFAULT", "CUSTOM" -> ThemePresetGroup.BASE
+        "PAPER", "SUNRISE", "SPRING", "SUMMER", "SAKURA_MIST", "FRESH_LEAF",
+        "PORCELAIN", "AUTUMN_LEAF", "LILAC", "AQUA" -> ThemePresetGroup.LIGHT
+        else -> ThemePresetGroup.DARK
+    }
+)
 
 object GalleryThemePresets {
     private val visibleValues = setOf(
         "DEFAULT",
         "CUSTOM",
         "MIDNIGHT",
+        "SUNSET",
+        "GORGEOUS",
+        "CALM",
+        "WINTER",
+        "FOREST",
+        "NEON",
+        "DEEP_SEA",
+        "COFFEE",
+        "JEWEL",
         "PAPER",
         "SUNRISE",
-        "FOREST",
-        "DEEP_SEA",
-        "NEON"
+        "SPRING",
+        "SUMMER",
+        "SAKURA_MIST",
+        "FRESH_LEAF",
+        "PORCELAIN",
+        "AUTUMN_LEAF",
+        "LILAC",
+        "AQUA"
     )
 
     val List: List<ThemePreset>
@@ -447,6 +483,26 @@ object GalleryThemePresets {
                 danger = colorResource(R.color.preset_jewel_danger),
                 success = colorResource(R.color.preset_jewel_success),
                 divider = colorResource(R.color.preset_jewel_divider)
+            )),
+            ThemePreset(R.string.preset_lilac, "LILAC", GalleryColorTokens.palette(
+                background = colorResource(R.color.preset_lilac_bg),
+                surface = colorResource(R.color.preset_lilac_surface),
+                primaryText = colorResource(R.color.preset_lilac_text_primary),
+                secondaryText = colorResource(R.color.preset_lilac_text_secondary),
+                accent = colorResource(R.color.preset_lilac_accent),
+                danger = colorResource(R.color.preset_lilac_danger),
+                success = colorResource(R.color.preset_lilac_success),
+                divider = colorResource(R.color.preset_lilac_divider)
+            )),
+            ThemePreset(R.string.preset_aqua, "AQUA", GalleryColorTokens.palette(
+                background = colorResource(R.color.preset_aqua_bg),
+                surface = colorResource(R.color.preset_aqua_surface),
+                primaryText = colorResource(R.color.preset_aqua_text_primary),
+                secondaryText = colorResource(R.color.preset_aqua_text_secondary),
+                accent = colorResource(R.color.preset_aqua_accent),
+                danger = colorResource(R.color.preset_aqua_danger),
+                success = colorResource(R.color.preset_aqua_success),
+                divider = colorResource(R.color.preset_aqua_divider)
             ))
         ).filter { it.value in visibleValues }
 }

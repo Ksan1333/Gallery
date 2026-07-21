@@ -538,6 +538,10 @@
     <string name="preset_porcelain">磁器</string>
     <string name="preset_autumn_leaf">紅葉</string>
     <string name="preset_jewel">宝石</string>
+    <string name="preset_lilac">ライラック</string>
+    <string name="preset_aqua">アクア</string>
+    <string name="theme_preset_group_dark">ダーク系（10種）</string>
+    <string name="theme_preset_group_light">ライト系（10種）</string>
 
     <!-- Dialogs -->
     <string name="dialog_delete_link_title">リンクを削除</string>

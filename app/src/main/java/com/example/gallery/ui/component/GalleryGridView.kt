@@ -145,6 +145,9 @@ private const val SCROLL_RESTORE_TRACE = "GALLERY_SCROLL_RESTORE_TRACE"
 private const val SELECTION_TRACE = "GALLERY_SELECTION_TRACE"
 private const val SCROLLBAR_TRACE = "GALLERY_SCROLLBAR_TRACE"
 private const val GRID_LAYOUT_TRACE = "GALLERY_GRID_LAYOUT_TRACE"
+private const val ZOOM_TRACE = "GALLERY_ZOOM_TRACE"
+private const val GRID_ZOOM_IN_TRIGGER = 1.005f
+private const val GRID_ZOOM_OUT_TRIGGER = 0.995f
 private const val DENSE28_ROWS_PER_YEAR = 6
 private const val DENSE28_THUMB_SIZE = 48
 private const val DENSE28_THUMB_LOAD_ROWS = 12
@@ -234,6 +237,124 @@ private fun logScrollRestoreTrace(message: String) {
 
 private fun logSelectionTrace(message: String) {
     Log.d(SELECTION_TRACE, "$SELECTION_TRACE $message")
+}
+
+private fun logZoomTrace(message: String) {
+    Log.d(ZOOM_TRACE, "$ZOOM_TRACE $message")
+}
+
+@Composable
+private fun rememberGalleryPinchZoomModifier(
+    maxLineSpan: Int,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onZoomingStateChanged: (Boolean) -> Unit
+): Modifier {
+    val currentOnZoomIn by rememberUpdatedState(onZoomIn)
+    val currentOnZoomOut by rememberUpdatedState(onZoomOut)
+    val currentOnZoomingStateChanged by rememberUpdatedState(onZoomingStateChanged)
+    val currentZoomColumnCount by rememberUpdatedState(maxLineSpan)
+    DisposableEffect(Unit) {
+        logZoomTrace("handler_attach columns=$currentZoomColumnCount")
+        onDispose { logZoomTrace("handler_dispose columns=$currentZoomColumnCount") }
+    }
+
+    return Modifier.pointerInput(Unit) {
+        logZoomTrace("pointer_handler_start")
+        awaitEachGesture {
+            var cumulativeZoom = 1f
+            var isPinching = false
+            var zoomUiActive = false
+            var eventCount = 0
+            val activePointerPositions = mutableMapOf<Long, Offset>()
+            try {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    eventCount += 1
+                    val previousPositions = activePointerPositions.toMap()
+                    val positionsForEvent = activePointerPositions.toMutableMap()
+                    event.changes.forEach { change ->
+                        if (change.pressed || change.previousPressed) {
+                            positionsForEvent[change.id.value] = change.position
+                        }
+                    }
+                    event.changes.forEach { change ->
+                        if (change.pressed) {
+                            activePointerPositions[change.id.value] = change.position
+                        } else {
+                            activePointerPositions.remove(change.id.value)
+                        }
+                    }
+
+                    if (positionsForEvent.size >= 2) {
+                        if (!isPinching) {
+                            isPinching = true
+                            logZoomTrace(
+                                "gesture_start columns=$currentZoomColumnCount event=$eventCount " +
+                                    "pointers=${positionsForEvent.size}"
+                            )
+                        }
+                        val sharedPointerIds = positionsForEvent.keys
+                            .filter { it in previousPositions }
+                            .sorted()
+                        val zoomChange = if (sharedPointerIds.size >= 2) {
+                            val firstPointerId = sharedPointerIds[0]
+                            val secondPointerId = sharedPointerIds[1]
+                            val previousSpan = (previousPositions.getValue(firstPointerId) -
+                                previousPositions.getValue(secondPointerId)).getDistance()
+                            val currentSpan = (positionsForEvent.getValue(firstPointerId) -
+                                positionsForEvent.getValue(secondPointerId)).getDistance()
+                            if (previousSpan > 0.5f) currentSpan / previousSpan else 1f
+                        } else {
+                            1f
+                        }
+                        if (zoomChange != 1f) {
+                            cumulativeZoom *= zoomChange
+                            logZoomTrace(
+                                "gesture_delta columns=$currentZoomColumnCount event=$eventCount " +
+                                    "change=${"%.3f".format(Locale.US, zoomChange)} " +
+                                    "cumulative=${"%.3f".format(Locale.US, cumulativeZoom)}"
+                            )
+                        }
+                        if (cumulativeZoom >= GRID_ZOOM_IN_TRIGGER) {
+                            logZoomTrace(
+                                "gesture_step direction=in columns=$currentZoomColumnCount " +
+                                    "cumulative=${"%.3f".format(Locale.US, cumulativeZoom)}"
+                            )
+                            if (!zoomUiActive) {
+                                zoomUiActive = true
+                                currentOnZoomingStateChanged(true)
+                            }
+                            currentOnZoomIn()
+                            event.changes.forEach { change -> if (change.pressed) change.consume() }
+                            cumulativeZoom = 1f
+                        } else if (cumulativeZoom <= GRID_ZOOM_OUT_TRIGGER) {
+                            logZoomTrace(
+                                "gesture_step direction=out columns=$currentZoomColumnCount " +
+                                    "cumulative=${"%.3f".format(Locale.US, cumulativeZoom)}"
+                            )
+                            if (!zoomUiActive) {
+                                zoomUiActive = true
+                                currentOnZoomingStateChanged(true)
+                            }
+                            currentOnZoomOut()
+                            event.changes.forEach { change -> if (change.pressed) change.consume() }
+                            cumulativeZoom = 1f
+                        }
+                    }
+
+                    if (activePointerPositions.isEmpty()) {
+                        break
+                    }
+                }
+            } finally {
+                logZoomTrace(
+                    "gesture_end columns=$currentZoomColumnCount events=$eventCount " +
+                        "pinching=$isPinching uiActive=$zoomUiActive"
+                )
+            }
+        }
+    }
 }
 
 private fun traceUri(uri: String?): String = uri?.hashCode()?.toString() ?: "none"
@@ -568,6 +689,7 @@ fun GalleryGridView(
     LaunchedEffect(galleryState.isZooming) {
         if (galleryState.isZooming) {
             delay(250)
+            logZoomTrace("state_timeout_reset columns=${columnOptions[currentColumnIndex]}")
             galleryState.isZooming = false
         }
     }
@@ -1137,11 +1259,41 @@ fun GalleryGridView(
     }
 
     // --- UI の描画 ---
+    val zoomInAction: () -> Unit = {
+        val before = currentColumnIndex
+        val after = (before + 1).coerceAtMost(columnOptions.lastIndex)
+        logZoomTrace(
+            "callback direction=in beforeIndex=$before beforeColumns=${columnOptions[before]} " +
+                "afterIndex=$after afterColumns=${columnOptions[after]} atLimit=${before == after}"
+        )
+        currentColumnIndex = after
+    }
+    val zoomOutAction: () -> Unit = {
+        val before = currentColumnIndex
+        val after = (before - 1).coerceAtLeast(0)
+        logZoomTrace(
+            "callback direction=out beforeIndex=$before beforeColumns=${columnOptions[before]} " +
+                "afterIndex=$after afterColumns=${columnOptions[after]} atLimit=${before == after}"
+        )
+        currentColumnIndex = after
+    }
+    val zoomingStateAction: (Boolean) -> Unit = { value ->
+        logZoomTrace("state value=$value columns=$maxLineSpan")
+        galleryState.isZooming = value
+    }
+    val pinchZoomModifier = rememberGalleryPinchZoomModifier(
+        maxLineSpan = maxLineSpan,
+        onZoomIn = zoomInAction,
+        onZoomOut = zoomOutAction,
+        onZoomingStateChanged = zoomingStateAction
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(colors.background)
             .nestedScroll(nestedScrollConnection)
+            .then(pinchZoomModifier)
     ) {
         val displayedFlatGridItems = flatGridItems
         val displayedMediaItemsOnly = mediaItemsOnly
@@ -1168,9 +1320,6 @@ fun GalleryGridView(
                 logSelectionTrace("last_index_set source=grid_content before=$lastSelectedIndex after=$it")
                 lastSelectedIndex = it
             },
-            onZoomIn = { if (currentColumnIndex < columnOptions.size - 1) currentColumnIndex++ },
-            onZoomOut = { if (currentColumnIndex > 0) currentColumnIndex-- },
-            onZoomingStateChanged = { galleryState.isZooming = it },
             onSelectionEmptied = {
                 logSelectionTrace("selection_empty source=grid_content count=${selectedUris.size}")
                 setSelectionMode(false, "grid_content_empty")
@@ -1279,9 +1428,6 @@ private fun GalleryGridContent(
     selectOnTap: Boolean,
     onSelectionModeChanged: (Boolean) -> Unit,
     onLastSelectedIndexChanged: (Int) -> Unit,
-    onZoomIn: () -> Unit,
-    onZoomOut: () -> Unit,
-    onZoomingStateChanged: (Boolean) -> Unit,
     onSelectionEmptied: () -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
@@ -1939,38 +2085,7 @@ private fun GalleryGridContent(
                 } else {
                     Modifier
                 }
-            )
-            .pointerInput(maxLineSpan) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    var cumulativeZoom = 1f
-                    var isPinching = false
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        if (event.changes.all { !it.pressed }) {
-                            if (isPinching) onZoomingStateChanged(false)
-                            break
-                        }
-
-                        if (event.changes.count { it.pressed } >= 2) {
-                            if (!isPinching) {
-                                isPinching = true
-                                onZoomingStateChanged(true)
-                            }
-                            cumulativeZoom *= event.calculateZoom()
-                            event.changes.forEach { it.consume() }
-
-                            if (cumulativeZoom > 1.18f) {
-                                onZoomIn()
-                                cumulativeZoom = 1f
-                            } else if (cumulativeZoom < 0.85f) {
-                                onZoomOut()
-                                cumulativeZoom = 1f
-                            }
-                        }
-                    }
-                }
-            },
+            ),
         contentPadding = PaddingValues(top = totalTopBarHeight, bottom = totalBottomPadding)
     ) {
         if (pagingItems != null) {

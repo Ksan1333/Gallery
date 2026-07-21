@@ -260,6 +260,26 @@
     <color name="preset_jewel_success">#FF65E2A0</color>
     <color name="preset_jewel_divider">#33FFFFFF</color>
 
+    <!-- Lilac -->
+    <color name="preset_lilac_bg">#FFF9F5FF</color>
+    <color name="preset_lilac_surface">#FFFFFFFF</color>
+    <color name="preset_lilac_text_primary">#FF21182E</color>
+    <color name="preset_lilac_text_secondary">#FF655777</color>
+    <color name="preset_lilac_accent">#FF8B6BD6</color>
+    <color name="preset_lilac_danger">#FFD84A5E</color>
+    <color name="preset_lilac_success">#FF2A9766</color>
+    <color name="preset_lilac_divider">#22000000</color>
+
+    <!-- Aqua -->
+    <color name="preset_aqua_bg">#FFF1FBFC</color>
+    <color name="preset_aqua_surface">#FFFFFFFF</color>
+    <color name="preset_aqua_text_primary">#FF10272B</color>
+    <color name="preset_aqua_text_secondary">#FF3C6269</color>
+    <color name="preset_aqua_accent">#FF2497A6</color>
+    <color name="preset_aqua_danger">#FFD64A5A</color>
+    <color name="preset_aqua_success">#FF1F9568</color>
+    <color name="preset_aqua_divider">#20000000</color>
+
     <!-- Palette Swatches -->
     <color name="swatch_01">#000000</color>
     <color name="swatch_02">#101418</color>

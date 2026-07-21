@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -114,6 +115,7 @@ import com.example.gallery.ui.theme.GalleryThemeMode
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryThemePresets
 import com.example.gallery.ui.theme.ThemePreset
+import com.example.gallery.ui.theme.ThemePresetGroup
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
@@ -776,7 +778,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.themeSettingsItems(
     item {
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
-        val fallbackPalette = if (themeMode == GalleryThemeMode.LIGHT) GalleryColorTokens.Light else GalleryColorTokens.Dark
+        val fallbackPalette = if (
+            themeMode == GalleryThemeMode.LIGHT ||
+            (themeMode == GalleryThemeMode.SYSTEM && !isSystemInDarkTheme())
+        ) {
+            GalleryColorTokens.Light
+        } else {
+            GalleryColorTokens.Dark
+        }
         val presets = GalleryThemePresets.List
         val availablePresetValues = remember(presets) { presets.map { it.value }.toSet() }
         val storedThemePreset = prefs.getString(
@@ -1740,9 +1749,57 @@ private fun ThemePresetPicker(
     onSelected: (String) -> Unit
 ) {
     val colors = GalleryThemeTokens.colors
+    val basePresets = presets.filter { it.group == ThemePresetGroup.BASE }
+    val darkPresets = presets.filter { it.group == ThemePresetGroup.DARK }
+    val lightPresets = presets.filter { it.group == ThemePresetGroup.LIGHT }
     Column(verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
         Text(title, style = galleryTypography.body.copy(fontWeight = FontWeight.Bold), color = colors.primaryText)
         Text(description, style = galleryTypography.body, color = colors.secondaryText)
+        if (basePresets.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))) {
+                basePresets.forEach { preset ->
+                    FilterChip(
+                        selected = selected == preset.value,
+                        onClick = { onSelected(preset.value) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(stringResource(preset.labelRes), maxLines = 1) }
+                    )
+                }
+            }
+        }
+        ThemePresetCategoryRow(
+            title = stringResource(R.string.theme_preset_group_dark),
+            presets = darkPresets,
+            selected = selected,
+            defaultPalette = defaultPalette,
+            customPalette = customPalette,
+            onSelected = onSelected
+        )
+        ThemePresetCategoryRow(
+            title = stringResource(R.string.theme_preset_group_light),
+            presets = lightPresets,
+            selected = selected,
+            defaultPalette = defaultPalette,
+            customPalette = customPalette,
+            onSelected = onSelected
+        )
+    }
+}
+
+@Composable
+private fun ThemePresetCategoryRow(
+    title: String,
+    presets: List<ThemePreset>,
+    selected: String,
+    defaultPalette: GalleryColors,
+    customPalette: GalleryColors,
+    onSelected: (String) -> Unit
+) {
+    if (presets.isEmpty()) return
+
+    val colors = GalleryThemeTokens.colors
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = galleryTypography.body.copy(fontWeight = FontWeight.SemiBold), color = colors.primaryText)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(presets, key = { it.value }) { preset ->
                 val previewPalette = when (preset.value) {
