@@ -6,9 +6,6 @@ import com.example.gallery.data.local.GalleryDatabase
 import java.io.File
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.first
 
 object TagTranslationService {
     private const val TAG = "TagTranslationService"

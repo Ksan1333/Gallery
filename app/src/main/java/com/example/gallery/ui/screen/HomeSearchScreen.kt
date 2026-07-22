@@ -66,9 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
-import androidx.compose.ui.unit.dp
 import com.example.gallery.R
-import com.example.gallery.ui.AppConstants
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.service.TagTranslationService
 import com.example.gallery.ui.component.GalleryTopAppBar

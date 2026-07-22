@@ -7,7 +7,6 @@ import android.media.ThumbnailUtils
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
 import java.io.File

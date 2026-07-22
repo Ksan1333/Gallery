@@ -105,6 +105,10 @@ class AppUpdateViewModel : ViewModel() {
     fun downloadAndInstall(context: Context) {
         val target = release ?: return
         if (isDownloading) return
+        if (!AppUpdateManager.requestInstallPermission(context)) {
+            needsInstallPermission = true
+            return
+        }
         isDownloading = true
         downloadProgress = 0f
         error = null

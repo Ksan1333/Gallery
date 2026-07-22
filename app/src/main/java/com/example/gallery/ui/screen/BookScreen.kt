@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
@@ -40,7 +39,6 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
 import androidx.compose.ui.res.dimensionResource
@@ -49,10 +47,7 @@ import com.example.gallery.data.repository.BookData
 import com.example.gallery.data.repository.BookRepository
 import com.example.gallery.data.repository.BookType
 import com.example.gallery.service.GlobalOperationService
-import com.example.gallery.ui.AppRoutes
-import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.component.OperationProgressIndicator
-import com.example.gallery.ui.screen.BookViewerScreen
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.galleryTypography
 import kotlinx.coroutines.launch

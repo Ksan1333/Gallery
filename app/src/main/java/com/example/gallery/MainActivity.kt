@@ -15,7 +15,6 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -27,10 +26,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -59,7 +54,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.dimensionResource
-import com.example.gallery.R
 import com.example.gallery.data.local.PreferenceManager
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.repository.MediaRepository
@@ -70,13 +64,11 @@ import com.example.gallery.ui.screen.*
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.GalleryViewMode
 import com.example.gallery.ui.theme.*
-import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.ThumbnailGenerationService
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.util.AppUpdateManager
 import com.example.gallery.util.AppUpdateRelease
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -1549,6 +1541,10 @@ fun AppNavigation(
                     error = startupUpdateError,
                     onUpdate = onUpdate@{
                         if (isStartupUpdateDownloading) return@onUpdate
+                        if (!AppUpdateManager.requestInstallPermission(context)) {
+                            startupUpdateError = context.getString(R.string.update_allow_install_source)
+                            return@onUpdate
+                        }
                         scope.launch {
                             isStartupUpdateDownloading = true
                             startupUpdateDownloadProgress = 0f

@@ -1,9 +1,7 @@
 package com.example.gallery.util
 
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -119,8 +117,11 @@ object AppUpdateManager {
         }
     }
 
-    /** Opens Android's package installer. Android requires the user's confirmation for this final step. */
-    fun installApk(context: Context, apk: File): Boolean {
+    /**
+     * Opens the system setting used to allow APK installs from this app.
+     * Returns false when the user must grant permission before the download can start.
+     */
+    fun requestInstallPermission(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             context.startActivity(
                 Intent(
@@ -130,6 +131,12 @@ object AppUpdateManager {
             )
             return false
         }
+        return true
+    }
+
+    /** Opens Android's package installer. Android requires the user's confirmation for this final step. */
+    fun installApk(context: Context, apk: File): Boolean {
+        if (!requestInstallPermission(context)) return false
 
         val apkUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
         context.startActivity(
@@ -235,7 +242,9 @@ object AppUpdateManager {
         @Suppress("DEPRECATION")
         val packageInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
             ?: error("Downloaded file is not an Android APK")
-        check(packageInfo.packageName == context.packageName) { "APK package does not match this app" }
+        check(packageInfo.packageName == context.packageName) {
+            "APK package (${packageInfo.packageName}) does not match installed app (${context.packageName})"
+        }
         check(isNewer(packageInfo.versionName.orEmpty(), BuildConfig.VERSION_NAME)) {
             "APK version is not newer than the installed app"
         }

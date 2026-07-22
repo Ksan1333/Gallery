@@ -7,7 +7,6 @@ import android.os.Build
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
-import android.webkit.WebChromeClient.FileChooserParams
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -26,7 +25,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import android.graphics.BitmapFactory
@@ -49,8 +47,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.colorResource
-import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
@@ -67,8 +63,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -103,17 +97,12 @@ import androidx.media3.ui.PlayerView
 import coil.ImageLoader
 import coil.imageLoader
 import coil.compose.rememberAsyncImagePainter
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import android.util.Log
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -124,7 +113,6 @@ import android.app.WallpaperManager
 import android.media.MediaMetadataRetriever
 import android.widget.Toast
 import android.content.Context
-import androidx.compose.foundation.pager.PagerState
 import kotlinx.coroutines.Dispatchers
 import java.io.File
 import java.util.Locale
@@ -137,12 +125,10 @@ import com.example.gallery.data.local.PreferenceManager
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.ui.state.GalleryState
-import com.example.gallery.ui.state.AgeRatingFilter
 import com.example.gallery.service.TagTranslationService
 import com.example.gallery.ui.component.GalleryFloatingActionButton
 import com.example.gallery.ui.component.GalleryVideoSeekBar
 import com.example.gallery.ui.component.OperationProgressIndicator
-import com.example.gallery.ui.component.ViewerControlBar
 import com.example.gallery.ui.component.resolveViewerAction
 import com.example.gallery.ui.component.TapZoneGuideOverlay
 import com.example.gallery.ui.component.tapZoneCountForLayout
