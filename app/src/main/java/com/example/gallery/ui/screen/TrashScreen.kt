@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.*
@@ -149,6 +150,12 @@ fun TrashScreen(
                                     TrashBookItem(book = book, onClick = {
                                         selectedBook = book
                                         onShowViewer()
+                                    }, onDelete = {
+                                        scope.launch {
+                                            if (bookRepository.permanentlyDeleteTrashedBook(book)) {
+                                                trashedBooks = bookRepository.loadTrashedBooks()
+                                            }
+                                        }
                                     })
                                 }
                             }
@@ -184,7 +191,7 @@ fun TrashScreen(
 }
 
 @Composable
-private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
+private fun TrashBookItem(book: BookData, onClick: () -> Unit, onDelete: () -> Unit) {
     val colors = GalleryThemeTokens.colors
     Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Box(
@@ -215,6 +222,18 @@ private fun TrashBookItem(book: BookData, onClick: () -> Unit) {
                     Spacer(Modifier.width(dimensionResource(R.dimen.spacing_micro) + dimensionResource(R.dimen.spacing_micro) / 2))
                     Text(stringResource(R.string.nav_books), style = galleryTypography.tiny.copy(color = colors.primaryText))
                 }
+            }
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(dimensionResource(R.dimen.spacing_tiny))
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.trash_permanent_delete),
+                    tint = colors.danger
+                )
             }
         }
         Text(

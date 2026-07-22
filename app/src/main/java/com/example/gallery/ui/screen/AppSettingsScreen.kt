@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +50,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -158,8 +161,66 @@ fun AppSettingsScreen(
     var currentPage by rememberSaveable(initialPage) { mutableStateOf(initialPage) }
     var resetToken by remember { mutableIntStateOf(0) }
     var pendingResetPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var showBackupSaveMenu by remember { mutableStateOf(false) }
+    var showBackupLoadMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    fun restoreSettings(load: () -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            runCatching(load)
+                .onSuccess {
+                    withContext(Dispatchers.Main) {
+                        applyRuntimeSettings(context, onThemeModeChange, onCustomPaletteChange, onTextScaleChange)
+                        resetToken++
+                        Toast.makeText(context, context.getString(R.string.msg_loaded), Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .onFailure { error ->
+                    withContext(Dispatchers.Main) {
+                        val msg = context.getString(R.string.msg_load_failed, error.message)
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                }
+        }
+    }
+
+    fun exportSettings(save: () -> String) {
+        scope.launch(Dispatchers.IO) {
+            runCatching(save)
+                .onSuccess { destination ->
+                    withContext(Dispatchers.Main) {
+                        val msg = context.getString(R.string.msg_saved_to, destination)
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                }
+                .onFailure { error ->
+                    withContext(Dispatchers.Main) {
+                        val msg = context.getString(R.string.msg_save_failed, error.message)
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                }
+        }
+    }
+
+    val backupExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let { selectedUri ->
+            exportSettings {
+                GalleryBackupManager.exportAllToUri(context, selectedUri)
+                selectedUri.toString()
+            }
+        }
+    }
+
+    val backupImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { selectedUri ->
+            restoreSettings { GalleryBackupManager.importSettingsFromUri(context, selectedUri) }
+        }
+    }
 
     // Reset scroll when page changes
     LaunchedEffect(currentPage, resetToken) {
@@ -222,53 +283,61 @@ fun AppSettingsScreen(
                 containerColor = colors.topBar,
                 contentColor = colors.primaryText,
                 actions = {
-                    IconButton(onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { GalleryBackupManager.exportAllToFile(context) }
-                                .onSuccess { file ->
-                                    withContext(Dispatchers.Main) {
-                                        val msg = context.getString(R.string.msg_saved_to, file.absolutePath)
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                                .onFailure { error ->
-                                    withContext(Dispatchers.Main) {
-                                        val msg = context.getString(R.string.msg_save_failed, error.message)
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }
-                                }
+                    Box {
+                        IconButton(onClick = { showBackupSaveMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Upload,
+                                contentDescription = stringResource(R.string.btn_save),
+                                tint = colors.primaryText
+                            )
                         }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Upload,
-                            contentDescription = stringResource(R.string.btn_save),
-                            tint = colors.primaryText
-                        )
+                        DropdownMenu(
+                            expanded = showBackupSaveMenu,
+                            onDismissRequest = { showBackupSaveMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.backup_save_standard)) },
+                                onClick = {
+                                    showBackupSaveMenu = false
+                                    exportSettings { GalleryBackupManager.exportAllToFile(context).absolutePath }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.backup_save_choose_location)) },
+                                onClick = {
+                                    showBackupSaveMenu = false
+                                    backupExportLauncher.launch("gallery_backup.json")
+                                }
+                            )
+                        }
                     }
-                    IconButton(onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { GalleryBackupManager.importSettingsFromFile(context) }
-                                .onSuccess {
-                                    withContext(Dispatchers.Main) {
-                                        applyRuntimeSettings(context, onThemeModeChange, onCustomPaletteChange, onTextScaleChange)
-                                        resetToken++
-                                        val msg = context.getString(R.string.msg_loaded)
-                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                .onFailure { error ->
-                                    withContext(Dispatchers.Main) {
-                                        val msg = context.getString(R.string.msg_load_failed, error.message)
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }
-                                }
+                    Box {
+                        IconButton(onClick = { showBackupLoadMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = stringResource(R.string.btn_load),
+                                tint = colors.primaryText
+                            )
                         }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = stringResource(R.string.btn_load),
-                            tint = colors.primaryText
-                        )
+                        DropdownMenu(
+                            expanded = showBackupLoadMenu,
+                            onDismissRequest = { showBackupLoadMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.backup_load_standard)) },
+                                onClick = {
+                                    showBackupLoadMenu = false
+                                    restoreSettings { GalleryBackupManager.importSettingsFromFile(context) }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.backup_load_choose_file)) },
+                                onClick = {
+                                    showBackupLoadMenu = false
+                                    backupImportLauncher.launch(arrayOf("application/json", "text/*"))
+                                }
+                            )
+                        }
                     }
                     IconButton(onClick = { pendingResetPage = currentPage }) {
                         Icon(
@@ -704,7 +773,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.globalSettingsItems(
             AppRoutes.VIDEO_DOWNLOADER,
             AppRoutes.FAVORITE_ARTISTS,
             AppRoutes.FAVORITE_SITES,
-            AppRoutes.BOOK_BOOKMARKS,
             AppRoutes.SETTINGS,
             AppRoutes.ABOUT,
             AppConstants.ACTION_OVERFLOW
@@ -938,7 +1006,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookViewerSettingsIte
         Spacer(Modifier.height(8.dp))
 
         val prefs = remember { context.getSharedPreferences(BOOK_VIEWER_PREFS, Context.MODE_PRIVATE) }
-        var fileSort by remember { mutableStateOf(prefs.getString("fileSort", "NAME_ASC") ?: "NAME_ASC") }
         var showThumbnail by remember { mutableStateOf(prefs.getBoolean("showThumbnail", true)) }
         var smoothFilter by remember { mutableStateOf(prefs.getString("smoothFilter", "BILINEAR") ?: "BILINEAR") }
         var enableSwipeDeleteBook by remember { mutableStateOf(prefs.getBoolean("enableSwipeDeleteBook", false)) }
@@ -949,7 +1016,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookViewerSettingsIte
         fun saveInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
 
         SettingsSectionCard(stringResource(R.string.settings_section_bookshelf), stringResource(R.string.settings_section_bookshelf_desc)) {
-            SettingsChoiceRow(stringResource(R.string.settings_file_sort), fileSortOptions, fileSort, description = stringResource(R.string.desc_file_sort)) { fileSort = it; saveString("fileSort", it) }
             SwitchSetting(stringResource(R.string.settings_show_thumbnail), showThumbnail, description = stringResource(R.string.desc_show_thumbnail)) { showThumbnail = it; saveBoolean("showThumbnail", it) }
             SettingsChoiceRow(stringResource(R.string.settings_thumbnail_smoothing), smoothingOptions, smoothFilter, description = stringResource(R.string.desc_thumbnail_smoothing)) { smoothFilter = it; saveString("smoothFilter", it) }
             SwitchSetting(stringResource(R.string.settings_swipe_delete_book), enableSwipeDeleteBook, description = stringResource(R.string.desc_swipe_delete_book)) { enableSwipeDeleteBook = it; saveBoolean("enableSwipeDeleteBook", it) }
@@ -2033,12 +2099,6 @@ private val readMarkOptions = listOf(
     R.string.opt_page to "PAGE",
     R.string.opt_percent to "PERCENT",
     R.string.opt_progress_bar to "PROGRESS_BAR"
-)
-private val fileSortOptions = listOf(
-    R.string.opt_name_asc to "NAME_ASC",
-    R.string.opt_name_desc to "NAME_DESC",
-    R.string.opt_date_desc to "DATE_DESC",
-    R.string.opt_date_asc to "DATE_ASC"
 )
 private val tapZoneLayoutOptions = listOf(
     R.string.opt_three_split to "THREE",

@@ -887,6 +887,23 @@ fun VideoFullscreenViewerScreen(
                         }
                     }
 
+                    currentVideo?.let { video ->
+                        PlainOverlayIconButton(
+                            icon = Icons.Default.Collections,
+                            contentDescription = stringResource(R.string.label_action_convert_gif),
+                            onClick = {
+                                launchVideoGifConversion(
+                                    scope = scope,
+                                    context = context,
+                                    videoUri = video.uri,
+                                    onCompleted = { galleryState.refresh() }
+                                )
+                            },
+                            iconSize = dimensionResource(R.dimen.icon_size_medium),
+                            buttonSize = 44.dp
+                        )
+                    }
+
                     if (menuAssignments.isNotEmpty() && barAssignments.any(::isViewerOverflowActionName)) {
                         var showMoreMenu by remember { mutableStateOf(false) }
                         Box {

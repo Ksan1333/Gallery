@@ -1011,14 +1011,6 @@ fun BookViewerScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.nav_book_bookmarks), color = Color.White) },
-                                leadingIcon = { Icon(Icons.Default.Bookmark, null, tint = Color.White) },
-                                onClick = {
-                                    showBookTopMenu = false
-                                    onNavigateToBookmarks()
-                                }
-                            )
-                            DropdownMenuItem(
                                 text = { Text(stringResource(R.string.label_action_prev_book), color = Color.White) },
                                 leadingIcon = { Icon(Icons.Default.SkipPrevious, null, tint = Color.White) },
                                 enabled = onPreviousBook != null,

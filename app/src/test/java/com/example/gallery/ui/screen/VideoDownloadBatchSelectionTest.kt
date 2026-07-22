@@ -37,6 +37,38 @@ class VideoDownloadBatchSelectionTest {
     }
 
     @Test
+    fun downloadsOnlyCheckedMediaItems() {
+        val candidates = listOf(
+            candidate("a.mp4", "media-a", 256_000),
+            candidate("b.mp4", "media-b", 512_000)
+        )
+
+        val selections = buildMediaDownloadSelections(
+            candidates = candidates,
+            gifSaveFormat = GifSaveFormat.MP4,
+            selectedMediaKeys = setOf("media-b")
+        )
+
+        assertEquals(listOf("b.mp4"), selections.map { it.media.url })
+    }
+
+    @Test
+    fun includesStillImagesInDownloadSelections() {
+        val candidates = listOf(
+            MediaUrlCandidate(
+                url = "photo.jpg",
+                contentType = "image/jpeg",
+                mediaKey = "photo-a"
+            )
+        )
+
+        val selection = buildMediaDownloadSelections(candidates, GifSaveFormat.MP4).single()
+
+        assertEquals("photo.jpg", selection.media.url)
+        assertEquals("Image", selection.qualityLabel)
+    }
+
+    @Test
     fun directGifIsPreferredWithoutTranscoding() {
         val candidates = listOf(
             MediaUrlCandidate("animation.gif", contentType = "image/gif", isGifSource = true, mediaKey = "gif-a"),

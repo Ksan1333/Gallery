@@ -25,12 +25,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -65,22 +64,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
-import android.os.Environment
 import android.widget.Toast
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.io.OutputStreamWriter
-import java.util.Scanner
 import org.json.JSONArray
 import org.json.JSONObject
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryColorTokens
 import com.example.gallery.ui.theme.GalleryThemeTokens
-import com.example.gallery.util.GalleryBackupManager
 
 private const val FAVORITE_SITES_PREFS = "favorite_sites_prefs"
 private const val FAVORITE_SITES_KEY = "favorite_sites"
@@ -115,7 +104,6 @@ fun FavoriteSitesScreen(
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
     var pendingSearchIndex by remember { mutableStateOf<Int?>(null) }
     var activeSearchIndex by remember { mutableStateOf<Int?>(null) }
-    val scope = rememberCoroutineScope()
 
     fun updateSites(next: List<FavoriteSite>) {
         sites = next
@@ -123,98 +111,6 @@ fun FavoriteSitesScreen(
             preferences,
             sites.filter { it.name.isNotBlank() || it.url.isNotBlank() || it.description.isNotBlank() }
         )
-    }
-
-    fun getBackupFile(): File {
-        val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-        val folder = File(baseDir, "Gallery/Backups")
-        if (!folder.exists()) folder.mkdirs()
-        return File(folder, "favorite_sites.json")
-    }
-
-    fun exportData() {
-        if (sites.isEmpty()) {
-            Toast.makeText(context, context.getString(R.string.msg_no_data_backup), Toast.LENGTH_SHORT).show()
-            return
-        }
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                val file = getBackupFile()
-                FileOutputStream(file).use { stream ->
-                    val array = JSONArray()
-                    sites.forEach { site ->
-                        if (site.name.isNotBlank() || site.url.isNotBlank()) {
-                            array.put(
-                                JSONObject()
-                                    .put("name", site.name)
-                                    .put("url", site.url)
-                                    .put("description", site.description)
-                            )
-                        }
-                    }
-                    stream.bufferedWriter(Charsets.UTF_8).use { writer ->
-                        writer.write(array.toString(2))
-                    }
-                }
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.msg_saved_to, getBackupFile().absolutePath), Toast.LENGTH_LONG).show()
-                }
-            }.onFailure {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.msg_save_failed, it.message), Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
-
-    fun importData() {
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                val file = getBackupFile()
-                if (!file.exists()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, context.getString(R.string.msg_backup_not_found), Toast.LENGTH_SHORT).show()
-                    }
-                    return@runCatching
-                }
-                file.inputStream().use { stream ->
-                    val content = stream.bufferedReader(Charsets.UTF_8).readText()
-                    val array = JSONArray(content)
-                    val newSites = mutableListOf<FavoriteSite>()
-                    for (i in 0 until array.length()) {
-                        val obj = array.getJSONObject(i)
-                        val url = obj.optString("url")
-                        if (url.isBlank()) continue
-
-                        newSites.add(
-                            FavoriteSite(
-                                name = obj.optString("name"),
-                                url = url,
-                                description = obj.optString("description")
-                            )
-                        )
-                    }
-                    if (newSites.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            val currentUrls = sites.map { it.url }.toSet()
-                            val uniqueNewSites = newSites.filter { it.url !in currentUrls }
-                            if (uniqueNewSites.isNotEmpty()) {
-                                updateSites(sites + uniqueNewSites)
-                            }
-                            Toast.makeText(context, context.getString(R.string.msg_loaded), Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, context.getString(R.string.msg_no_new_sites), Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            }.onFailure {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.msg_load_failed, it.message), Toast.LENGTH_LONG).show()
-                }
-            }
-        }
     }
 
     Scaffold(
@@ -228,45 +124,10 @@ fun FavoriteSitesScreen(
                 containerColor = siteBackground,
                 contentColor = siteInk,
                 actions = {
-                    IconButton(onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { GalleryBackupManager.exportAllToFile(context) }
-                                .onSuccess { file ->
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, context.getString(R.string.msg_saved_to, file.absolutePath), Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                                .onFailure { error ->
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, context.getString(R.string.msg_save_failed, error.message), Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                        }
-                    }) {
-                        Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.btn_save), tint = siteInk)
-                    }
-                    IconButton(onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { GalleryBackupManager.importFavoriteSitesFromFile(context) }
-                                .onSuccess {
-                                    withContext(Dispatchers.Main) {
-                                        sites = loadFavoriteSites(preferences)
-                                        Toast.makeText(context, context.getString(R.string.msg_loaded), Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                .onFailure { error ->
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, context.getString(R.string.msg_load_failed, error.message), Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                        }
-                    }) {
-                        Icon(Icons.Default.Download, contentDescription = stringResource(R.string.btn_load), tint = siteInk)
-                    }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
                         Icon(
-                            Icons.Default.Edit,
-                            contentDescription = stringResource(R.string.edit_tags),
+                            if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                            contentDescription = stringResource(if (isEditMode) R.string.fav_finish_editing else R.string.edit_tags),
                             tint = if (isEditMode) siteAccent else siteInk
                         )
                     }
@@ -311,6 +172,7 @@ fun FavoriteSitesScreen(
                         Text(stringResource(R.string.fav_add_site_card))
                     }
                 }
+                item { FavoriteSitesBackupHint() }
             }
         } else {
             FavoriteSitesDisplay(
@@ -417,18 +279,23 @@ private fun FavoriteSitesDisplay(
     }
 
     if (visibleSites.isEmpty()) {
-        Box(modifier = modifier.background(siteBackground), contentAlignment = Alignment.Center) {
-            Text(stringResource(R.string.fav_no_sites), color = siteMuted)
+        Column(
+            modifier = modifier
+                .background(siteBackground)
+                .padding(dimensionResource(R.dimen.spacing_medium))
+        ) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(stringResource(R.string.fav_no_sites), color = siteMuted)
+            }
+            FavoriteSitesBackupHint()
         }
-        return
-    }
-
-    LazyColumn(
-        modifier = modifier.background(siteBackground),
-        contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
-        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
-    ) {
-        itemsIndexed(visibleSites, key = { index, site -> "${site.url}_$index" }) { _, site ->
+    } else {
+        LazyColumn(
+            modifier = modifier.background(siteBackground),
+            contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
+        ) {
+            itemsIndexed(visibleSites, key = { index, site -> "${site.url}_$index" }) { _, site ->
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -474,8 +341,22 @@ private fun FavoriteSitesDisplay(
                     }
                 }
             }
+            }
+            item { FavoriteSitesBackupHint() }
         }
     }
+}
+
+@Composable
+private fun FavoriteSitesBackupHint() {
+    Text(
+        text = stringResource(R.string.fav_backup_settings_hint),
+        color = GalleryThemeTokens.colors.secondaryText,
+        fontSize = GalleryThemeTokens.textSizes.small,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = dimensionResource(R.dimen.spacing_medium))
+    )
 }
 
 @Composable
@@ -557,8 +438,13 @@ private fun FavoriteSiteSearchDialog(
         "https://www.google.com/search?q=${Uri.encode(siteName.ifBlank { defaultLabel })}"
     }
     var currentUrl by remember(initialUrl) { mutableStateOf(initialUrl) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
     val pickableUrl = extractGoogleResultUrl(currentUrl)
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = {
+            webView?.takeIf { it.canGoBack() }?.goBack() ?: onDismiss()
+        }
+    ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = siteCard,
@@ -593,6 +479,7 @@ private fun FavoriteSiteSearchDialog(
                         .weight(1f),
                     factory = { context ->
                         WebView(context).apply {
+                            webView = this
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT

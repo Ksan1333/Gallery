@@ -106,7 +106,17 @@ fun BookScreen(
     var selectedBookIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var favoriteVersion by remember { mutableIntStateOf(0) }
     var pendingDeleteBooks by remember { mutableStateOf<List<BookData>>(emptyList()) }
+    val bookmarksPrefs = remember { context.getSharedPreferences(BOOKMARKS_PREFS, Context.MODE_PRIVATE) }
+    var bookmarksCount by remember { mutableIntStateOf(bookmarksPrefs.all.size) }
     val colors = GalleryThemeTokens.colors
+
+    DisposableEffect(bookmarksPrefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            bookmarksCount = bookmarksPrefs.all.size
+        }
+        bookmarksPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { bookmarksPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     // しおりからの自動遷移処理
     LaunchedEffect(initialJumpBookId, books) {
@@ -343,11 +353,6 @@ fun BookScreen(
                         style = galleryTypography.header
                     )
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = {
-                        onNavigateToBookmarks()
-                    }) {
-                        Icon(Icons.Default.Bookmark, stringResource(R.string.nav_book_bookmarks), tint = colors.accent)
-                    }
                     Box {
                         IconButton(onClick = { showSortMenu = true }) {
                             Icon(Icons.Default.Sort, stringResource(R.string.label_sort), tint = colors.primaryText)
@@ -444,17 +449,35 @@ fun BookScreen(
                     }
                 }
             }
-else if (books.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            stringResource(R.string.book_no_books),
-                            style = galleryTypography.bodyMuted
-                        )
-                        Text(
-                            stringResource(R.string.book_check_permission),
-                            style = galleryTypography.tiny.copy(color = colors.divider.copy(alpha = 1f))
-                        )
+            else if (books.isEmpty()) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(
+                        start = dimensionResource(R.dimen.spacing_base),
+                        top = dimensionResource(R.dimen.spacing_base),
+                        end = dimensionResource(R.dimen.spacing_base),
+                        bottom = gridBottomPadding
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
+                    verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
+                ) {
+                    item {
+                        BookBookmarksItem(count = bookmarksCount, onClick = onNavigateToBookmarks)
+                    }
+                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth().padding(top = dimensionResource(R.dimen.spacing_extra_large))
+                        ) {
+                            Text(
+                                stringResource(R.string.book_no_books),
+                                style = galleryTypography.bodyMuted
+                            )
+                            Text(
+                                stringResource(R.string.book_check_permission),
+                                style = galleryTypography.tiny.copy(color = colors.divider.copy(alpha = 1f))
+                            )
+                        }
                     }
                 }
             } else {
@@ -480,6 +503,9 @@ else if (books.isEmpty()) {
                         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
                         verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
                     ) {
+                        item {
+                            BookBookmarksItem(count = bookmarksCount, onClick = onNavigateToBookmarks)
+                        }
                         items(folderGroups) { folder ->
                             FolderItem(folder = folder, showThumbnail = showThumbnail, onClick = { selectedFolderPath = folder.path })
                         }
@@ -538,7 +564,7 @@ else if (books.isEmpty()) {
             title = { Text(stringResource(R.string.book_delete_confirm), color = colors.primaryText) },
             text = {
                 Text(
-                    stringResource(R.string.msg_move_books_to_trash),
+                    stringResource(R.string.msg_delete_books_permanently),
                     color = colors.primaryText
                 )
             },
@@ -548,7 +574,7 @@ else if (books.isEmpty()) {
                     scope.launch {
                         var successCount = 0
                         targets.forEach { book ->
-                            if (repository.moveBookToTrash(book)) successCount++
+                            if (repository.deleteBookPermanently(book)) successCount++
                         }
                         books = books.filterNot { target -> targets.any { it.id == target.id } }
                         selectedBookIds = emptySet()
@@ -607,6 +633,50 @@ private fun pickFolderThumbnail(
         else -> books.firstOrNull()
     }
     return selected?.thumbnailPath
+}
+
+@Composable
+private fun BookBookmarksItem(count: Int, onClick: () -> Unit) {
+    val colors = GalleryThemeTokens.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.7f)
+                .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_medium)))
+                .background(colors.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (count > 0) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                contentDescription = null,
+                tint = colors.accent,
+                modifier = Modifier.size(dimensionResource(R.dimen.viewer_bottom_bar_height))
+            )
+            Surface(
+                color = colors.background.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(dimensionResource(R.dimen.spacing_tiny))
+            ) {
+                Text(
+                    text = "$count",
+                    style = galleryTypography.tiny.copy(color = colors.primaryText),
+                    modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny), vertical = dimensionResource(R.dimen.spacing_micro))
+                )
+            }
+        }
+        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
+        Text(
+            stringResource(R.string.nav_book_bookmarks),
+            style = galleryTypography.small.copy(color = colors.primaryText),
+            maxLines = 2,
+            modifier = Modifier.padding(horizontal = dimensionResource(R.dimen.spacing_tiny))
+        )
+    }
 }
 
 @Composable

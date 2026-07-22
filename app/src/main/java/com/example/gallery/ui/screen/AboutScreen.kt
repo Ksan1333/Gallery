@@ -10,11 +10,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -30,6 +33,8 @@ import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import com.example.gallery.R
 import com.example.gallery.BuildConfig
+import com.example.gallery.util.AppUpdateManager
+import com.example.gallery.util.AppUpdateRelease
 
 class ChangelogViewModel : ViewModel() {
     var changelogText by mutableStateOf<String?>(null)
@@ -61,15 +66,77 @@ class ChangelogViewModel : ViewModel() {
     }
 }
 
+class AppUpdateViewModel : ViewModel() {
+    var release by mutableStateOf<AppUpdateRelease?>(null)
+        private set
+    var isChecking by mutableStateOf(false)
+        private set
+    var isDownloading by mutableStateOf(false)
+        private set
+    var downloadProgress by mutableFloatStateOf(0f)
+        private set
+    var error by mutableStateOf<String?>(null)
+        private set
+    var needsInstallPermission by mutableStateOf(false)
+        private set
+
+    fun load(context: Context) {
+        release = AppUpdateManager.cachedUpdate(context)
+        check(context)
+    }
+
+    fun check(context: Context) {
+        if (isChecking || isDownloading) return
+        isChecking = true
+        error = null
+        needsInstallPermission = false
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { AppUpdateManager.checkForUpdate(context, force = true) }
+            }.onSuccess { latest ->
+                release = latest
+            }.onFailure { cause ->
+                error = cause.localizedMessage ?: cause.javaClass.simpleName
+            }
+            isChecking = false
+        }
+    }
+
+    fun downloadAndInstall(context: Context) {
+        val target = release ?: return
+        if (isDownloading) return
+        isDownloading = true
+        downloadProgress = 0f
+        error = null
+        needsInstallPermission = false
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    AppUpdateManager.downloadApk(context, target) { progress ->
+                        downloadProgress = progress
+                    }
+                }
+            }.onSuccess { apk ->
+                needsInstallPermission = !AppUpdateManager.installApk(context, apk)
+            }.onFailure { cause ->
+                error = cause.localizedMessage ?: cause.javaClass.simpleName
+            }
+            isDownloading = false
+        }
+    }
+}
+
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
-    viewModel: ChangelogViewModel = viewModel()
+    viewModel: ChangelogViewModel = viewModel(),
+    updateViewModel: AppUpdateViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val colors = GalleryThemeTokens.colors
     LaunchedEffect(Unit) {
         viewModel.fetchChangelog(context)
+        updateViewModel.load(context)
     }
 
     Scaffold(
@@ -103,6 +170,91 @@ fun AboutScreen(
                     Text(stringResource(R.string.app_name), style = galleryTypography.title)
                     Text("Version ${BuildConfig.VERSION_NAME}", style = galleryTypography.bodySecondary)
                 }
+            }
+
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_extra_large)))
+
+            Text(stringResource(R.string.about_updates), style = galleryTypography.header.copy(color = colors.accent))
+            HorizontalDivider(modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_small)), color = colors.mutedText.copy(alpha = 0.3f))
+
+            when {
+                updateViewModel.isChecking && updateViewModel.release == null -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            color = colors.accent,
+                            strokeWidth = dimensionResource(R.dimen.spacing_micro),
+                            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_medium))
+                        )
+                        Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
+                        Text(stringResource(R.string.update_checking), style = galleryTypography.bodySecondary)
+                    }
+                }
+                updateViewModel.release != null -> {
+                    val release = updateViewModel.release!!
+                    Text(
+                        stringResource(R.string.update_available, release.version),
+                        style = galleryTypography.body.copy(color = colors.primaryText, fontWeight = FontWeight.Bold)
+                    )
+                    if (release.notes.isNotBlank()) {
+                        Text(
+                            release.notes,
+                            style = galleryTypography.bodySecondary,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_tiny))
+                        )
+                    }
+                    Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                    Button(
+                        onClick = { updateViewModel.downloadAndInstall(context) },
+                        enabled = !updateViewModel.isDownloading,
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null)
+                        Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
+                        Text(
+                            if (updateViewModel.isDownloading) {
+                                stringResource(R.string.update_downloading, (updateViewModel.downloadProgress * 100).toInt())
+                            } else {
+                                stringResource(R.string.update_download_and_install)
+                            }
+                        )
+                    }
+                    if (updateViewModel.isDownloading) {
+                        LinearProgressIndicator(
+                            progress = { updateViewModel.downloadProgress },
+                            color = colors.accent,
+                            trackColor = colors.surfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = dimensionResource(R.dimen.spacing_small))
+                        )
+                    }
+                }
+                else -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.update_up_to_date), style = galleryTypography.bodySecondary, modifier = Modifier.weight(1f))
+                        OutlinedButton(onClick = { updateViewModel.check(context) }) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
+                            Text(stringResource(R.string.update_check_now))
+                        }
+                    }
+                }
+            }
+            updateViewModel.error?.let { error ->
+                Text(
+                    stringResource(R.string.update_error, error),
+                    style = galleryTypography.small.copy(color = colors.danger),
+                    modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_small))
+                )
+            }
+            if (updateViewModel.needsInstallPermission) {
+                Text(
+                    stringResource(R.string.update_allow_install_source),
+                    style = galleryTypography.small.copy(color = colors.warning),
+                    modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_small))
+                )
             }
 
             Spacer(Modifier.height(dimensionResource(R.dimen.spacing_extra_large)))

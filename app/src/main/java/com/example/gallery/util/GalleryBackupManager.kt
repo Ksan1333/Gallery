@@ -2,6 +2,7 @@ package com.example.gallery.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Environment
 import org.json.JSONArray
 import org.json.JSONObject
@@ -49,12 +50,31 @@ object GalleryBackupManager {
     private fun readBackupRoot(context: Context): JSONObject {
         val file = readableBackupFile(context)
         require(file.exists()) { "Backup file not found: ${file.absolutePath}" }
-        val content = file.readText(Charsets.UTF_8).trim()
-        require(content.isNotEmpty()) { "Backup file is empty: ${file.absolutePath}" }
-        return JSONObject(content)
+        return parseBackupRoot(file.readText(Charsets.UTF_8), file.absolutePath)
+    }
+
+    private fun parseBackupRoot(content: String, source: String): JSONObject {
+        val trimmed = content.trim()
+        require(trimmed.isNotEmpty()) { "Backup file is empty: $source" }
+        return JSONObject(trimmed)
     }
 
     fun exportAllToFile(context: Context): File {
+        val root = createBackupRoot(context)
+        val file = backupFile(context)
+        file.writeText(root.toString(2), Charsets.UTF_8)
+        return file
+    }
+
+    fun exportAllToUri(context: Context, uri: Uri) {
+        val content = createBackupRoot(context).toString(2)
+        context.contentResolver.openOutputStream(uri)
+            ?.bufferedWriter(Charsets.UTF_8)
+            ?.use { it.write(content) }
+            ?: error("Unable to open backup destination: $uri")
+    }
+
+    private fun createBackupRoot(context: Context): JSONObject {
         val root = JSONObject()
             .put("version", 1)
             .put("settings", JSONObject().apply {
@@ -64,18 +84,39 @@ object GalleryBackupManager {
             })
             .put("favorite_artists", exportPrefs(context.getSharedPreferences(FAVORITE_ARTISTS_PREFS, Context.MODE_PRIVATE)))
             .put("favorite_sites", exportPrefs(context.getSharedPreferences(FAVORITE_SITES_PREFS, Context.MODE_PRIVATE)))
-        val file = backupFile(context)
-        file.writeText(root.toString(2), Charsets.UTF_8)
-        return file
+        return root
     }
 
     fun importSettingsFromFile(context: Context) {
-        val root = readBackupRoot(context)
+        importSettingsFromRoot(context, readBackupRoot(context))
+    }
+
+    fun importSettingsFromUri(context: Context, uri: Uri) {
+        val content = context.contentResolver.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?: error("Unable to open backup file: $uri")
+        importSettingsFromRoot(context, parseBackupRoot(content, uri.toString()))
+    }
+
+    private fun importSettingsFromRoot(context: Context, root: JSONObject) {
         val settings = root.optJSONObject("settings") ?: root
         settingsPrefs.forEach { name ->
             settings.optJSONObject(name)?.let { json ->
                 importPrefs(context.getSharedPreferences(name, Context.MODE_PRIVATE), json)
             }
+        }
+        root.optJSONObject("favorite_artists")?.let { json ->
+            mergeFavoriteArtists(
+                context.getSharedPreferences(FAVORITE_ARTISTS_PREFS, Context.MODE_PRIVATE),
+                json
+            )
+        }
+        root.optJSONObject("favorite_sites")?.let { json ->
+            mergeFavoriteSites(
+                context.getSharedPreferences(FAVORITE_SITES_PREFS, Context.MODE_PRIVATE),
+                json
+            )
         }
     }
 

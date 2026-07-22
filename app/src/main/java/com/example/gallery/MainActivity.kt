@@ -22,8 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
@@ -74,6 +72,7 @@ import com.example.gallery.ui.theme.*
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.ThumbnailGenerationService
 import com.example.gallery.ui.AppConstants
+import com.example.gallery.util.AppUpdateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -196,10 +195,12 @@ private fun saveCustomPalette(context: Context, colors: GalleryColors?) {
 
 class MainActivity : ComponentActivity() {
     private var sharedXUrl by mutableStateOf<String?>(null)
+    private var openUpdateScreen by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sharedXUrl = intent.extractXStatusUrl()
+        openUpdateScreen = intent.getBooleanExtra(AppUpdateManager.EXTRA_OPEN_UPDATE, false)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
@@ -233,7 +234,9 @@ class MainActivity : ComponentActivity() {
                         textScale = scale.coerceIn(0.75f, 1.45f)
                         saveTextScale(context, textScale)
                     },
-                    onSharedXUrlConsumed = { sharedXUrl = null }
+                    onSharedXUrlConsumed = { sharedXUrl = null },
+                    openUpdateScreen = openUpdateScreen,
+                    onUpdateScreenOpened = { openUpdateScreen = false }
                 )
             }
         }
@@ -243,6 +246,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         sharedXUrl = intent.extractXStatusUrl()
+        if (intent.getBooleanExtra(AppUpdateManager.EXTRA_OPEN_UPDATE, false)) {
+            openUpdateScreen = true
+        }
     }
 }
 
@@ -255,7 +261,9 @@ fun AppNavigation(
     onThemeModeChange: (GalleryThemeMode) -> Unit = {},
     onCustomPaletteChange: (GalleryColors?) -> Unit = {},
     onTextScaleChange: (Float) -> Unit = {},
-    onSharedXUrlConsumed: () -> Unit = {}
+    onSharedXUrlConsumed: () -> Unit = {},
+    openUpdateScreen: Boolean = false,
+    onUpdateScreenOpened: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val galleryState = (context.applicationContext as GalleryApplication).galleryState
@@ -293,6 +301,15 @@ fun AppNavigation(
     var isVideoFolderOpen by rememberSaveable { mutableStateOf(false) }
     var isBookFolderOpen by rememberSaveable { mutableStateOf(false) }
 
+    LaunchedEffect(openUpdateScreen, isStartupUnlocked) {
+        if (openUpdateScreen && isStartupUnlocked) {
+            navController.navigate(AppRoutes.ABOUT) {
+                launchSingleTop = true
+            }
+            onUpdateScreenOpened()
+        }
+    }
+
     val tutorialPrefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
     var showTutorialSetup by rememberSaveable { mutableStateOf(false) }
     var showTutorialChooser by rememberSaveable { mutableStateOf(false) }
@@ -306,7 +323,6 @@ fun AppNavigation(
     }
 
     val bookmarksPrefs = remember { context.getSharedPreferences(BOOKMARKS_PREFS, Context.MODE_PRIVATE) }
-    var bookmarksCount by remember { mutableIntStateOf(bookmarksPrefs.all.size) }
 
     var pendingBookmarkBookId by remember { mutableStateOf<String?>(null) }
     var pendingBookmarkPage by remember { mutableIntStateOf(-1) }
@@ -924,18 +940,6 @@ fun AppNavigation(
                     )
 
                     NavigationDrawerItem(
-                        label = { Text("${stringResource(R.string.nav_book_bookmarks)} ($bookmarksCount)") },
-                        selected = navController.currentBackStackEntryAsState().value?.destination?.route == "book_bookmarks",
-                        onClick = {
-                            scope.launch { drawerState.close() }
-                            navController.navigate("book_bookmarks")
-                        },
-                        icon = { Icon(if (bookmarksCount > 0) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, null) },
-                        modifier = Modifier.height(44.dp),
-                        colors = drawerItemColors
-                    )
-
-                    NavigationDrawerItem(
                         label = { Text(stringResource(R.string.nav_video_dl)) },
                         selected = navController.currentBackStackEntryAsState().value?.destination?.route == "video_downloader",
                         onClick = {
@@ -1221,7 +1225,7 @@ fun AppNavigation(
                     BookScreen(
                         onViewerStateChanged = { isViewerOpen = it },
                         onMenuClick = { scope.launch { drawerState.open() } },
-                        onBookmarksChanged = { bookmarksCount = bookmarksPrefs.all.size },
+                        onBookmarksChanged = {},
                         onNavigateToBookmarks = { navController.navigate("book_bookmarks") },
                         onOpenBookSettings = { navController.navigate(AppRoutes.BOOK_VIEWER_SETTINGS) },
                         onFolderStateChanged = { isBookFolderOpen = it },
@@ -1248,7 +1252,7 @@ fun AppNavigation(
                                 }
                             }
                         },
-                        onBookmarksChanged = { bookmarksCount = bookmarksPrefs.all.size }
+                        onBookmarksChanged = {}
                     )
                 }
                 composable("trash") {
@@ -1347,15 +1351,6 @@ fun AppNavigation(
                     VideoDownloadScreen(
                         galleryState = galleryState,
                         onMenuClick = { scope.launch { drawerState.open() } },
-                        onNavigateHome = {
-                            navController.navigate("home") {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = false
-                                }
-                                launchSingleTop = true
-                                restoreState = false
-                            }
-                        },
                         initialUrl = sharedXUrl,
                         onInitialUrlConsumed = onSharedXUrlConsumed,
                         onViewerVisibleChanged = { isVisible ->

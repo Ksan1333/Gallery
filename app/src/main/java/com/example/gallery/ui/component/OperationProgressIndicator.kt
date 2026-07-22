@@ -115,7 +115,8 @@ fun OperationProgressIndicator(
             Box(
                 modifier = modifier
                     .fillMaxWidth()
-                    .height(OperationProgressTokens.CollapsedBarTouchHeight),
+                    .height(OperationProgressTokens.CollapsedBarTouchHeight)
+                    .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 if (boundedProgress == null) {

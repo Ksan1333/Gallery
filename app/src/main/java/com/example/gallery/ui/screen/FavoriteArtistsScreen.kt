@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
@@ -64,27 +65,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Upload
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.os.Environment
 import android.widget.Toast
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.io.OutputStreamWriter
-import java.util.Scanner
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryColorTokens
 import com.example.gallery.ui.theme.GalleryThemeTokens
-import com.example.gallery.util.GalleryBackupManager
 
 private const val CREATOR_PREFS = "favorite_artists"
 private const val CREATOR_LIST_KEY = "artists"
@@ -116,7 +105,6 @@ fun FavoriteArtistsScreen(
     val creatorAccent = colors.accent
 
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(CREATOR_PREFS, Context.MODE_PRIVATE) }
     var creators by remember { mutableStateOf(loadCreators(prefs).ifEmpty { emptyList() }) }
     var customSites by remember { mutableStateOf(loadCustomSites(prefs)) }
@@ -150,44 +138,12 @@ fun FavoriteArtistsScreen(
                 containerColor = creatorBackground,
                 contentColor = creatorInk,
                 actions = {
-                    IconButton(onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { GalleryBackupManager.exportAllToFile(context) }
-                                .onSuccess { file ->
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, context.getString(R.string.msg_saved_to, file.absolutePath), Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                                .onFailure { error ->
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, context.getString(R.string.msg_save_failed, error.message), Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                        }
-                    }) {
-                        Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.btn_save), tint = creatorInk)
-                    }
-                    IconButton(onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { GalleryBackupManager.importFavoriteArtistsFromFile(context) }
-                                .onSuccess {
-                                    withContext(Dispatchers.Main) {
-                                        creators = loadCreators(prefs)
-                                        customSites = loadCustomSites(prefs)
-                                        Toast.makeText(context, context.getString(R.string.msg_loaded), Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                .onFailure { error ->
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, context.getString(R.string.msg_load_failed, error.message), Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                        }
-                    }) {
-                        Icon(Icons.Default.Download, contentDescription = stringResource(R.string.btn_load), tint = creatorInk)
-                    }
                     IconButton(onClick = { isEditMode = !isEditMode }) {
-                        Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.edit_tags), tint = if (isEditMode) creatorAccent else creatorInk)
+                        Icon(
+                            if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                            contentDescription = stringResource(if (isEditMode) R.string.fav_finish_editing else R.string.edit_tags),
+                            tint = if (isEditMode) creatorAccent else creatorInk
+                        )
                     }
                 }
             )
@@ -293,6 +249,7 @@ fun FavoriteArtistsScreen(
                         }
                     }
                 }
+                item { FavoriteArtistsBackupHint() }
             }
         } else {
             CreatorDisplayScreen(
@@ -379,18 +336,21 @@ private fun CreatorDisplayScreen(
     val context = LocalContext.current
     val visibleCreators = creators.filter { it.name.isNotBlank() || it.links.any { link -> link.url.isNotBlank() } }
     if (visibleCreators.isEmpty()) {
-        Box(modifier = modifier, contentAlignment = Alignment.Center) {
-            Text(stringResource(R.string.fav_no_creators), color = creatorMuted)
+        Column(
+            modifier = modifier.padding(dimensionResource(R.dimen.spacing_medium))
+        ) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(stringResource(R.string.fav_no_creators), color = creatorMuted)
+            }
+            FavoriteArtistsBackupHint()
         }
-        return
-    }
-
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
-        verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
-    ) {
-        itemsIndexed(visibleCreators) { _, creator ->
+    } else {
+        LazyColumn(
+            modifier = modifier,
+            contentPadding = PaddingValues(dimensionResource(R.dimen.spacing_medium)),
+            verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base))
+        ) {
+            itemsIndexed(visibleCreators) { _, creator ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = creatorCard),
                 shape = RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
@@ -443,8 +403,22 @@ private fun CreatorDisplayScreen(
                     }
                 }
             }
+            }
+            item { FavoriteArtistsBackupHint() }
         }
     }
+}
+
+@Composable
+private fun FavoriteArtistsBackupHint() {
+    Text(
+        text = stringResource(R.string.fav_backup_settings_hint),
+        color = GalleryThemeTokens.colors.secondaryText,
+        fontSize = GalleryThemeTokens.textSizes.small,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = dimensionResource(R.dimen.spacing_medium))
+    )
 }
 
 @Composable
@@ -690,9 +664,14 @@ private fun CreatorSearchDialog(
     val creatorInk = colors.primaryText
     val creatorMuted = colors.secondaryText
     var currentUrl by remember(request.initialUrl) { mutableStateOf(request.initialUrl) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
     val pickableUrl = extractCreatorPickedUrl(currentUrl)
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = {
+            webView?.takeIf { it.canGoBack() }?.goBack() ?: onDismiss()
+        }
+    ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = creatorCard,
@@ -725,6 +704,7 @@ private fun CreatorSearchDialog(
                         .weight(1f),
                     factory = { context ->
                         WebView(context).apply {
+                            webView = this
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT

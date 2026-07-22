@@ -18,6 +18,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.security.Security
 import org.conscrypt.Conscrypt
+import com.example.gallery.service.AppUpdateScheduler
 import com.example.gallery.ui.state.GalleryState
 
 class GalleryApplication : Application(), ImageLoaderFactory {
@@ -65,6 +66,7 @@ class GalleryApplication : Application(), ImageLoaderFactory {
         Security.insertProviderAt(Conscrypt.newProvider(), 1)
 
         galleryState = GalleryState(this)
+        AppUpdateScheduler.schedule(this)
 
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         

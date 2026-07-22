@@ -54,7 +54,7 @@ fun GalleryBottomNavigationBar(
     val allNavFunctions = listOf(
         AppRoutes.HOME, AppRoutes.FOLDERS, AppRoutes.VIDEOS, AppRoutes.BOOKS, AppRoutes.TRASH,
         AppRoutes.REFERENCES, AppRoutes.VIDEO_DOWNLOADER, AppRoutes.FAVORITE_ARTISTS,
-        AppRoutes.FAVORITE_SITES, AppRoutes.BOOK_BOOKMARKS, AppRoutes.SETTINGS, AppRoutes.ABOUT,
+        AppRoutes.FAVORITE_SITES, AppRoutes.SETTINGS, AppRoutes.ABOUT,
         AppConstants.ACTION_OVERFLOW
     )
 
@@ -66,6 +66,7 @@ fun GalleryBottomNavigationBar(
             when {
                 saved == null -> fallback
                 saved == labelNone -> null
+                saved == AppRoutes.BOOK_BOOKMARKS -> fallback
                 else -> saved
             }
         }

@@ -1,35 +1,37 @@
 package com.example.gallery.ui.screen
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.example.gallery.R
 import com.example.gallery.data.local.entity.ReferenceProjectEntity
 import com.example.gallery.data.model.MediaData
@@ -40,8 +42,8 @@ import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReferenceDetailScreen(
     projectId: Long,
@@ -54,14 +56,12 @@ fun ReferenceDetailScreen(
     val repository = remember { ReferenceRepository(context) }
     val items by repository.getItemsForProjectFlow(projectId).collectAsState(initial = emptyList())
     var project by remember { mutableStateOf<ReferenceProjectEntity?>(null) }
-    val scope = rememberCoroutineScope()
     val colors = GalleryThemeTokens.colors
 
     LaunchedEffect(projectId) {
         project = repository.getAllProjectsFlow().first().find { it.id == projectId }
     }
 
-    var showFinishConfirm by remember { mutableStateOf(false) }
     var showAddChoices by remember { mutableStateOf(false) }
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
     val defaultRefTitle = stringResource(R.string.ref_default_item_name)
@@ -82,39 +82,18 @@ fun ReferenceDetailScreen(
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                 navigationContentDescription = stringResource(R.string.btn_back),
                 onNavigationClick = onBack,
-                centered = true,
-                actions = {
-                    if (project?.status == AppConstants.STATUS_ACTIVE) {
-                        IconButton(onClick = { showFinishConfirm = true }) {
-                            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.ref_mark_complete), tint = colors.primaryText)
-                        }
-                    } else if (project?.status == AppConstants.STATUS_FINISHED) {
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    project?.let {
-                                        val updated = it.copy(status = AppConstants.STATUS_ACTIVE)
-                                        repository.updateProject(updated)
-                                        project = updated
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Default.Brush, contentDescription = stringResource(R.string.ref_resume_project), tint = colors.accent)
-                        }
-                    }
-                }
+                centered = true
             )
         },
         floatingActionButton = {
             if (project?.status == AppConstants.STATUS_ACTIVE) {
-                FloatingActionButton(
+                ExtendedFloatingActionButton(
                     onClick = { showAddChoices = true },
                     containerColor = colors.accent,
-                    contentColor = colors.background
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.ref_add_reference))
-                }
+                    contentColor = colors.background,
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text(stringResource(R.string.ref_add_reference)) }
+                )
             }
         },
         containerColor = colors.background
@@ -137,71 +116,48 @@ fun ReferenceDetailScreen(
                     .fillMaxSize()
                     .padding(padding),
                 isFilterEnabled = false,
-                showTopSection = false
+                showTopSection = false,
+                selectionEnabled = false
             )
         }
     }
 
-    if (showFinishConfirm) {
-        AlertDialog(
-            onDismissRequest = { showFinishConfirm = false },
-            title = { Text(stringResource(R.string.ref_complete_project_title)) },
-            text = { Text(stringResource(R.string.ref_complete_project_text)) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            project?.let { repository.finishProject(it) }
-                            project = project?.copy(status = AppConstants.STATUS_FINISHED)
-                            showFinishConfirm = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.accent,
-                        contentColor = colors.background
-                    )
-                ) {
-                    Text(stringResource(R.string.btn_complete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFinishConfirm = false }) {
-                    Text(stringResource(R.string.btn_cancel), color = colors.mutedText)
-                }
-            }
-        )
-    }
-
     if (showAddChoices) {
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showAddChoices = false },
-            title = { Text(stringResource(R.string.ref_add_reference)) },
-            text = { Text(stringResource(R.string.ref_add_method_desc)) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showAddChoices = false
-                        onGalleryAddClick()
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.accent,
-                        contentColor = colors.background
-                    )
-                ) {
-                    Text(stringResource(R.string.ref_from_gallery))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
+            containerColor = colors.surface
+        ) {
+            Text(
+                text = stringResource(R.string.ref_add_reference),
+                color = colors.primaryText,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ref_from_web)) },
+                leadingContent = {
+                    Icon(Icons.Default.Language, contentDescription = null, tint = colors.accent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
                         showAddChoices = false
                         onAddClick()
                     }
-                ) {
-                    Text(stringResource(R.string.ref_from_web), color = colors.mutedText)
-                }
-            }
-        )
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ref_from_gallery)) },
+                leadingContent = {
+                    Icon(Icons.Default.Image, contentDescription = null, tint = colors.accent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        showAddChoices = false
+                        onGalleryAddClick()
+                    }
+            )
+            Spacer(Modifier.height(24.dp))
+        }
     }
 
     selectedIndex?.let { index ->

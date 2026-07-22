@@ -162,6 +162,21 @@ class BookRepository(private val context: Context) {
         }.getOrDefault(false)
     }
 
+    suspend fun deleteBookPermanently(book: BookData): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val source = File(book.path)
+            val thumbnail = book.thumbnailPath?.let(::File) ?: thumbnailFile(source)
+            val deleted = !source.exists() || source.delete()
+            if (deleted) {
+                saveCachedIndex(loadCachedIndex().filterNot { it.book.path == book.path })
+                thumbnail.takeIf { it.exists() }?.delete()
+            }
+            deleted
+        }.onFailure { e ->
+            Log.e(TAG, "Failed to permanently delete book: ${book.path}", e)
+        }.getOrDefault(false)
+    }
+
     suspend fun loadTrashedBooks(): List<BookData> = withContext(Dispatchers.IO) {
         val trashedBooks = mutableListOf<BookData>()
         val candidateParents = loadCachedIndex()
@@ -217,9 +232,10 @@ class BookRepository(private val context: Context) {
     suspend fun permanentlyDeleteTrashedBook(book: BookData): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val source = File(book.path)
+            val thumbnail = book.thumbnailPath?.let(::File) ?: thumbnailFile(source)
             val deleted = !source.exists() || source.delete()
             if (deleted) {
-                thumbnailFile(source).takeIf { it.exists() }?.delete()
+                thumbnail.takeIf { it.exists() }?.delete()
             }
             deleted
         }.onFailure { e ->

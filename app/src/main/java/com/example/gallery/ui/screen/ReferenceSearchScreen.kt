@@ -11,10 +11,12 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -64,11 +66,21 @@ fun ReferenceSearchScreen(
         showTutorial = false
     }
 
+    fun navigateBack() {
+        webView?.takeIf { it.canGoBack() }?.goBack() ?: onBack()
+    }
+
+    BackHandler(onBack = ::navigateBack)
+
     // direct add from long press on image
     LaunchedEffect(directAddUrl) {
         val url = directAddUrl
         if (url != null) {
-            val success = repository.addReferenceFromUrl(projectId, url, "Web Image")
+            val success = repository.addReferenceFromUrl(
+                projectId = projectId,
+                url = url,
+                title = context.getString(R.string.ref_web_image_title)
+            )
             withContext(Dispatchers.Main) {
                 Toast.makeText(context, if (success) context.getString(R.string.ref_msg_added) else context.getString(R.string.ref_msg_add_failed), Toast.LENGTH_SHORT).show()
             }
@@ -90,7 +102,7 @@ fun ReferenceSearchScreen(
                     .padding(horizontal = dimensionResource(R.dimen.spacing_tiny)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = ::navigateBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.btn_back), tint = colors.primaryText)
                 }
                 Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
@@ -119,6 +131,9 @@ fun ReferenceSearchScreen(
                     )
                 )
                 Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
+                IconButton(onClick = { showTutorial = true }) {
+                    Icon(Icons.Default.Info, contentDescription = stringResource(R.string.ref_search_guide), tint = colors.primaryText)
+                }
                 IconButton(onClick = {
                     val wv = webView
                     if (wv != null) {

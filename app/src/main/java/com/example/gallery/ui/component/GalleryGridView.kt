@@ -447,7 +447,8 @@ fun GalleryGridView(
     topBarActions: @Composable RowScope.() -> Unit = {},
     showTopSection: Boolean = true,
     extraBottomPadding: Dp = dimensionResource(R.dimen.grid_bottom_padding),
-    selectOnTap: Boolean = false
+    selectOnTap: Boolean = false,
+    selectionEnabled: Boolean = true
 ) {
     // 列数の選択肢 (28:年, 7:月, 4/3/1:日)
     val columnOptions = listOf(28, 7, 4, 3, 2)
@@ -1315,6 +1316,7 @@ fun GalleryGridView(
             onImageClick = onImageClick,
             onPageChangedInViewer = onPageChangedInViewer,
             selectOnTap = selectOnTap,
+            selectionEnabled = selectionEnabled,
             onSelectionModeChanged = { setSelectionMode(it, "grid_content") },
             onLastSelectedIndexChanged = {
                 logSelectionTrace("last_index_set source=grid_content before=$lastSelectedIndex after=$it")
@@ -1426,6 +1428,7 @@ private fun GalleryGridContent(
     onImageClick: (Int, List<MediaData>) -> Unit,
     onPageChangedInViewer: (String) -> Unit,
     selectOnTap: Boolean,
+    selectionEnabled: Boolean,
     onSelectionModeChanged: (Boolean) -> Unit,
     onLastSelectedIndexChanged: (Int) -> Unit,
     onSelectionEmptied: () -> Unit
@@ -1758,7 +1761,7 @@ private fun GalleryGridContent(
     }
 
     fun handleTap(media: GridItem.Media) {
-        val shouldToggle = selectOnTap || isSelectionMode
+        val shouldToggle = selectionEnabled && (selectOnTap || isSelectionMode)
         logSelectionTrace(
             "tap uri=${traceUri(media.data.uri)} index=${media.index} action=${if (shouldToggle) "toggle" else "open"} " +
                 "mode=$isSelectionMode count=${selectedUris.size} selectOnTap=$selectOnTap"
@@ -1976,7 +1979,7 @@ private fun GalleryGridContent(
                 }
             }
             .then(
-                if (maxLineSpan >= 28) {
+                if (selectionEnabled && maxLineSpan >= 28) {
                     Modifier.pointerInput(maxLineSpan, selectionLongPressMs) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -2126,7 +2129,8 @@ private fun GalleryGridContent(
                     onMediaClick = ::handleTap,
                     onSimilarGroupToggle = ::toggleSimilarGroup,
                     onSimilarMediaClick = ::openMediaFromSimilarGroup,
-                    isSelectionInteractionActive = isSelectionMode || selectOnTap,
+                    isSelectionInteractionActive = selectionEnabled && (isSelectionMode || selectOnTap),
+                    selectionEnabled = selectionEnabled,
                     onDragSelectionStart = { gridIndex -> beginDragSelection(gridIndex) },
                     onDragSelectionMove = { rootPosition, baseSelection, startGridIndex, lastGridIndex, shouldSelect ->
                         updateDragSelection(rootPosition, baseSelection, startGridIndex, lastGridIndex, shouldSelect)
@@ -2166,7 +2170,8 @@ private fun GalleryGridContent(
                     onMediaClick = ::handleTap,
                     onSimilarGroupToggle = ::toggleSimilarGroup,
                     onSimilarMediaClick = ::openMediaFromSimilarGroup,
-                    isSelectionInteractionActive = isSelectionMode || selectOnTap,
+                    isSelectionInteractionActive = selectionEnabled && (isSelectionMode || selectOnTap),
+                    selectionEnabled = selectionEnabled,
                     onDragSelectionStart = { gridIndex -> beginDragSelection(gridIndex) },
                     onDragSelectionMove = { rootPosition, baseSelection, startGridIndex, lastGridIndex, shouldSelect ->
                         updateDragSelection(rootPosition, baseSelection, startGridIndex, lastGridIndex, shouldSelect)
@@ -2278,6 +2283,7 @@ private fun GridItemRenderer(
     onSimilarGroupToggle: (GridItem.SimilarGroup) -> Unit,
     onSimilarMediaClick: (GridItem.SimilarGroup, MediaData) -> Unit,
     isSelectionInteractionActive: Boolean,
+    selectionEnabled: Boolean,
     onDragSelectionStart: (Int) -> Pair<Set<String>, Boolean>,
     onDragSelectionMove: (Offset, Set<String>, Int, Int, Boolean) -> Int,
     onDragSelectionEnd: () -> Unit
@@ -2323,6 +2329,7 @@ private fun GridItemRenderer(
                     isScrollbarDragging = isScrollbarDragging,
                     isHighlighted = highlightUri == item.data.uri,
                     selectionLongPressMs = selectionLongPressMs,
+                    selectionEnabled = selectionEnabled,
                     onBoundsChanged = onMediaBoundsChanged,
                     onClick = { onMediaClick(item) },
                     onDragSelectionStart = onDragSelectionStart,
@@ -2621,6 +2628,7 @@ private fun MediaGridItemWrapper(
     isScrollbarDragging: Boolean,
     isHighlighted: Boolean,
     selectionLongPressMs: Long,
+    selectionEnabled: Boolean,
     onBoundsChanged: (Int, Rect?) -> Unit,
     onClick: () -> Unit,
     onDragSelectionStart: (Int) -> Pair<Set<String>, Boolean>,
@@ -2645,6 +2653,7 @@ private fun MediaGridItemWrapper(
         isSelected = isSelected,
         gridIndex = gridIndex,
         selectionLongPressMs = selectionLongPressMs,
+        selectionEnabled = selectionEnabled,
         onBoundsChanged = onBoundsChanged,
         onClick = onClick,
         onDragSelectionStart = onDragSelectionStart,
@@ -2672,6 +2681,7 @@ private fun MediaGridItem(
     isSelected: Boolean,
     gridIndex: Int,
     selectionLongPressMs: Long,
+    selectionEnabled: Boolean,
     onBoundsChanged: (Int, Rect?) -> Unit,
     onClick: () -> Unit,
     onDragSelectionStart: (Int) -> Pair<Set<String>, Boolean>,
@@ -2779,7 +2789,9 @@ private fun MediaGridItem(
                     }
                 }
             }
-            .pointerInput(gridIndex, selectionLongPressMs) {
+            .then(
+                if (selectionEnabled) {
+                    Modifier.pointerInput(gridIndex, selectionLongPressMs) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = {
                         val (baseSelection, shouldSelect) = onDragSelectionStart(gridIndex)
@@ -2842,7 +2854,11 @@ private fun MediaGridItem(
                         onDragSelectionEnd()
                     }
                 )
-            }
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null

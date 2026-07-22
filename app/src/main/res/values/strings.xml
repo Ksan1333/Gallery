@@ -132,6 +132,7 @@
     <string name="msg_deleted_count">%1$d 件を削除しました</string>
     <string name="msg_storage_access_desc">端末内のすべてのフォルダから本を探すには、「全ファイルへのアクセス」権限が必要です。</string>
     <string name="msg_move_books_to_trash">選択した本をアプリ内のゴミ箱フォルダへ移動します。</string>
+    <string name="msg_delete_books_permanently">選択した本を完全に削除します。この操作は元に戻せません。</string>
     <string name="msg_page_count">%1$d ページ</string>
     <string name="msg_read_status_done">既読</string>
     <string name="msg_updating_items">アイテムを更新中…</string>
@@ -210,7 +211,7 @@
 
     <!-- Video Downloader -->
     <string name="video_dl_title">Video Downloader</string>
-    <string name="video_dl_url_label">X (Twitter) URL</string>
+    <string name="video_dl_url_label">X (Twitter) またはメディアURL</string>
     <string name="video_dl_show_options">ダウンロードオプションを表示</string>
     <string name="video_dl_history">ダウンロード履歴</string>
     <string name="video_dl_clear_history">履歴をクリア</string>
@@ -218,10 +219,14 @@
     <string name="video_dl_resolving">メディアを解析中…</string>
     <string name="video_dl_already_downloaded">注意: この投稿は既にダウンロード済みです。</string>
     <string name="video_dl_gif_detected">GIF投稿を検出しました。GIF画像としてダウンロードします。</string>
-    <string name="video_dl_select_quality">画質を選択:</string>
-    <string name="video_dl_detected_media_count">動画・GIFを%1$d件検出しました</string>
+    <string name="video_dl_select_quality">画質</string>
+    <string name="video_dl_select_media">保存するメディア</string>
+    <string name="video_dl_detected_media_count">メディアを%1$d件検出しました</string>
     <string name="video_dl_media_number">メディア %1$d</string>
+    <string name="video_dl_media_image">画像</string>
+    <string name="video_dl_media_gif">GIF</string>
     <string name="video_dl_download_all">%1$d件をすべて保存</string>
+    <string name="video_dl_download_selected">%1$d件を保存</string>
     <string name="video_dl_batch_started">%1$d件のダウンロードを開始しました</string>
     <string name="video_dl_batch_operation">ダウンロード %1$d/%2$d</string>
     <string name="video_dl_select_format">保存形式</string>
@@ -229,7 +234,7 @@
     <string name="video_dl_format_direct_gif_desc">検出したGIFファイルを変換せず保存します。</string>
     <string name="video_dl_format_gif_desc">動画ソースを高品質GIFへ変換して保存します。</string>
     <string name="video_dl_gif_post">GIF投稿を検出しました</string>
-    <string name="video_dl_enter_url">URLを入力してください</string>
+    <string name="video_dl_enter_url">Xの投稿URLまたは画像・動画URLを入力してください</string>
     <string name="video_dl_history_cleared">履歴を削除しました</string>
     <string name="video_dl_downloading">ダウンロード中…</string>
     <string name="msg_download_complete_format">%1$s として保存しました</string>
@@ -275,6 +280,13 @@
     <string name="fav_creator_tab">クリエイタータブ</string>
     <string name="fav_creator_name">クリエイター名</string>
     <string name="fav_add_link">リンクを追加</string>
+    <string name="fav_finish_editing">編集を終了</string>
+    <string name="fav_data_menu">保存と読み込み</string>
+    <string name="fav_backup_settings_hint">お気に入りは設定画面の保存でバックアップできます。設定画面で読み込むと、ここに復元されます。</string>
+    <string name="backup_load_standard">保存済みバックアップを読み込む</string>
+    <string name="backup_load_choose_file">ファイルを選んで読み込む</string>
+    <string name="backup_save_standard">標準の場所に保存する</string>
+    <string name="backup_save_choose_location">保存先を選ぶ</string>
     <string name="fav_add_site_card">サイトカードを追加</string>
     <string name="fav_delete_site_card">サイトカードを削除</string>
     <string name="fav_delete_site_confirm">このサイトカードを削除します。埋め込みプレビューなどは削除されません。</string>
@@ -350,20 +362,21 @@
     <string name="ref_project_name_hint">プロジェクト名（例: エルフの描き方）</string>
     <string name="ref_search_placeholder">キーワード検索…</string>
     <string name="ref_search_guide">画像検索の使い方</string>
-    <string name="ref_search_guide_text">・キーワードを入力して画像検索\n・画像を長押しして資料に追加\n・右上のカメラボタンで現在の画面のスクショを資料に保存\n検索ページを操作して参考画像を探してください。</string>
+    <string name="ref_search_guide_text">・キーワードを入力して画像を検索\n・画像を長押ししてWebリンクとして資料に追加（画像ファイルは保存しません）\n・右上のカメラボタンで現在の画面のスクショを資料に保存\n検索ページを操作して参考画像を探してください。</string>
     <string name="ref_no_references">資料が登録されていません</string>
     <string name="ref_complete_project_title">プロジェクトを完了しますか？</string>
-    <string name="ref_complete_project_text">プロジェクトを完了にします。ギャラリー参照の画像は削除せず保持します。</string>
+    <string name="ref_complete_project_text">プロジェクトを完了にします。登録済みの資料は削除せず、そのまま保持します。</string>
     <string name="ref_add_reference">資料を追加</string>
-    <string name="ref_add_method_desc">追加方法を選択してください</string>
-    <string name="ref_from_gallery">ギャラリーから選択</string>
-    <string name="ref_from_web">Webで検索</string>
+    <string name="ref_from_gallery">ギャラリーから選ぶ</string>
+    <string name="ref_from_web">Webで画像を探す</string>
     <string name="ref_detail_title">詳細</string>
     <string name="ref_mark_complete">完了にする</string>
     <string name="ref_resume_project">進行中に戻す</string>
     <string name="ref_status_done">完了</string>
     <string name="ref_status_active">進行中</string>
     <string name="ref_create_title">プロジェクトを作成</string>
+    <string name="ref_delete_project_title">プロジェクトを削除しますか？</string>
+    <string name="ref_delete_project_text">「%1$s」と保存済みのスクリーンショットを削除します。ギャラリーの元画像は削除されません。</string>
 
     <!-- Auth -->
     <string name="auth_startup_password">起動パスワード</string>
@@ -414,7 +427,6 @@
     <string name="settings_theme_preset">テーマプリセット</string>
     <string name="settings_section_bookshelf">本棚</string>
     <string name="settings_section_bookshelf_desc">本一覧とサムネイルの設定です。</string>
-    <string name="settings_file_sort">ファイルの並び替え</string>
     <string name="settings_show_thumbnail">サムネイルを表示</string>
     <string name="settings_thumbnail_smoothing">サムネイルの画像平滑化</string>
     <string name="settings_swipe_delete_book">スワイプで本を削除</string>
@@ -551,10 +563,22 @@
 
     <!-- About -->
     <string name="about_title">アプリ情報</string>
+    <string name="about_updates">アプリの更新</string>
     <string name="about_changelog">更新履歴</string>
     <string name="about_changelog_default">更新履歴</string>
     <string name="about_dev_info">開発情報</string>
     <string name="about_dev_desc">Android Studio AI Assistant によって開発を支援しています。</string>
+    <string name="update_checking">GitHubの最新リリースを確認中…</string>
+    <string name="update_available">バージョン %1$s を入手できます</string>
+    <string name="update_up_to_date">このアプリは最新です</string>
+    <string name="update_check_now">更新を確認</string>
+    <string name="update_download_and_install">ダウンロードして更新</string>
+    <string name="update_downloading">ダウンロード中 %1$d%%</string>
+    <string name="update_error">更新を確認できませんでした: %1$s</string>
+    <string name="update_allow_install_source">端末の設定でこのアプリからのインストールを許可した後、もう一度更新を実行してください。</string>
+    <string name="update_notification_channel">アプリ更新</string>
+    <string name="update_notification_title">バージョン %1$s を入手できます</string>
+    <string name="update_notification_text">タップして更新を確認します</string>
     <string name="error_fetch_data">データの取得に失敗しました</string>
 
     <!-- Media Viewer -->
@@ -701,6 +725,9 @@
     <string name="video_dl_gif_stage_palette">共通カラーパレットを生成中…</string>
     <string name="video_dl_gif_stage_encoding">GIFをエンコード中…</string>
     <string name="video_dl_saving_gif">GIFを保存中…</string>
+    <string name="video_gif_conversion_title">動画をGIFに変換中</string>
+    <string name="msg_video_gif_conversion_complete">GIFをギャラリーに保存しました</string>
+    <string name="msg_video_gif_conversion_failed">GIFへの変換に失敗しました: %1$s</string>
     <string name="video_dl_complete">保存が完了しました</string>
     <string name="video_dl_remaining">残り</string>
     <string name="video_dl_calculating_time">残り時間を計測中</string>
@@ -723,11 +750,12 @@
     <string name="ref_default_title">ギャラリー画像</string>
     <string name="ref_msg_added_format">%1$d件追加しました</string>
     <string name="ref_msg_add_failed">追加に失敗しました</string>
-    <string name="ref_btn_decide">決定</string>
-    <string name="ref_msg_added">資料に追加しました</string>
+    <string name="ref_btn_decide">追加</string>
+    <string name="ref_msg_added">Webリンクを資料に追加しました</string>
     <string name="ref_msg_screenshot_added">スクショを資料に追加しました</string>
     <string name="ref_msg_screenshot_failed">スクショに失敗しました</string>
     <string name="ref_default_item_name">資料</string>
+    <string name="ref_web_image_title">Web画像</string>
     <string name="ref_screenshot_tag">検索画面スクショ</string>
 
     <!-- Tutorial -->
@@ -814,7 +842,6 @@
     <string name="desc_show_info_overlay">画像の詳細情報を画面上に常に表示します</string>
     <string name="desc_theme_mode">アプリの全体的な色の雰囲気を切り替えます</string>
     <string name="desc_theme_preset">プリセットから色合いを一括設定します</string>
-    <string name="desc_file_sort">本棚での本の並び順を設定します</string>
     <string name="desc_show_thumbnail">本棚で本の表紙を表示します</string>
     <string name="desc_thumbnail_smoothing">本棚の表紙画像の画質設定です。\n・最近傍法: 最速。輪郭はカクつきやすいです。\n・平均画素法: 縮小向きです。\n・バイリニア補間: 軽い標準設定です。\n・バイキュービック補間: 滑らかさ重視です。\n・Lanczos3: 細部重視です。</string>
     <string name="desc_swipe_delete_book">本棚で横スワイプして本を削除できるようにします</string>
@@ -861,6 +888,7 @@
     <string name="label_action_favorite">お気に入り</string>
     <string name="label_action_slideshow">スライドショー</string>
     <string name="label_action_gif">GIF</string>
+    <string name="label_action_convert_gif">GIFに変換</string>
     <string name="label_action_ascii2d">ascii2d</string>
     <string name="label_action_wallpaper">壁紙</string>
     <string name="label_action_folder_thumbnail">フォルダサムネイル</string>
@@ -994,7 +1022,7 @@
 
     <string name="tutorial_ref_desc">イラスト用の参考資料をプロジェクト単位で集められます。</string>
     <string name="tutorial_ref_tip1">プロジェクト作成 → テーマごとに整理</string>
-    <string name="tutorial_ref_tip2">Web検索 → 参考画像を追加</string>
+    <string name="tutorial_ref_tip2">Web検索 → 画像リンクを資料に追加</string>
     <string name="tutorial_ref_tip3">ギャラリーから追加 → 端末内の資料をまとめる</string>
 
     <string name="tutorial_ref_review_title">資料の見返し</string>
@@ -1020,10 +1048,10 @@
     <string name="tutorial_video_dl_conf_tip2">重複時 → 再ダウンロード可能</string>
     <string name="tutorial_video_dl_conf_tip3">失敗時 → 候補を選び直す</string>
 
-    <string name="tutorial_trash_desc">削除済みの画像、動画、本を復元または完全削除できます。</string>
+    <string name="tutorial_trash_desc">削除済みの画像と動画を復元または完全削除できます。</string>
     <string name="tutorial_trash_tip1">右上のすべて復元 → 確認後にまとめて復元</string>
     <string name="tutorial_trash_tip2">右上のすべて削除 → 確認後に完全削除</string>
-    <string name="tutorial_trash_tip3">本バッジ → ゴミ箱内の本を識別</string>
+    <string name="tutorial_trash_tip3">本は本棚から削除すると、すぐに完全削除されます</string>
 
     <string name="tutorial_settings_top_title">設定トップ</string>
     <string name="tutorial_settings_top_desc">全体設定、テーマ、ブックビューア、設定データに分けて調整します。</string>

@@ -1314,6 +1314,24 @@ fun MediaViewerScreen(
                             }
                         }
 
+                        if (currentMediaItem.isVideo) {
+                            GalleryFloatingActionButton(
+                                icon = Icons.Default.Collections,
+                                tooltipDescription = stringResource(R.string.label_action_convert_gif),
+                                size = dimensionResource(R.dimen.button_size_viewer_action),
+                                iconSize = dimensionResource(R.dimen.icon_size_viewer_action),
+                                contentColor = colors.primaryText,
+                                onClick = {
+                                    launchVideoGifConversion(
+                                        scope = scope,
+                                        context = context,
+                                        videoUri = currentMediaItem.uri,
+                                        onCompleted = { galleryState?.refresh() }
+                                    )
+                                }
+                            )
+                        }
+
                         if (menuAssignments.isNotEmpty() && barAssignments.any { isViewerOverflowAction(it, context) }) {
                             var showMoreMenu by remember { mutableStateOf(false) }
                             Box {

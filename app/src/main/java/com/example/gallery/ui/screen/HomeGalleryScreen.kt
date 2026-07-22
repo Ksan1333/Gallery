@@ -138,15 +138,6 @@ fun HomeGalleryScreen(
     LaunchedEffect(imageList.size) {
         if (selectedIndex != null && flatListForViewer.isEmpty() && imageList.isNotEmpty()) {
             flatListForViewer = imageList
-        } else if (selectedIndex != null && flatListForViewer.size <= 1 && imageList.size > flatListForViewer.size) {
-            val currentUri = flatListForViewer.getOrNull(selectedIndex ?: 0)?.uri ?: galleryState.lastViewedUri
-            val nextIndex = currentUri?.let { uri -> imageList.indexOfFirst { it.uri == uri } } ?: -1
-            if (nextIndex >= 0) {
-                flatListForViewer = imageList
-                selectedIndex = nextIndex
-                galleryState.activeMediaViewerList = imageList
-                galleryState.activeMediaViewerIndex = nextIndex
-            }
         }
     }
 
@@ -417,8 +408,7 @@ fun HomeGalleryScreen(
                     centerViewedMediaOnReturn = false
                     val clickedUri = list.getOrNull(index)?.uri
                     galleryState.lastViewedUri = clickedUri
-                    fun openViewerWith(candidate: List<MediaData>) {
-                        val viewerList = candidate.ifEmpty { list }
+                    fun openViewerWith(viewerList: List<MediaData>) {
                         val viewerIndex = clickedUri?.let { uri ->
                             viewerList.indexOfFirst { it.uri == uri }.takeIf { it >= 0 }
                         } ?: index.coerceIn(0, (viewerList.size - 1).coerceAtLeast(0))
@@ -428,21 +418,7 @@ fun HomeGalleryScreen(
                         galleryState.activeMediaViewerIndex = viewerIndex
                         onShowViewer()
                     }
-                    val localCandidate = when {
-                        clickedUri == null -> list
-                        displayedImages.size > list.size && displayedImages.any { it.uri == clickedUri } -> displayedImages
-                        imageList.size > list.size && imageList.any { it.uri == clickedUri } -> imageList
-                        else -> list
-                    }
-                    if (localCandidate.size > 1 || clickedUri == null) {
-                        openViewerWith(localCandidate)
-                    } else {
-                        scope.launch {
-                            val allMedia = galleryState.repository.getAllMedia()
-                            val allCandidate = if (allMedia.any { it.uri == clickedUri }) allMedia else localCandidate
-                            openViewerWith(allCandidate)
-                        }
-                    }
+                    openViewerWith(list)
                 },
                 galleryState = galleryState,
                 isLoading = isLoading,
