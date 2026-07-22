@@ -579,7 +579,12 @@
     <string name="update_download_and_install">ダウンロードして更新</string>
     <string name="update_downloading">ダウンロード中 %1$d%%</string>
     <string name="update_error">更新を確認できませんでした: %1$s</string>
+    <string name="update_download_error">更新のダウンロードに失敗しました: %1$s</string>
     <string name="update_allow_install_source">端末の設定でこのアプリからのインストールを許可した後、もう一度更新を実行してください。</string>
+    <string name="update_dialog_title">アップデートがあります</string>
+    <string name="update_required_dialog_title">アップデートが必要です</string>
+    <string name="update_required_description">この更新には重要な変更が含まれるため、続行するにはアップデートが必要です。</string>
+    <string name="update_cancel">キャンセル</string>
     <string name="update_notification_channel">アプリ更新</string>
     <string name="update_notification_title">バージョン %1$s を入手できます</string>
     <string name="update_notification_text">タップして更新を確認します</string>

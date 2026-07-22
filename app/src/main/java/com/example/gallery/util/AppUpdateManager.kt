@@ -140,6 +140,13 @@ object AppUpdateManager {
         return true
     }
 
+    /** A release is mandatory only when its semantic-version major number increases. */
+    fun isMandatoryUpdate(candidateVersion: String, currentVersion: String = BuildConfig.VERSION_NAME): Boolean {
+        val candidateMajor = versionParts(candidateVersion)?.firstOrNull() ?: return false
+        val currentMajor = versionParts(currentVersion)?.firstOrNull() ?: return false
+        return candidateMajor > currentMajor
+    }
+
     fun shouldNotify(context: Context, release: AppUpdateRelease): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return prefs.getString(KEY_NOTIFIED_VERSION, null) != release.version
@@ -171,14 +178,9 @@ object AppUpdateManager {
             if (response.code == 404) return null
             if (!response.isSuccessful) error("GitHub release check failed: HTTP ${response.code}")
             val json = JSONObject(response.body?.string().orEmpty())
-            val asset = (0 until json.optJSONArray("assets")?.length().orZero())
-                .asSequence()
+            val assets = (0 until json.optJSONArray("assets")?.length().orZero())
                 .map { index -> json.getJSONArray("assets").getJSONObject(index) }
-                .filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
-                .maxByOrNull { asset ->
-                    if (asset.optString("name").contains("release", ignoreCase = true)) 1 else 0
-                }
-                ?: return null
+            val asset = selectApkAsset(assets) ?: return null
             val version = normalizeVersion(json.optString("tag_name")) ?: return null
             return AppUpdateRelease(
                 version = version,
@@ -189,6 +191,22 @@ object AppUpdateManager {
                 releaseUrl = json.optString("html_url", "https://github.com/$REPOSITORY/releases")
             ).takeIf { it.assetUrl.isNotBlank() }
         }
+    }
+
+    private fun selectApkAsset(assets: List<JSONObject>): JSONObject? {
+        val supportedAbis = Build.SUPPORTED_ABIS.map { it.lowercase() }
+        return assets.asSequence()
+            .filter { it.optString("name").endsWith(".apk", ignoreCase = true) }
+            .maxByOrNull { asset ->
+                val name = asset.optString("name").lowercase()
+                val abiIndex = supportedAbis.indexOfFirst(name::contains)
+                val abiScore = when {
+                    abiIndex >= 0 -> 10_000 - abiIndex
+                    name.contains("universal") -> 5_000
+                    else -> 0
+                }
+                abiScore + if (name.contains("release")) 1 else 0
+            }
     }
 
     private fun cacheUpdate(context: Context, release: AppUpdateRelease) {

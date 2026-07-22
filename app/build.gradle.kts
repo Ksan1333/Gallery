@@ -13,19 +13,28 @@ android {
         applicationId = "com.example.gallery"
         minSdk = 24
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.4.0"
+        versionCode = 9
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = false
         }
     }
     compileOptions {
@@ -45,7 +54,6 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -63,10 +71,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
     implementation(libs.coil.video)
-    implementation("io.coil-kt:coil-gif:2.7.0") // 強制的に最新のGIFサポートを追加
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
-    implementation("androidx.media3:media3-common:1.5.1")
     implementation("androidx.compose.foundation:foundation")
     implementation(libs.androidx.palette.ktx)
 
@@ -84,7 +90,6 @@ dependencies {
 
     // Networking
     implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
     implementation(libs.conscrypt)
     implementation(libs.play.services.auth)
     implementation(libs.kotlinx.coroutines.play.services)

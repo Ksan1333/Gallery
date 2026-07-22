@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -73,6 +74,7 @@ import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.service.ThumbnailGenerationService
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.util.AppUpdateManager
+import com.example.gallery.util.AppUpdateRelease
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -292,6 +294,11 @@ fun AppNavigation(
     var isStartupUnlocked by rememberSaveable(startupPasswordEnabled) { mutableStateOf(!startupPasswordEnabled) }
     var startupPasswordInput by rememberSaveable { mutableStateOf("") }
     var startupPasswordError by rememberSaveable { mutableStateOf(false) }
+    var startupUpdate by remember { mutableStateOf<AppUpdateRelease?>(null) }
+    var dismissedStartupUpdateVersion by rememberSaveable { mutableStateOf<String?>(null) }
+    var isStartupUpdateDownloading by remember { mutableStateOf(false) }
+    var startupUpdateDownloadProgress by remember { mutableFloatStateOf(0f) }
+    var startupUpdateError by remember { mutableStateOf<String?>(null) }
 
     val navController = rememberNavController()
     galleryState.navController = navController
@@ -308,6 +315,16 @@ fun AppNavigation(
             }
             onUpdateScreenOpened()
         }
+    }
+
+    LaunchedEffect(isStartupUnlocked) {
+        if (!isStartupUnlocked) return@LaunchedEffect
+        val update = runCatching {
+            withContext(Dispatchers.IO) {
+                AppUpdateManager.checkForUpdate(context, force = true)
+            }
+        }.getOrNull()
+        startupUpdate = update?.takeUnless { it.version == dismissedStartupUpdateVersion }
     }
 
     val tutorialPrefs = remember { context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE) }
@@ -1519,6 +1536,49 @@ fun AppNavigation(
                 )
             }
 
+            startupUpdate?.let { release ->
+                val isMandatory = AppUpdateManager.isMandatoryUpdate(release.version)
+                if (isMandatory) {
+                    BackHandler(enabled = true) {}
+                }
+                StartupUpdateDialog(
+                    release = release,
+                    isMandatory = isMandatory,
+                    isDownloading = isStartupUpdateDownloading,
+                    downloadProgress = startupUpdateDownloadProgress,
+                    error = startupUpdateError,
+                    onUpdate = onUpdate@{
+                        if (isStartupUpdateDownloading) return@onUpdate
+                        scope.launch {
+                            isStartupUpdateDownloading = true
+                            startupUpdateDownloadProgress = 0f
+                            startupUpdateError = null
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    AppUpdateManager.downloadApk(context, release) { progress ->
+                                        scope.launch { startupUpdateDownloadProgress = progress }
+                                    }
+                                }
+                            }.onSuccess { apk ->
+                                if (!AppUpdateManager.installApk(context, apk)) {
+                                    startupUpdateError = context.getString(R.string.update_allow_install_source)
+                                }
+                            }.onFailure { cause ->
+                                startupUpdateError = context.getString(
+                                    R.string.update_download_error,
+                                    cause.localizedMessage ?: cause.javaClass.simpleName
+                                )
+                            }
+                            isStartupUpdateDownloading = false
+                        }
+                    },
+                    onCancel = {
+                        dismissedStartupUpdateVersion = release.version
+                        startupUpdate = null
+                    }
+                )
+            }
+
             if (showTutorialSetup) {
                 TutorialSetupDialog(
                     onConfirm = {
@@ -1626,6 +1686,77 @@ fun AppNavigation(
             }
         }
     }
+}
+
+@Composable
+private fun StartupUpdateDialog(
+    release: AppUpdateRelease,
+    isMandatory: Boolean,
+    isDownloading: Boolean,
+    downloadProgress: Float,
+    error: String?,
+    onUpdate: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val colors = GalleryThemeTokens.colors
+    val progressPercent = (downloadProgress.coerceIn(0f, 1f) * 100).toInt()
+    AlertDialog(
+        onDismissRequest = {
+            if (!isMandatory && !isDownloading) onCancel()
+        },
+        title = {
+            Text(
+                stringResource(
+                    if (isMandatory) R.string.update_required_dialog_title else R.string.update_dialog_title
+                )
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.update_available, release.version))
+                if (isMandatory) {
+                    Text(
+                        stringResource(R.string.update_required_description),
+                        color = colors.danger
+                    )
+                }
+                if (release.notes.isNotBlank()) {
+                    Text(release.notes, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                }
+                if (isDownloading) {
+                    LinearProgressIndicator(
+                        progress = { downloadProgress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = colors.accent
+                    )
+                    Text(stringResource(R.string.update_downloading, progressPercent))
+                }
+                error?.let { message ->
+                    Text(message, color = colors.danger)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onUpdate, enabled = !isDownloading) {
+                Text(
+                    if (isDownloading) {
+                        stringResource(R.string.update_downloading, progressPercent)
+                    } else {
+                        stringResource(R.string.update_download_and_install)
+                    }
+                )
+            }
+        },
+        dismissButton = if (isMandatory) {
+            null
+        } else {
+            {
+                TextButton(onClick = onCancel, enabled = !isDownloading) {
+                    Text(stringResource(R.string.update_cancel))
+                }
+            }
+        }
+    )
 }
 
 @Composable
