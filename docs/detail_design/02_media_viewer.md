@@ -10,7 +10,7 @@
 
 ## 3. 開発者向け技術説明
 
-`MediaViewerScreen` が `MediaData` リストと開始ページを受け取る。画像/GIF は Coil と補助抽出処理、動画は Media3 ExoPlayer を使う。閲覧位置は `GalleryState.lastViewedUri`、閲覧統計は `MediaRepository.updateMeasureStats()` 経由で `measure_stats` に保存する。
+`MediaViewerScreen` が `MediaData` リストと開始ページを受け取る。画像/GIF は Coil と補助抽出処理、動画は Media3 ExoPlayer を使う。閲覧位置は `GalleryState.lastViewedUri` で一覧へ返す。
 
 動画専用入口では `VideoGalleryScreen` が動画のみをフォルダ別に抽出し、フォルダ内グリッドで選択した動画を `VideoMiniPlayer` に渡す。プレビュー再生と全画面再生は、タップ時に `GalleryGridView` から返された実リストと URI を基準に対象を決め、画面表示順と再生対象のずれを防ぐ。
 
@@ -32,7 +32,7 @@
 | 動画操作 | 再生/一時停止、ミュート、シーク、送り/戻し、フレーム送り |
 | 動画専用画面 | フォルダ別動画一覧、ミニプレイヤー、全画面再生への切り替え |
 | GIF 操作 | フレーム抽出、表示フレーム保存、表示フレーム壁紙 |
-| 関連表示 | タグ類似、ベクトル類似によるおすすめタブ |
+| 関連表示 | 視覚類似候補とランダム候補を表示する下部パネル |
 | タッチインジケーター | 設定が有効な場合、3 / 4 / 5 / 7 / 11 分割の画面割り当てを、中心領域と周辺領域の枠・説明ラベルとして表示する。 |
 
 ### 4.3. UIモック
@@ -53,7 +53,7 @@
 | --- | --- | --- |
 | 1 | 通常ビューア | 黒背景の全画面表示、上部操作、下部メニューを重ねて表示する。 |
 | 2 | 動画操作パネル | 再生/一時停止、シーク、ミュート、フレーム送り、サムネイル列を表示する。 |
-| 3 | 関連メディアパネル | ビューア下部にタグ類似、ベクトル類似、ランダム候補の関連カードを表示する。 |
+| 3 | 関連メディアパネル | ビューア下部に視覚類似とランダム候補の関連カードを表示する。 |
 | 4 | 対象操作 | お気に入り、回転、削除、フォルダ、タグ、壁紙、フレーム保存を現在メディアへ適用する。 |
 | 5 | 動画ミニプレイヤー | 動画専用画面でタップした動画を画面内プレビューし、前後移動と全画面表示を行う。 |
 
@@ -63,6 +63,7 @@
 - `VideoFullscreenViewerScreen` は動画専用の全画面ビュワーとして扱い、左右スワイプによる前後動画移動は行わない。
 - 下部にカスタマイズ可能な 5 つのボタンを配置し、初期設定では「回転」「前の動画」「再生/停止」「次の動画」「3点メニュー」を配置する。
 - 3点メニューには、ボトムバーに配置されていない機能（閉じる、設定、スクリーンショット、動画ストリップ表示切替など）が動的に割り当てられる。
+- GIF 変換は初期状態では 3 点メニュー内に置く。動画では選択可能、静止画と GIF では非活性表示とする。
 - 全画面中の左右スワイプは 1 フレーム単位のコマ送りに使う。ドラッグ中は再生を一時停止し、指を離した時点で元が再生中なら再開する。現在時刻表示はミリ秒まで表示する。
 - 右端の上下スワイプは音量、左端の上下スワイプは画面輝度を調整する。調整中は中央に `Volume` / `Brightness` とパーセンテージ、バーを一時表示し、どちらを変更しているかを明確にする。
 - 右上の一覧アイコンで同一フォルダ内の前後動画サムネイルを表示する。縦画面では画面上部の横スクロール、横画面では画面右端の縦スクロールとして表示し、選択した動画へ即時切り替える。
@@ -113,7 +114,6 @@ flowchart TD
 | --- | --- |
 | `media_metadata` | お気に入り、年齢制限、削除状態、特徴ベクトル |
 | `media_tags` | タグ表示・編集 |
-| `measure_stats` | 閲覧回数、閲覧時間、最終閲覧日時 |
 | `managed_folders` | フォルダサムネイル設定 |
 
 ## 6. ER 図
@@ -132,18 +132,11 @@ erDiagram
         string tag PK
         float confidence
     }
-    MEASURE_STATS {
-        string uri PK
-        int viewCount
-        long totalDurationSeconds
-        long lastViewedTimestamp
-    }
     MANAGED_FOLDERS {
         string folderName PK
         string customThumbnailUri
     }
     MEDIA_METADATA ||--o{ MEDIA_TAGS : "logical uri"
-    MEDIA_METADATA ||--o| MEASURE_STATS : "logical uri"
 ```
 
 ## 7. DAO / Repository
@@ -154,9 +147,6 @@ erDiagram
 | DAO | `getTagsForMedia(uri)` | タグ一覧取得 |
 | DAO | `updateFavorite()` | お気に入り更新 |
 | DAO | `setDeleted()` / `bulkSetDeleted()` | ゴミ箱状態更新 |
-| DAO | `insertMeasureStats()` | 閲覧統計保存 |
-| Repository | `updateMeasureStats()` | 閲覧回数と時間の加算 |
-| Repository | `findMediaByTagSimilarity()` | タグ類似候補 |
 | Repository | `findSimilarVisualMedia()` | ベクトル類似候補 |
 
 ## 8. シーケンス図
@@ -176,8 +166,6 @@ sequenceDiagram
     Viewer->>State: lastViewedUri 更新
     Viewer->>DB: metadata/tags Flow 購読
     Viewer->>Player: 画像/GIF/動画を表示
-    Viewer->>Repo: 閲覧時間を保存
-    Repo->>DB: measure_stats upsert
     Viewer->>Repo: お気に入り/削除/タグ/類似検索
     Repo->>DB: 対象テーブル更新・検索
     Viewer-->>Grid: close

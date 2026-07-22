@@ -105,6 +105,7 @@ private fun saveGifToMediaStore(context: Context, sourceUri: String, bytes: Byte
         put(MediaStore.MediaColumns.MIME_TYPE, "image/gif")
         put(MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000L)
         put(MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000L)
+        put(MediaStore.MediaColumns.DATE_TAKEN, timestamp)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             put(MediaStore.MediaColumns.RELATIVE_PATH, context.getString(R.string.video_dl_rel_path_pictures))
             put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -120,7 +121,12 @@ private fun saveGifToMediaStore(context: Context, sourceUri: String, bytes: Byte
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             resolver.update(
                 outputUri,
-                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    put(MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000L)
+                    put(MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000L)
+                    put(MediaStore.MediaColumns.DATE_TAKEN, timestamp)
+                },
                 null,
                 null
             )

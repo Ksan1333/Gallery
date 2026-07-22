@@ -1106,16 +1106,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.viewerAssignmentItems
     if (includeTouch) {
         item {
             val touchSlots = tapZoneSlotsForLayout(touchLayout)
-            val touchFunctions = listOf(
-                AppConstants.ACTION_PREV,
-                AppConstants.ACTION_NEXT,
-                AppConstants.ACTION_TOGGLE_UI,
-                AppConstants.ACTION_ZOOM,
-                AppConstants.ACTION_SETTINGS,
-                AppConstants.ACTION_SEARCH,
-                AppConstants.ACTION_SAVE,
-                AppConstants.ACTION_TAG
-            )
+            val touchFunctions = when (prefix) {
+                "book" -> listOf(
+                    AppConstants.ACTION_PREV_BOOK,
+                    AppConstants.ACTION_NEXT_BOOK,
+                    AppConstants.ACTION_PREV_PAGE,
+                    AppConstants.ACTION_NEXT_PAGE,
+                    AppConstants.ACTION_ZOOM,
+                    AppConstants.ACTION_SETTINGS,
+                    AppConstants.ACTION_TOGGLE_UI
+                )
+                else -> emptyList()
+            }
             val defaultTouchAssignments = defaultTouchAssignmentsFor(prefix, touchSlots)
             AssignmentEditor(
                 title = stringResource(R.string.label_touch_assignment_title),
@@ -1138,27 +1140,44 @@ private fun androidx.compose.foundation.lazy.LazyListScope.viewerAssignmentItems
         AppConstants.SLOT_BOTTOM_CENTER_RIGHT,
         AppConstants.SLOT_BOTTOM_RIGHT
     )
-    val baseButtonFunctions = listOf(
-        AppConstants.ACTION_CLOSE,
-        AppConstants.ACTION_SETTINGS,
-        AppConstants.ACTION_BOOKMARK,
-        AppConstants.ACTION_ROTATE,
-        AppConstants.ACTION_SCREENSHOT,
-        AppConstants.ACTION_PREV,
-        AppConstants.ACTION_NEXT,
-        AppConstants.ACTION_PLAY_PAUSE,
-        AppConstants.ACTION_OVERFLOW
-    )
-    val mediaButtonFunctions = listOf(
-        AppConstants.ACTION_TRASH,
-        AppConstants.ACTION_FAVORITE,
-        AppConstants.ACTION_SLIDESHOW,
-        AppConstants.ACTION_ASCII2D,
-        AppConstants.ACTION_WALLPAPER,
-        AppConstants.ACTION_THUMBNAIL,
-        AppConstants.ACTION_TAG
-    )
-    val buttonFunctions = if (includeMediaActions) baseButtonFunctions + mediaButtonFunctions else baseButtonFunctions
+    val buttonFunctions = when (prefix) {
+        "video" -> listOf(
+            AppConstants.ACTION_CLOSE,
+            AppConstants.ACTION_SETTINGS,
+            AppConstants.ACTION_ROTATE,
+            AppConstants.ACTION_SCREENSHOT,
+            AppConstants.ACTION_PREV,
+            AppConstants.ACTION_NEXT,
+            AppConstants.ACTION_PLAY_PAUSE,
+            AppConstants.ACTION_OVERFLOW,
+            AppConstants.ACTION_GIF_CONVERSION
+        )
+        "book" -> listOf(
+            AppConstants.ACTION_CLOSE,
+            AppConstants.ACTION_SETTINGS,
+            AppConstants.ACTION_BOOKMARK,
+            AppConstants.ACTION_ROTATE,
+            AppConstants.ACTION_SCREENSHOT,
+            AppConstants.ACTION_PREV,
+            AppConstants.ACTION_NEXT,
+            AppConstants.ACTION_OVERFLOW
+        )
+        "media" -> listOf(
+            AppConstants.ACTION_CLOSE,
+            AppConstants.ACTION_SETTINGS,
+            AppConstants.ACTION_ROTATE,
+            AppConstants.ACTION_SCREENSHOT,
+            AppConstants.ACTION_PLAY,
+            AppConstants.ACTION_OVERFLOW,
+            AppConstants.ACTION_TRASH,
+            AppConstants.ACTION_FAVORITE,
+            AppConstants.ACTION_SLIDESHOW,
+            AppConstants.ACTION_ASCII2D,
+            AppConstants.ACTION_WALLPAPER,
+            AppConstants.ACTION_GIF_CONVERSION
+        )
+        else -> emptyList()
+    }
     val defaultBarAssignments = defaultBarAssignmentsFor(prefix, includeMediaActions, barSlots)
 
     item {
@@ -1362,21 +1381,48 @@ private fun defaultTouchAssignmentsFor(
     slots: List<String>
 ): Map<String, String> {
     if (prefix != "book") return emptyMap()
-    val defaultsBySlot = mapOf(
-        "左上" to AppConstants.ACTION_SETTINGS,
-        "上" to AppConstants.ACTION_TOGGLE_UI,
-        "右上" to AppConstants.ACTION_SEARCH,
-        "左上側" to AppConstants.ACTION_PREV,
-        "左下側" to AppConstants.ACTION_PREV,
-        "左" to AppConstants.ACTION_PREV,
-        "中央" to AppConstants.ACTION_ZOOM,
-        "右" to AppConstants.ACTION_NEXT,
-        "右上側" to AppConstants.ACTION_NEXT,
-        "右下側" to AppConstants.ACTION_NEXT,
-        "左下" to AppConstants.ACTION_PREV,
-        "下" to AppConstants.ACTION_TOGGLE_UI,
-        "右下" to AppConstants.ACTION_NEXT
-    )
+    val defaultsBySlot = when (slots.size) {
+        11 -> mapOf(
+            "top_start" to AppConstants.ACTION_PREV_BOOK,
+            "top_center" to AppConstants.ACTION_TOGGLE_UI,
+            "top_end" to AppConstants.ACTION_NEXT_BOOK,
+            "left_upper" to AppConstants.ACTION_PREV_PAGE,
+            "left_lower" to AppConstants.ACTION_PREV_PAGE,
+            "center" to AppConstants.ACTION_ZOOM,
+            "right_upper" to AppConstants.ACTION_NEXT_PAGE,
+            "right_lower" to AppConstants.ACTION_NEXT_PAGE,
+            "bottom_start" to AppConstants.ACTION_SETTINGS,
+            "bottom_center" to AppConstants.ACTION_TOGGLE_UI,
+            "bottom_end" to AppConstants.ACTION_NEXT_BOOK
+        )
+        7 -> mapOf(
+            "top_start" to AppConstants.ACTION_PREV_BOOK,
+            "top_end" to AppConstants.ACTION_NEXT_BOOK,
+            "left" to AppConstants.ACTION_PREV_PAGE,
+            "center" to AppConstants.ACTION_TOGGLE_UI,
+            "right" to AppConstants.ACTION_NEXT_PAGE,
+            "bottom_start" to AppConstants.ACTION_ZOOM,
+            "bottom_end" to AppConstants.ACTION_SETTINGS
+        )
+        5 -> mapOf(
+            "top" to AppConstants.ACTION_PREV_PAGE,
+            "left" to AppConstants.ACTION_PREV_BOOK,
+            "center" to AppConstants.ACTION_TOGGLE_UI,
+            "right" to AppConstants.ACTION_NEXT_BOOK,
+            "bottom" to AppConstants.ACTION_NEXT_PAGE
+        )
+        4 -> mapOf(
+            "left" to AppConstants.ACTION_PREV_PAGE,
+            "center" to AppConstants.ACTION_ZOOM,
+            "bottom" to AppConstants.ACTION_SETTINGS,
+            "right" to AppConstants.ACTION_NEXT_PAGE
+        )
+        else -> mapOf(
+            "left" to AppConstants.ACTION_PREV_PAGE,
+            "center" to AppConstants.ACTION_TOGGLE_UI,
+            "right" to AppConstants.ACTION_NEXT_PAGE
+        )
+    }
     return slots.associateWith { slot -> defaultsBySlot[slot] ?: "なし" }
 }
 

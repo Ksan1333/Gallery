@@ -69,6 +69,22 @@ class VideoDownloadBatchSelectionTest {
     }
 
     @Test
+    fun excludesVideoPreviewImagesFromVideoDownloadChoices() {
+        val candidates = listOf(
+            candidate("video.mp4", "video-a", 512_000),
+            MediaUrlCandidate(
+                url = "video-preview.jpg",
+                contentType = "image/jpeg",
+                mediaKey = "video-a"
+            )
+        )
+
+        val group = groupDownloadCandidates(candidates).single()
+
+        assertEquals(listOf("video.mp4"), group.map { it.url })
+    }
+
+    @Test
     fun directGifIsPreferredWithoutTranscoding() {
         val candidates = listOf(
             MediaUrlCandidate("animation.gif", contentType = "image/gif", isGifSource = true, mediaKey = "gif-a"),

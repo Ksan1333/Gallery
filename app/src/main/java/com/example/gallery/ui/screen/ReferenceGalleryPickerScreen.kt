@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -49,6 +51,31 @@ fun ReferenceGalleryPickerScreen(
         isLoading = false
     }
 
+    fun confirmSelection() {
+        val selectedMedia = media.filter { it.uri in selectedUris }
+        if (selectedMedia.isEmpty() || isSaving) return
+        isSaving = true
+        scope.launch {
+            var successCount = 0
+            selectedMedia.forEach { selected ->
+                val success = referenceRepository.addLocalItemForProject(
+                    projectId = projectId,
+                    localPath = selected.uri,
+                    remoteUrl = "gallery://${selected.uri}",
+                    title = selected.fileName.ifBlank { context.getString(R.string.ref_default_title) }
+                )
+                if (success) successCount++
+            }
+            Toast.makeText(
+                context,
+                if (successCount > 0) context.getString(R.string.ref_msg_added_format, successCount) else context.getString(R.string.ref_msg_add_failed),
+                Toast.LENGTH_SHORT
+            ).show()
+            isSaving = false
+            if (successCount > 0) onBack()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (isLoading) {
             CircularProgressIndicator(
@@ -63,6 +90,8 @@ fun ReferenceGalleryPickerScreen(
                 modifier = Modifier.fillMaxSize(),
                 title = stringResource(R.string.ref_picker_title),
                 onBackClick = onBack,
+                backIcon = Icons.Default.Close,
+                backContentDescription = stringResource(R.string.btn_close),
                 isFilterEnabled = false,
                 showTopSection = true,
                 selectOnTap = true,
@@ -70,38 +99,20 @@ fun ReferenceGalleryPickerScreen(
                 onSelectionModeChanged = { isSelectionMode ->
                     if (!isSelectionMode) selectedUris = emptySet()
                 },
+                showScrollbarWhenSelecting = true,
                 topBarActions = {
                     if (selectedUris.isNotEmpty()) {
                         Text(stringResource(R.string.ref_items_selected, selectedUris.size), color = colors.primaryText)
                         Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_small)))
-                        Button(
-                            enabled = !isSaving,
-                            onClick = {
-                                val selectedMedia = media.filter { it.uri in selectedUris }
-                                if (selectedMedia.isEmpty()) return@Button
-                                isSaving = true
-                                scope.launch {
-                                    var successCount = 0
-                                    selectedMedia.forEach { selected ->
-                                        val success = referenceRepository.addLocalItemForProject(
-                                            projectId = projectId,
-                                            localPath = selected.uri,
-                                            remoteUrl = "gallery://${selected.uri}",
-                                            title = selected.fileName.ifBlank { context.getString(R.string.ref_default_title) }
-                                        )
-                                        if (success) successCount++
-                                    }
-                                    Toast.makeText(
-                                        context,
-                                        if (successCount > 0) context.getString(R.string.ref_msg_added_format, successCount) else context.getString(R.string.ref_msg_add_failed),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                    isSaving = false
-                                    if (successCount > 0) onBack()
-                                }
-                            }
-                        ) {
-                            Text(stringResource(R.string.ref_btn_decide))
+                    }
+                    Button(
+                        enabled = selectedUris.isNotEmpty() && !isSaving,
+                        onClick = ::confirmSelection
+                    ) {
+                        if (isSaving) {
+                            CircularProgressIndicator(color = colors.primaryText)
+                        } else {
+                            Text(stringResource(R.string.ref_btn_confirm))
                         }
                     }
                 }

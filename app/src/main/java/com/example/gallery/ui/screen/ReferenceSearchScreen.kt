@@ -15,7 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
@@ -103,7 +103,7 @@ fun ReferenceSearchScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = ::navigateBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.btn_back), tint = colors.primaryText)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_close), tint = colors.primaryText)
                 }
                 Spacer(Modifier.width(dimensionResource(R.dimen.spacing_tiny)))
                 OutlinedTextField(
@@ -112,9 +112,6 @@ fun ReferenceSearchScreen(
             placeholder = { Text(stringResource(R.string.ref_search_placeholder), color = colors.mutedText) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = colors.mutedText)
-                    },
                     trailingIcon = {
                         IconButton(onClick = {
                             val url = "https://www.google.com/search?q=${Uri.encode(searchQuery)}&tbm=isch"

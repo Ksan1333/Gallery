@@ -1,6 +1,7 @@
 package com.example.gallery.data.repository
 
 import android.content.Context
+import android.net.Uri
 import android.os.Environment
 import com.example.gallery.data.local.GalleryDatabase
 import com.example.gallery.data.local.entity.ReferenceItemEntity
@@ -8,11 +9,19 @@ import com.example.gallery.data.local.entity.ReferenceProjectEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class ReferenceRepository(private val context: Context) {
     private val db = GalleryDatabase.getDatabase(context)
     private val dao = db.referenceDao()
+
+    private val urlClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
 
     fun getAllProjectsFlow(): Flow<List<ReferenceProjectEntity>> = dao.getAllProjectsFlow()
 
@@ -45,6 +54,7 @@ class ReferenceRepository(private val context: Context) {
         title: String = ""
     ): Boolean = withContext(Dispatchers.IO) {
         try {
+            if (!canLoadReferenceUrl(url)) return@withContext false
             dao.insertItem(
                 ReferenceItemEntity(
                     projectId = projectId,
@@ -58,6 +68,25 @@ class ReferenceRepository(private val context: Context) {
             e.printStackTrace()
             false
         }
+    }
+
+    private fun canLoadReferenceUrl(url: String): Boolean {
+        val uri = Uri.parse(url)
+        if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return false
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Range", "bytes=0-0")
+            .get()
+            .build()
+        return runCatching {
+            urlClient.newCall(request).execute().use { response ->
+                val contentType = response.header("Content-Type").orEmpty()
+                response.isSuccessful &&
+                    !contentType.startsWith("text/html", ignoreCase = true) &&
+                    response.body?.byteStream()?.read()?.let { it >= 0 } == true
+            }
+        }.getOrDefault(false)
     }
 
     suspend fun finishProject(project: ReferenceProjectEntity) = withContext(Dispatchers.IO) {

@@ -607,62 +607,17 @@ def screen_media_viewer_recommendation_panel() -> None:
         e.append(thumb(x, panel_y + 58, 110, 110, i + 2, favorite=False))
         e.append(rect(x + 65, panel_y + 142, 40, 18, "badge", rx=3))
         e.append(text(x + 85, panel_y + 155, score, "badgeText", text_anchor="middle"))
-    e.append(text(SX + 22, panel_y + 206, "タグ類似 / ベクトル類似 / ランダム候補", "muted"))
+    e.append(text(SX + 22, panel_y + 206, "視覚類似 / ランダム候補", "muted"))
     e += [marker(1, SX + SW / 2, SY + 330), marker(2, SX + 112, panel_y + 36), marker(3, SX + 196, panel_y + 116)]
     render(
         "関連メディアパネルUIモック",
         e,
         [
             Legend(1, "閲覧中メディア", "左右スワイプで移動しながら関連候補を確認できます。"),
-            Legend(2, "関連パネル", "ビューア下部におすすめ候補を重ねて表示します。"),
+            Legend(2, "関連パネル", "ビューア下部に視覚類似候補とランダム候補を重ねて表示します。"),
             Legend(3, "候補カード", "スコア付きサムネイルから近いメディアを開きます。"),
         ],
         "02_media_viewer_recommendation_ui.svg",
-    )
-
-
-def screen_mylist_ai() -> None:
-    e = phone(APP_BG)
-    e.append(app_bar("マイリスト", actions=["add", "auto"]))
-    e.append(gallery_control_bar(disabled_filter=True))
-    start_y = SY + 138
-    labels = [("Favorites", "428 枚"), ("Untagged", "186 枚"), ("landscape", "94 枚"), ("portrait", "76 枚"), ("blue_sky", "51 枚"), ("AI未分析", "324 枚")]
-    cell_w = (SW - 48) / 3
-    for i, (title, count) in enumerate(labels):
-        x = SX + 16 + (i % 3) * (cell_w + 8)
-        y = start_y + (i // 3) * 80
-        e.append(category_tile(x, y, cell_w, title, count, i, show_thumb=False))
-    e.append(bottom_nav("マイリスト"))
-    e += [marker(1, SX + 118, SY + 28), marker(2, SX + SW - 66, SY + 28), marker(3, SX + 68, start_y + 22), marker(4, SX + SW / 2, SY + SH - 48)]
-    render(
-        "My ListカテゴリUIモック",
-        e,
-        [
-            Legend(1, "CategoryScreen", "My Listはカテゴリ一覧画面として表示します。"),
-            Legend(2, "追加/AI分析", "タグ作成とAI分析を右上のアイコンボタンで開きます。"),
-            Legend(3, "3列カテゴリ", "カテゴリ名と件数を軽いグリッドで並べます。"),
-            Legend(4, "ボトムナビ", "マイリストタブが選択状態になります。"),
-        ],
-        "03_mylist_ai_ui.svg",
-    )
-
-
-def screen_mylist_ai_dialog() -> None:
-    e = phone(APP_BG)
-    e.append(app_bar("マイリスト", actions=["add", "auto"]))
-    e.append(gallery_control_bar(disabled_filter=True))
-    e.append(media_grid(SX + 16, SY + 160, 3, 3, 108, gap=8))
-    e.append(dialog_box(SX + 32, SY + 348, SW - 64, 296, "AI分析の実行", ["分析対象の期間を選択してください:", "● 直近7日間", "○ 直近30日間", "○ すべての期間", "対象画像: 324 枚", "予測時間: 約16分"], "分析開始"))
-    e += [marker(1, SX + SW - 66, SY + 28), marker(2, SX + SW / 2, SY + 390), marker(3, SX + SW / 2, SY + 606)]
-    render(
-        "AI分析ダイアログUIモック",
-        e,
-        [
-            Legend(1, "AI分析ボタン", "右上の自動分析アイコンからダイアログを開きます。"),
-            Legend(2, "期間選択", "分析対象期間と対象件数、予測時間を確認します。"),
-            Legend(3, "実行ボタン", "選択条件でバックグラウンド分析を開始します。"),
-        ],
-        "03_mylist_ai_dialog_ui.svg",
     )
 
 
@@ -995,48 +950,6 @@ def screen_reference_search() -> None:
     )
 
 
-def screen_recommendations() -> None:
-    e = phone(BLACK)
-    e.append(app_bar("おすすめ"))
-    e.append(text(SX + SW / 2, SY + SH / 2 - 20, "おすすめのデータがまだありません。", "muted", text_anchor="middle"))
-    e.append(text(SX + SW / 2, SY + SH / 2 + 4, "計測モードで画像を鑑賞してください。", "muted", text_anchor="middle"))
-    e += [marker(1, SX + 112, SY + 28), marker(2, SX + 76, SY + SH / 2 - 8)]
-    render(
-        "おすすめ・視聴履歴UIモック",
-        e,
-        [
-            Legend(1, "おすすめ画面", "黒いTopAppBarと空状態メッセージのシンプルな構成です。"),
-            Legend(2, "空状態", "閲覧データが貯まるまで案内文を中央表示します。"),
-        ],
-        "08_recommendations_history_ui.svg",
-    )
-
-
-def screen_history_panel() -> None:
-    e = phone(BLACK)
-    e.append(app_bar("おすすめ"))
-    y = SY + 100
-    e.append(text(SX + 24, y, "最近見たメディア", "cardTitle"))
-    for i in range(4):
-        yy = y + 30 + i * 118
-        e.append(rect(SX + 16, yy, SW - 32, 98, "m3Card", rx=8))
-        e.append(thumb(SX + 28, yy + 10, 92, 78, i + 1, favorite=False))
-        e.append(text(SX + 136, yy + 34, f"IMG_20260625_{i + 1:03}.jpg", "cardTitle"))
-        e.append(text(SX + 136, yy + 58, "閲覧 12回 / 4分21秒", "cardSub"))
-        e.append(stroke_icon("play", SX + SW - 44, yy + 50, 22, CYAN))
-    e += [marker(1, SX + 120, y + 64), marker(2, SX + 220, y + 88), marker(3, SX + SW - 44, y + 80)]
-    render(
-        "視聴履歴リストUIモック",
-        e,
-        [
-            Legend(1, "履歴カード", "閲覧済みメディアを時系列で確認します。"),
-            Legend(2, "閲覧統計", "閲覧回数、閲覧時間、最終閲覧を表示します。"),
-            Legend(3, "再表示", "履歴からビューアへ再遷移できます。"),
-        ],
-        "08_viewing_history_ui.svg",
-    )
-
-
 def screen_creators_sites() -> None:
     e = phone(CREATOR_BG)
     e.append(app_bar("Creators", actions=["edit", "upload", "download"], centered=True, bg=CREATOR_BG, fg=CREATOR_INK))
@@ -1099,8 +1012,8 @@ def screen_shared_services() -> None:
     e.append(rect(SX, SY, SW * 0.76, SH, fill="#121212"))
     e.append(text(SX + 20, SY + 44, "Gallery", "barTitle"))
     e.append(text(SX + 20, SY + 72, "高機能ギャラリー", "muted"))
-    drawer = ["ホーム", "フォルダ", "タグ", "本", "ゴミ箱", "動画DL", "お気に入りクリエイター", "お気に入りサイト", "お絵描き資料", "おすすめ（開発中）"]
-    icons = ["home", "folder", "tag", "book", "trash", "download", "heart", "open", "brush", "auto"]
+    drawer = ["ホーム", "フォルダ", "タグ", "本", "ゴミ箱", "動画DL", "お気に入りクリエイター", "お気に入りサイト", "お絵描き資料"]
+    icons = ["home", "folder", "tag", "book", "trash", "download", "heart", "open", "brush"]
     y = SY + 108
     for i, label in enumerate(drawer):
         yy = y + i * 38
@@ -1153,8 +1066,6 @@ def main() -> None:
     screen_media_viewer()
     screen_media_viewer_video_controls()
     screen_media_viewer_recommendation_panel()
-    screen_mylist_ai()
-    screen_mylist_ai_dialog()
     screen_folder_trash_bulk()
     screen_folder_selection()
     screen_trash()
@@ -1167,8 +1078,6 @@ def main() -> None:
     screen_reference_projects()
     screen_reference_detail()
     screen_reference_search()
-    screen_recommendations()
-    screen_history_panel()
     screen_creators_sites()
     screen_favorite_sites()
     screen_shared_services()

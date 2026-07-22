@@ -292,24 +292,6 @@ def media_viewer() -> None:
     render("02_media_viewer_transition.svg", "メディアビューア 機能内画面遷移図", "ビューア内部の操作バー、メニュー、Dialog、関連Panelの遷移", p)
 
 
-def mylist_ai() -> None:
-    p = [
-        phone(70, 210, "My List", "category", "mylist"),
-        phone(330, 210, "カテゴリ一覧", "grid", "mylist/{tag}"),
-        dialog(330, 520, "AI分析Dialog", ["分析種別", "期間選択", "開始"], w=210, h=135),
-        dialog(590, 520, "DatePicker", ["任意期間", "確定"], accent=ORANGE, w=190, h=110),
-        phone(850, 430, "分析進捗", "progress", "analysis", accent=GREEN),
-        phone(1110, 210, "ビューア", "viewer", "in-screen"),
-        arrow(260, 325, 330, 325, "カテゴリ"),
-        arrow(520, 325, 1110, 325, "タップ"),
-        arrow(165, 480, 330, 570, "AIボタン"),
-        arrow(540, 575, 590, 575, "任意期間"),
-        arrow(540, 600, 850, 545, "開始"),
-        arrow(950, 430, 170, 250, "完了/中断", color=GREEN, curve=-160),
-    ]
-    render("03_mylist_ai_transition.svg", "My List・AI分析 機能内画面遷移図", "カテゴリ閲覧とAI分析Dialogから進捗画面へ進む流れ", p)
-
-
 def folder_trash_bulk() -> None:
     p = [
         phone(70, 190, "フォルダ一覧", "folder", "folders"),
@@ -384,22 +366,6 @@ def reference_projects() -> None:
     render("07_reference_projects_transition.svg", "お絵描き資料 機能内画面遷移図", "プロジェクト作成、資料詳細、Web検索、完了確認の流れ", p)
 
 
-def recommendations_history() -> None:
-    p = [
-        phone(70, 220, "おすすめ", "category", "recommend"),
-        phone(330, 220, "視聴履歴", "grid", "history"),
-        phone(590, 220, "MediaViewer", "viewer", "viewer"),
-        sheet(850, 235, "関連Panel", ["タグ類似", "ベクトル類似", "候補表示"], w=220, h=130),
-        phone(1110, 220, "候補Viewer", "viewer", "viewer"),
-        arrow(260, 335, 330, 335, "履歴表示"),
-        arrow(520, 335, 590, 335, "タップ"),
-        arrow(780, 335, 850, 300, "関連"),
-        arrow(1070, 300, 1110, 335, "候補タップ"),
-        arrow(1210, 495, 330, 395, "閲覧統計更新", color=GREEN, curve=160),
-    ]
-    render("08_recommendations_history_transition.svg", "おすすめ・視聴履歴 機能内画面遷移図", "履歴からビューア、関連候補、閲覧統計更新までの流れ", p)
-
-
 def favorite_creators_sites() -> None:
     p = [
         phone(70, 220, "Creators", "creator", "artists", accent=ORANGE),
@@ -440,12 +406,10 @@ def shared_services() -> None:
 def main() -> None:
     media_gallery()
     media_viewer()
-    mylist_ai()
     folder_trash_bulk()
     x_downloader()
     book_viewer()
     reference_projects()
-    recommendations_history()
     favorite_creators_sites()
     shared_services()
 

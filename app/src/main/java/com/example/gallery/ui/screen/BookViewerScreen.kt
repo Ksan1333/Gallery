@@ -92,7 +92,9 @@ import com.example.gallery.ui.component.TapZoneGuideOverlay
 import com.example.gallery.ui.component.isViewerOverflowActionName
 import com.example.gallery.ui.component.tapZoneCountForLayout
 import com.example.gallery.ui.component.tapZoneIndexAt
+import com.example.gallery.ui.component.tapZoneSpecs
 import com.example.gallery.ui.component.resolveViewerAction
+import com.example.gallery.ui.component.resolveViewerActionLabel
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryAlphaTokens
 import com.example.gallery.util.BookPageCacheManager
@@ -567,58 +569,22 @@ fun BookViewerScreen(
         offset = Offset.Zero
     }
 
+    val bookTouchAssignments = remember(preferences, viewerSettings.tapZoneCount) {
+        val defaults = defaultBookTouchAssignments(viewerSettings.tapZoneCount)
+        tapZoneSpecs(viewerSettings.tapZoneCount).map { slot ->
+            preferences.getString("book_touch.${slot.id}", defaults[slot.id] ?: "なし") ?: "なし"
+        }
+    }
+
     fun handleTapZone(index: Int, zoneCount: Int) {
-        when (zoneCount) {
-            11 -> when (index) {
-                0 -> onPreviousBook?.invoke() ?: moveSpread(false)
-                1, 2 -> moveSpread(false)
-                3 -> toggleZoom()
-                4 -> saveCurrentScreenshot()
-                5 -> isUiVisible = !isUiVisible
-                6 -> onOpenBookSettings()
-                7 -> if (viewerSettings.slideshowSeconds > 0) {
-                    isSlideshowRunning = !isSlideshowRunning
-                    isUiVisible = !isSlideshowRunning
-                }
-                8 -> toggleZoom()
-                9 -> moveSpread(true)
-                10 -> onNextBook?.invoke() ?: moveSpread(true)
-                else -> isUiVisible = !isUiVisible
-            }
-            7 -> when (index) {
-                0 -> onPreviousBook?.invoke() ?: moveSpread(false)
-                1 -> onNextBook?.invoke() ?: moveSpread(true)
-                2 -> moveSpread(false)
-                3 -> isUiVisible = !isUiVisible
-                4 -> moveSpread(true)
-                5 -> toggleZoom()
-                6 -> if (viewerSettings.slideshowSeconds > 0) {
-                    isSlideshowRunning = !isSlideshowRunning
-                    isUiVisible = !isSlideshowRunning
-                } else {
-                    saveCurrentScreenshot()
-                }
-                else -> isUiVisible = !isUiVisible
-            }
-            5 -> when (index) {
-                0 -> moveSpread(false)
-                1 -> onPreviousBook?.invoke() ?: moveSpread(false)
-                2 -> isUiVisible = !isUiVisible
-                3 -> onNextBook?.invoke() ?: moveSpread(true)
-                4 -> moveSpread(true)
-                else -> isUiVisible = !isUiVisible
-            }
-            4 -> when (index) {
-                0 -> moveSpread(false)
-                1 -> toggleZoom()
-                2 -> onOpenBookSettings()
-                else -> moveSpread(true)
-            }
-            else -> when {
-                index < zoneCount / 3 -> moveSpread(false)
-                index >= zoneCount - zoneCount / 3 -> moveSpread(true)
-                else -> isUiVisible = !isUiVisible
-            }
+        when (bookTouchAssignments.getOrElse(index) { "なし" }) {
+            AppConstants.ACTION_PREV_BOOK -> onPreviousBook?.invoke() ?: moveSpread(false)
+            AppConstants.ACTION_NEXT_BOOK -> onNextBook?.invoke() ?: moveSpread(true)
+            AppConstants.ACTION_PREV_PAGE -> moveSpread(false)
+            AppConstants.ACTION_NEXT_PAGE -> moveSpread(true)
+            AppConstants.ACTION_ZOOM -> toggleZoom()
+            AppConstants.ACTION_SETTINGS -> onOpenBookSettings()
+            AppConstants.ACTION_TOGGLE_UI -> isUiVisible = !isUiVisible
         }
     }
 
@@ -936,7 +902,7 @@ fun BookViewerScreen(
         if (viewerSettings.touchIndicator) {
             val zoneCount = viewerSettings.tapZoneCount.coerceIn(3, 11)
             TapZoneGuideOverlay(
-                labels = bookTapZoneGuideLabels(zoneCount, isRightToLeft),
+                labels = bookTapZoneGuideLabels(bookTouchAssignments),
                 vertical = viewerSettings.scrollMode == BookScrollMode.VERTICAL,
                 modifier = Modifier.matchParentSize()
             )
@@ -1093,14 +1059,13 @@ fun BookViewerScreen(
                     val actionRotate = stringResource(R.string.label_action_rotate)
                     val actionScreenshot = stringResource(R.string.label_action_screenshot)
                     val actionBookmark = stringResource(R.string.label_action_bookmark)
-                    val actionSlideshow = stringResource(R.string.label_action_slideshow)
                     val actionPrev = stringResource(R.string.label_action_prev)
                     val actionNext = stringResource(R.string.label_action_next)
                     val labelNone = stringResource(R.string.label_action_none)
                     val action3dot = stringResource(R.string.label_3dot_menu)
 
-                    val bookActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionBookmark, actionSlideshow, actionPrev, actionNext) {
-                        listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionBookmark, actionSlideshow, actionPrev, actionNext)
+                    val bookActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionBookmark, actionPrev, actionNext) {
+                        listOf(actionClose, actionSettings, actionBookmark, actionRotate, actionScreenshot, actionPrev, actionNext)
                     }
                     val defaultBarAssignments = remember(actionClose, actionPrev, actionBookmark, actionNext, action3dot) {
                         listOf(actionClose, actionPrev, actionBookmark, actionNext, action3dot)
@@ -1330,72 +1295,52 @@ private fun openBookTitleSearch(context: Context, title: String) {
         .onFailure { Toast.makeText(context, context.getString(R.string.book_error_browser), Toast.LENGTH_SHORT).show() }
 }
 
-private fun bookTapZoneLabels(zoneCount: Int, isRightToLeft: Boolean): List<String> {
-    val prevBook = AppConstants.ACTION_PREV_BOOK
-    val prevPage = AppConstants.ACTION_PREV_PAGE
-    val zoom = AppConstants.ACTION_ZOOM
-    val screenshot = AppConstants.ACTION_SCREENSHOT
-    val menu = AppConstants.ACTION_MENU
-    val settings = AppConstants.ACTION_SETTINGS
-    val slide = AppConstants.ACTION_SLIDESHOW
-    val nextPage = AppConstants.ACTION_NEXT_PAGE
-    val nextBook = AppConstants.ACTION_NEXT_BOOK
-
-    val labels = when (zoneCount) {
-        11 -> listOf(
-            prevBook,
-            prevPage,
-            prevPage,
-            zoom,
-            screenshot,
-            menu,
-            settings,
-            slide,
-            zoom,
-            nextPage,
-            nextBook
-        )
-        4 -> listOf(prevPage, zoom, settings, nextPage)
-        else -> listOf(prevPage, menu, nextPage)
-    }
-    return if (isRightToLeft) labels.reversed() else labels
+private fun defaultBookTouchAssignments(zoneCount: Int): Map<String, String> = when (zoneCount) {
+    11 -> mapOf(
+        "top_start" to AppConstants.ACTION_PREV_BOOK,
+        "top_center" to AppConstants.ACTION_TOGGLE_UI,
+        "top_end" to AppConstants.ACTION_NEXT_BOOK,
+        "left_upper" to AppConstants.ACTION_PREV_PAGE,
+        "left_lower" to AppConstants.ACTION_PREV_PAGE,
+        "center" to AppConstants.ACTION_ZOOM,
+        "right_upper" to AppConstants.ACTION_NEXT_PAGE,
+        "right_lower" to AppConstants.ACTION_NEXT_PAGE,
+        "bottom_start" to AppConstants.ACTION_SETTINGS,
+        "bottom_center" to AppConstants.ACTION_TOGGLE_UI,
+        "bottom_end" to AppConstants.ACTION_NEXT_BOOK
+    )
+    7 -> mapOf(
+        "top_start" to AppConstants.ACTION_PREV_BOOK,
+        "top_end" to AppConstants.ACTION_NEXT_BOOK,
+        "left" to AppConstants.ACTION_PREV_PAGE,
+        "center" to AppConstants.ACTION_TOGGLE_UI,
+        "right" to AppConstants.ACTION_NEXT_PAGE,
+        "bottom_start" to AppConstants.ACTION_ZOOM,
+        "bottom_end" to AppConstants.ACTION_SETTINGS
+    )
+    5 -> mapOf(
+        "top" to AppConstants.ACTION_PREV_PAGE,
+        "left" to AppConstants.ACTION_PREV_BOOK,
+        "center" to AppConstants.ACTION_TOGGLE_UI,
+        "right" to AppConstants.ACTION_NEXT_BOOK,
+        "bottom" to AppConstants.ACTION_NEXT_PAGE
+    )
+    4 -> mapOf(
+        "left" to AppConstants.ACTION_PREV_PAGE,
+        "center" to AppConstants.ACTION_ZOOM,
+        "bottom" to AppConstants.ACTION_SETTINGS,
+        "right" to AppConstants.ACTION_NEXT_PAGE
+    )
+    else -> mapOf(
+        "left" to AppConstants.ACTION_PREV_PAGE,
+        "center" to AppConstants.ACTION_TOGGLE_UI,
+        "right" to AppConstants.ACTION_NEXT_PAGE
+    )
 }
 
 @Composable
-private fun bookTapZoneGuideLabels(zoneCount: Int, isRightToLeft: Boolean): List<String> {
-    val prevBook = stringResource(R.string.book_prev_book)
-    val nextBook = stringResource(R.string.book_next_book)
-    val prevPage = stringResource(R.string.book_prev_page)
-    val nextPage = stringResource(R.string.book_next_page)
-    val zoom = stringResource(R.string.book_zoom)
-    val screenshot = stringResource(R.string.book_screenshot_label)
-    val menu = stringResource(R.string.book_menu)
-    val settings = stringResource(R.string.book_settings)
-    val slide = stringResource(R.string.book_slide_label)
-    val slideshow = stringResource(R.string.label_tap_slideshow)
-
-    val labels = when (zoneCount) {
-        11 -> listOf(
-            prevBook,
-            prevPage,
-            prevPage,
-            zoom,
-            screenshot,
-            menu,
-            settings,
-            slide,
-            zoom,
-            nextPage,
-            nextBook
-        )
-        7 -> listOf(prevBook, nextBook, prevPage, menu, nextPage, zoom, slideshow)
-        5 -> listOf(prevPage, prevBook, menu, nextBook, nextPage)
-        4 -> listOf(prevPage, zoom, settings, nextPage)
-        else -> listOf(prevPage, menu, nextPage)
-    }
-    
-    return if (isRightToLeft) labels.reversed() else labels
-}
+private fun bookTapZoneGuideLabels(assignments: List<String>): List<String> =
+    assignments.map { resolveViewerActionLabel(it) }
 
 private fun loadBookViewerSettings(context: Context, preferences: android.content.SharedPreferences): BookViewerSettings {
     val globalPrefs = context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)

@@ -142,7 +142,8 @@ private fun handleVideoViewerAction(
     onNavigateToSettings: () -> Unit,
     onPreviousVideo: () -> Unit,
     onNextVideo: () -> Unit,
-    onTogglePlayback: () -> Unit
+    onTogglePlayback: () -> Unit,
+    onConvertToGif: () -> Unit
 ) {
     val actionClose = context.getString(R.string.label_action_close_playback)
     val actionSettings = context.getString(R.string.settings_title)
@@ -151,6 +152,7 @@ private fun handleVideoViewerAction(
     val actionPrev = context.getString(R.string.label_action_previous_video)
     val actionNext = context.getString(R.string.label_action_next_video)
     val actionPlayPause = context.getString(R.string.label_action_play_pause)
+    val actionGifConversion = context.getString(R.string.label_action_convert_gif)
 
     when (function) {
         actionClose -> onClose()
@@ -160,6 +162,7 @@ private fun handleVideoViewerAction(
         actionPrev -> onPreviousVideo()
         actionNext -> onNextVideo()
         actionPlayPause -> onTogglePlayback()
+        actionGifConversion -> onConvertToGif()
     }
 }
 
@@ -831,11 +834,12 @@ fun VideoFullscreenViewerScreen(
                     val actionPrev = stringResource(R.string.label_action_previous_video)
                     val actionNext = stringResource(R.string.label_action_next_video)
                     val actionPlayPause = stringResource(R.string.label_action_play_pause)
+                    val actionGifConversion = stringResource(R.string.label_action_convert_gif)
                     val actionOverflow = stringResource(R.string.label_3dot_menu)
                     val labelNone = stringResource(R.string.label_action_none)
 
-                    val videoActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause) {
-                        listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause)
+                    val videoActionCatalog = remember(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGifConversion) {
+                        listOf(actionClose, actionSettings, actionRotate, actionScreenshot, actionPrev, actionNext, actionPlayPause, actionGifConversion)
                     }
                     val defaultBarAssignments = remember(actionRotate, actionPrev, actionPlayPause, actionNext, actionOverflow) {
                         listOf(actionRotate, actionPrev, actionPlayPause, actionNext, actionOverflow)
@@ -878,6 +882,11 @@ fun VideoFullscreenViewerScreen(
                                         onTogglePlayback = {
                                             isPlaying = !isPlaying
                                             exoPlayer?.playWhenReady = isPlaying
+                                        },
+                                        onConvertToGif = {
+                                            currentVideo?.let { video ->
+                                                launchVideoGifConversion(scope, context, video.uri) { galleryState.refresh() }
+                                            }
                                         }
                                     )
                                 },
@@ -887,24 +896,7 @@ fun VideoFullscreenViewerScreen(
                         }
                     }
 
-                    currentVideo?.let { video ->
-                        PlainOverlayIconButton(
-                            icon = Icons.Default.Collections,
-                            contentDescription = stringResource(R.string.label_action_convert_gif),
-                            onClick = {
-                                launchVideoGifConversion(
-                                    scope = scope,
-                                    context = context,
-                                    videoUri = video.uri,
-                                    onCompleted = { galleryState.refresh() }
-                                )
-                            },
-                            iconSize = dimensionResource(R.dimen.icon_size_medium),
-                            buttonSize = 44.dp
-                        )
-                    }
-
-                    if (menuAssignments.isNotEmpty() && barAssignments.any(::isViewerOverflowActionName)) {
+                    if (barAssignments.any(::isViewerOverflowActionName)) {
                         var showMoreMenu by remember { mutableStateOf(false) }
                         Box {
                             PlainOverlayIconButton(
@@ -944,6 +936,11 @@ fun VideoFullscreenViewerScreen(
                                                     onTogglePlayback = {
                                                         isPlaying = !isPlaying
                                                         exoPlayer?.playWhenReady = isPlaying
+                                                    },
+                                                    onConvertToGif = {
+                                                        currentVideo?.let { video ->
+                                                            launchVideoGifConversion(scope, context, video.uri) { galleryState.refresh() }
+                                                        }
                                                     }
                                                 )
                                             }

@@ -42,6 +42,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -404,6 +405,43 @@ private fun buildScrollbarDateLabels(gridItems: List<GridItem>, context: Context
 }
 
 /**
+ * スクロールバーのレール上の座標を、データセット内の候補インデックスへ変換する。
+ *
+ * レールの最下端では必ず最終アイテムを返す。実際のスクロール末端は、段組みの
+ * レーン長が不揃いになり得るため [scrollToGalleryPhysicalEnd] で別途確定させる。
+ */
+internal fun scrollbarTargetIndexForTouch(
+    touchY: Float,
+    grabOffset: Float,
+    railHeight: Float,
+    thumbHeightRatio: Float,
+    totalItems: Int
+): Int {
+    if (totalItems <= 1) return 0
+
+    val safeRailHeight = railHeight.coerceAtLeast(1f)
+    val thumbHeight = safeRailHeight * thumbHeightRatio.coerceIn(0f, 1f)
+    val travelHeight = (safeRailHeight - thumbHeight).coerceAtLeast(1f)
+    val effectiveY = (touchY - grabOffset).coerceIn(0f, travelHeight)
+    return ((effectiveY / travelHeight) * (totalItems - 1))
+        .roundToInt()
+        .coerceIn(0, totalItems - 1)
+}
+
+/**
+ * Staggered grid の最終アイテムを表示した後、レーンの長さの差を吸収して
+ * 実際にスクロール可能な下端まで到達させる。
+ */
+private suspend fun LazyStaggeredGridState.scrollToGalleryPhysicalEnd(lastItemIndex: Int) {
+    if (lastItemIndex < 0) return
+
+    scrollToItem(lastItemIndex)
+    repeat(2) {
+        if (!canScrollForward || scrollBy(Float.MAX_VALUE) <= 0f) return
+    }
+}
+
+/**
  * ギャラリーのメイングリッド表示コンポーネント。
  * 大量データを軽く表示するための最適化を含む。
  */
@@ -425,6 +463,8 @@ fun GalleryGridView(
     onSelectionModeChanged: (Boolean) -> Unit = {},
     title: String? = null,
     onBackClick: (() -> Unit)? = null,
+    backIcon: ImageVector = Icons.AutoMirrored.Filled.ArrowBack,
+    backContentDescription: String? = null,
     scrollToUri: String? = null,
     centerScrollToUri: Boolean = false,
     isFilterEnabled: Boolean = true,
@@ -448,7 +488,8 @@ fun GalleryGridView(
     showTopSection: Boolean = true,
     extraBottomPadding: Dp = dimensionResource(R.dimen.grid_bottom_padding),
     selectOnTap: Boolean = false,
-    selectionEnabled: Boolean = true
+    selectionEnabled: Boolean = true,
+    showScrollbarWhenSelecting: Boolean = false
 ) {
     // 列数の選択肢 (28:年, 7:月, 4/3/1:日)
     val columnOptions = listOf(28, 7, 4, 3, 2)
@@ -1339,6 +1380,8 @@ fun GalleryGridView(
                 isFilterEnabled = isFilterEnabled,
                 galleryState = galleryState,
                 onBackClick = onBackClick,
+                backIcon = backIcon,
+                backContentDescription = backContentDescription,
                 onMenuClick = onMenuClick,
                 onCloseSelection = {
                     logSelectionTrace("top_close count=${selectedUris.size} mode=$isSelectionMode")
@@ -1392,7 +1435,7 @@ fun GalleryGridView(
             )
         }
 
-        if (maxLineSpan < 28 && sortedList.isNotEmpty() && !isSelectionMode && !galleryState.isZooming) {
+        if (maxLineSpan < 28 && sortedList.isNotEmpty() && (!isSelectionMode || showScrollbarWhenSelecting) && !galleryState.isZooming) {
             GalleryScrollbar(
                 gridState = gridState,
                 columnCount = maxLineSpan,
@@ -2950,6 +2993,8 @@ private fun GalleryTopSection(
     isFilterEnabled: Boolean,
     galleryState: GalleryState,
     onBackClick: (() -> Unit)?,
+    backIcon: ImageVector,
+    backContentDescription: String?,
     onMenuClick: (() -> Unit)?,
     onCloseSelection: () -> Unit,
     onBulkFavorite: () -> Unit,
@@ -2967,10 +3012,14 @@ private fun GalleryTopSection(
                 title = title,
                 navigationIcon = when {
                     onMenuClick != null -> Icons.Default.Menu
-                    onBackClick != null -> Icons.AutoMirrored.Filled.ArrowBack
+                    onBackClick != null -> backIcon
                     else -> null
                 },
-                navigationContentDescription = stringResource(if (onMenuClick != null) R.string.btn_open else R.string.btn_back),
+                navigationContentDescription = if (onMenuClick != null) {
+                    stringResource(R.string.btn_open)
+                } else {
+                    backContentDescription ?: stringResource(R.string.btn_back)
+                },
                 onNavigationClick = { (onMenuClick ?: onBackClick)?.invoke() },
                 containerColor = colors.topBar,
                 contentColor = colors.primaryText,
@@ -3154,13 +3203,13 @@ private fun GalleryScrollbar(
                 awaitEachGesture {
                     fun currentTotalItems() = totalItemsState.value
                     fun targetIndexForTouchY(y: Float, grabOffset: Float): Int {
-                        val total = currentTotalItems()
-                        if (total <= 1) return 0
-                        val railHeight = size.height.toFloat().coerceAtLeast(1f)
-                        val thumbHeight = railHeight * thumbHeightRatioState.value
-                        val travelHeight = (railHeight - thumbHeight).coerceAtLeast(1f)
-                        val effectiveY = (y - grabOffset).coerceIn(0f, travelHeight)
-                        return ((effectiveY / travelHeight) * (total - 1)).roundToInt().coerceIn(0, total - 1)
+                        return scrollbarTargetIndexForTouch(
+                            touchY = y,
+                            grabOffset = grabOffset,
+                            railHeight = size.height.toFloat(),
+                            thumbHeightRatio = thumbHeightRatioState.value,
+                            totalItems = currentTotalItems()
+                        )
                     }
 
                     fun isTopTouch(y: Float): Boolean {
@@ -3279,19 +3328,14 @@ private fun GalleryScrollbar(
                             isTopTouch(lastTouchY) -> 0
                             else -> targetIndexForTouchY(lastTouchY, grabOffsetY)
                         }
-                        if (finalTarget >= 0 && (!startsOnThumb || finalTarget != initialIdx)) {
-                            gridState.requestScrollToItem(finalTarget)
-                            if (finalTotal > 0 && finalTarget == finalTotal - 1) {
-                                scope.launch {
-                                    repeat(2) {
-                                        delay(120)
-                                        val latestTotal = totalItemsState.value
-                                        if (latestTotal > 0) {
-                                            gridState.requestScrollToItem(latestTotal - 1)
-                                        }
-                                    }
-                                }
+                        if (finalTotal > 0 && finalTarget == finalTotal - 1) {
+                            // 最後のインデックスを表示するだけでは、短いレーンが先に
+                            // 終わる StaggeredGrid で下端に届かない場合がある。
+                            scope.launch {
+                                gridState.scrollToGalleryPhysicalEnd(finalTotal - 1)
                             }
+                        } else if (finalTarget >= 0 && (!startsOnThumb || finalTarget != initialIdx)) {
+                            gridState.requestScrollToItem(finalTarget)
                         }
                         Log.d(
                             SCROLLBAR_TRACE,

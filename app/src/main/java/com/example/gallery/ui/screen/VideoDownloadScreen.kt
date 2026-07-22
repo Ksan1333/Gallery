@@ -831,6 +831,15 @@ internal fun groupDownloadCandidates(
     .filter { it.isDownloadableMedia }
     .groupBy { it.mediaKey }
     .values
+    .map { group ->
+        // X includes a still preview URL alongside video variants.  It is not a
+        // separately downloadable item, so keep it out of the video's choices.
+        if (group.any { it.isPlayableVideo }) {
+            group.filterNot { it.isStillImage && !it.isDirectGifCandidate }
+        } else {
+            group
+        }
+    }
     .toList()
 
 internal fun buildMediaDownloadSelections(
@@ -1304,15 +1313,16 @@ fun startDownloadTask(
                     outputStream.flush()
                 } ?: throw Exception("Failed to open output stream")
 
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    val updateValues = android.content.ContentValues().apply {
+                val updateValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000)
+                    put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
+                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                         put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
-                        put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
-                        put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
                         put(android.provider.MediaStore.MediaColumns.DATE_EXPIRES, null as Long?)
                     }
-                    resolver.update(uri, updateValues, null, null)
                 }
+                resolver.update(uri, updateValues, null, null)
 
                 val actualPath = try {
                     val cursor = resolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)

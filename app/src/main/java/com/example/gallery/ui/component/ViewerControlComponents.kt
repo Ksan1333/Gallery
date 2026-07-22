@@ -44,9 +44,11 @@ fun resolveViewerActionLabel(name: String): String {
         AppConstants.ACTION_PREV -> stringResource(R.string.label_action_prev)
         AppConstants.ACTION_NEXT -> stringResource(R.string.label_action_next)
         AppConstants.ACTION_PLAY_PAUSE -> stringResource(R.string.label_action_play_pause)
+        AppConstants.ACTION_PLAY -> stringResource(R.string.label_action_play)
         AppConstants.ACTION_FAVORITE -> stringResource(R.string.label_action_favorite)
         AppConstants.ACTION_SLIDESHOW -> stringResource(R.string.label_action_slideshow)
         AppConstants.ACTION_GIF -> stringResource(R.string.label_action_gif)
+        AppConstants.ACTION_GIF_CONVERSION -> stringResource(R.string.label_action_convert_gif)
         AppConstants.ACTION_ASCII2D -> stringResource(R.string.label_action_ascii2d)
         AppConstants.ACTION_WALLPAPER -> stringResource(R.string.label_action_wallpaper)
         AppConstants.ACTION_THUMBNAIL -> stringResource(R.string.label_action_folder_thumbnail)
@@ -124,6 +126,7 @@ fun resolveViewerAction(
             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
             if (isPlaying) stringResource(R.string.viewer_pause) else stringResource(R.string.viewer_play)
         )
+        AppConstants.ACTION_PLAY -> ViewerAction(name, Icons.Default.PlayArrow, stringResource(R.string.label_action_play))
         AppConstants.ACTION_FAVORITE -> ViewerAction(
             name,
             if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -139,6 +142,11 @@ fun resolveViewerAction(
             name,
             if (isGifStepping) Icons.Default.Close else Icons.Default.Collections,
             if (isGifStepping) stringResource(R.string.viewer_gif_stepping_stop) else stringResource(R.string.viewer_gif_stepping)
+        )
+        AppConstants.ACTION_GIF_CONVERSION -> ViewerAction(
+            name,
+            Icons.Default.Collections,
+            stringResource(R.string.label_action_convert_gif)
         )
         AppConstants.ACTION_ASCII2D -> ViewerAction(name, Icons.Default.ImageSearch, ascii2dLabel)
         AppConstants.ACTION_WALLPAPER -> ViewerAction(name, Icons.Default.Wallpaper, wallpaperLabel)

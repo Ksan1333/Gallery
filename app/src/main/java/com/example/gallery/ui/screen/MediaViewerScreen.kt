@@ -161,6 +161,8 @@ private fun handleViewerAction(
     gifFrames: List<Bitmap>,
     onClickedClose: () -> Unit,
     onRotate: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onConvertToGif: () -> Unit,
     onToggleSlideshow: () -> Unit,
     onToggleGifStepping: () -> Unit,
     onShowTagDialog: () -> Unit,
@@ -177,6 +179,8 @@ private fun handleViewerAction(
         context.getString(R.string.label_action_close) -> onClickedClose()
         context.getString(R.string.label_action_settings) -> galleryState?.navController?.navigate(AppRoutes.MEDIA_VIEWER_SETTINGS)
         context.getString(R.string.label_action_rotate) -> onRotate()
+        context.getString(R.string.label_action_play) -> if (currentMediaItem.isVideo) onTogglePlayback()
+        context.getString(R.string.label_action_convert_gif) -> if (currentMediaItem.isVideo) onConvertToGif()
         context.getString(R.string.label_action_screenshot) -> {
             if (currentMediaItem.isGif && isFrameSteppingVisible && gifFrames.isNotEmpty()) saveBitmapToScreenshots(context, gifFrames[0])
             else if (currentMediaItem.isVideo) captureVideoFrame(context, currentMediaItem.uri, videoPosition) { bitmap -> if (bitmap != null) saveBitmapToScreenshots(context, bitmap) }
@@ -206,7 +210,15 @@ private fun isMediaViewerActionAvailable(function: String, mediaItem: MediaData,
     return when (function) {
         // Hide the retired GIF frame-stepping action from old saved assignments.
         context.getString(R.string.label_action_gif) -> false
+        context.getString(R.string.label_action_play) -> mediaItem.isVideo
         context.getString(R.string.label_action_ascii2d) -> !mediaItem.isVideo
+        else -> true
+    }
+}
+
+private fun isMediaViewerActionEnabled(function: String, mediaItem: MediaData, context: Context): Boolean {
+    return when (function) {
+        context.getString(R.string.label_action_convert_gif) -> mediaItem.isVideo
         else -> true
     }
 }
@@ -1197,27 +1209,27 @@ fun MediaViewerScreen(
                     val barPrefs = remember { context.getSharedPreferences("media_viewer_settings", Context.MODE_PRIVATE) }
 
                     val actionTrash = stringResource(R.string.label_action_trash)
+                    val actionClose = stringResource(R.string.label_action_close)
                     val actionSettings = stringResource(R.string.label_action_settings)
                     val actionRotate = stringResource(R.string.label_action_rotate)
+                    val actionPlay = stringResource(R.string.label_action_play)
+                    val actionGifConversion = stringResource(R.string.label_action_convert_gif)
                     val actionFavorite = stringResource(R.string.label_action_favorite)
                     val actionSlideshow = stringResource(R.string.label_action_slideshow)
                     val actionAscii2d = stringResource(R.string.label_action_ascii2d)
                     val actionScreenshot = stringResource(R.string.label_action_screenshot)
                     val actionWallpaper = stringResource(R.string.label_action_wallpaper)
-                    val actionFolderThumbnail = stringResource(R.string.label_action_folder_thumbnail)
-                    val actionTag = stringResource(R.string.label_action_tag)
                     val action3dot = stringResource(R.string.label_3dot_menu)
                     val labelNone = stringResource(R.string.label_none)
 
                     val mediaActionCatalog = remember(
-                        actionTrash, actionSettings, actionRotate, actionFavorite,
+                        actionClose, actionSettings, actionRotate, actionScreenshot, actionPlay, actionGifConversion, actionTrash, actionFavorite,
                         actionSlideshow, actionAscii2d, actionScreenshot,
-                        actionWallpaper, actionFolderThumbnail, actionTag
+                        actionWallpaper
                     ) {
                         listOf(
-                            actionTrash, actionSettings, actionRotate, actionFavorite,
-                            actionSlideshow, actionAscii2d, actionScreenshot,
-                            actionWallpaper, actionFolderThumbnail, actionTag
+                            actionClose, actionSettings, actionRotate, actionScreenshot, actionPlay, actionGifConversion,
+                            actionTrash, actionFavorite, actionSlideshow, actionAscii2d, actionWallpaper
                         )
                     }
                     val defaultBarAssignments = remember(showDeleteButton, actionTrash, actionSettings, actionRotate, actionFavorite, action3dot) {
@@ -1257,6 +1269,7 @@ fun MediaViewerScreen(
                                     if (isViewerOverflowAction(function, context) || !isMediaViewerActionAvailable(function, currentMediaItem, context)) {
                                         return@forEach
                                     }
+                            val actionEnabled = isMediaViewerActionEnabled(function, currentMediaItem, context)
                             val action = resolveViewerAction(function, isFavorite = isFavorite, isPlaying = isVideoPlaying, isSlideshowRunning = isSlideshowRunning, isGifStepping = isFrameSteppingVisible)
                             if (action != null) {
                                 GalleryFloatingActionButton(
@@ -1264,7 +1277,8 @@ fun MediaViewerScreen(
                                     tooltipDescription = action.label,
                                     size = dimensionResource(R.dimen.button_size_viewer_action),
                                     iconSize = dimensionResource(R.dimen.icon_size_viewer_action),
-                                    contentColor = action.color ?: colors.primaryText,
+                                    contentColor = if (actionEnabled) action.color ?: colors.primaryText else colors.mutedText,
+                                    enabled = actionEnabled,
                                     onClick = {
                                         handleViewerAction(
                                             function = function,
@@ -1280,6 +1294,10 @@ fun MediaViewerScreen(
                                                 val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                 screenOrientation = target
                                                 (context as Activity).requestedOrientation = target
+                                            },
+                                            onTogglePlayback = { isVideoPlaying = !isVideoPlaying },
+                                            onConvertToGif = {
+                                                launchVideoGifConversion(scope, context, currentMediaItem.uri) { galleryState?.refresh() }
                                             },
                                             onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
                                             onToggleGifStepping = {
@@ -1314,25 +1332,7 @@ fun MediaViewerScreen(
                             }
                         }
 
-                        if (currentMediaItem.isVideo) {
-                            GalleryFloatingActionButton(
-                                icon = Icons.Default.Collections,
-                                tooltipDescription = stringResource(R.string.label_action_convert_gif),
-                                size = dimensionResource(R.dimen.button_size_viewer_action),
-                                iconSize = dimensionResource(R.dimen.icon_size_viewer_action),
-                                contentColor = colors.primaryText,
-                                onClick = {
-                                    launchVideoGifConversion(
-                                        scope = scope,
-                                        context = context,
-                                        videoUri = currentMediaItem.uri,
-                                        onCompleted = { galleryState?.refresh() }
-                                    )
-                                }
-                            )
-                        }
-
-                        if (menuAssignments.isNotEmpty() && barAssignments.any { isViewerOverflowAction(it, context) }) {
+                        if (barAssignments.any { isViewerOverflowAction(it, context) }) {
                             var showMoreMenu by remember { mutableStateOf(false) }
                             Box {
                                 GalleryFloatingActionButton(
@@ -1351,9 +1351,11 @@ fun MediaViewerScreen(
                                     menuAssignments.forEach { function ->
                                         val action = resolveViewerAction(function, isFavorite = isFavorite, isPlaying = isVideoPlaying, isSlideshowRunning = isSlideshowRunning, isGifStepping = isFrameSteppingVisible)
                                         if (action != null) {
+                                            val actionEnabled = isMediaViewerActionEnabled(function, currentMediaItem, context)
                                             DropdownMenuItem(
-                                                text = { Text(action.label, color = colors.primaryText) },
-                                                leadingIcon = { Icon(action.icon, null, tint = action.color ?: colors.primaryText) },
+                                                text = { Text(action.label, color = if (actionEnabled) colors.primaryText else colors.mutedText) },
+                                                leadingIcon = { Icon(action.icon, null, tint = if (actionEnabled) action.color ?: colors.primaryText else colors.mutedText) },
+                                                enabled = actionEnabled,
                                                 onClick = {
                                                     showMoreMenu = false
                                                     handleViewerAction(
@@ -1370,6 +1372,10 @@ fun MediaViewerScreen(
                                                             val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                             screenOrientation = target
                                                             (context as Activity).requestedOrientation = target
+                                                        },
+                                                        onTogglePlayback = { isVideoPlaying = !isVideoPlaying },
+                                                        onConvertToGif = {
+                                                            launchVideoGifConversion(scope, context, currentMediaItem.uri) { galleryState?.refresh() }
                                                         },
                                                         onToggleSlideshow = { isSlideshowRunning = !isSlideshowRunning; isUiVisible = !isSlideshowRunning },
                                                         onToggleGifStepping = {

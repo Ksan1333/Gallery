@@ -8,23 +8,30 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +49,7 @@ import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,7 +71,12 @@ fun ReferenceDetailScreen(
     }
 
     var showAddChoices by remember { mutableStateOf(false) }
+    var showUrlInput by remember { mutableStateOf(false) }
+    var urlToAdd by remember { mutableStateOf("") }
+    var isAddingUrl by remember { mutableStateOf(false) }
+    var showUrlLoadFailure by remember { mutableStateOf(false) }
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
     val defaultRefTitle = stringResource(R.string.ref_default_item_name)
     val mediaList = remember(items, defaultRefTitle) {
         items.map { refItem ->
@@ -79,8 +92,8 @@ fun ReferenceDetailScreen(
         topBar = {
             GalleryTopAppBar(
                 title = project?.title ?: stringResource(R.string.ref_detail_title),
-                navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                navigationContentDescription = stringResource(R.string.btn_back),
+                navigationIcon = Icons.Default.Close,
+                navigationContentDescription = stringResource(R.string.btn_close),
                 onNavigationClick = onBack,
                 centered = true
             )
@@ -145,6 +158,18 @@ fun ReferenceDetailScreen(
                     }
             )
             ListItem(
+                headlineContent = { Text(stringResource(R.string.ref_from_url)) },
+                leadingContent = {
+                    Icon(Icons.Default.Link, contentDescription = null, tint = colors.accent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        showAddChoices = false
+                        showUrlInput = true
+                    }
+            )
+            ListItem(
                 headlineContent = { Text(stringResource(R.string.ref_from_gallery)) },
                 leadingContent = {
                     Icon(Icons.Default.Image, contentDescription = null, tint = colors.accent)
@@ -158,6 +183,62 @@ fun ReferenceDetailScreen(
             )
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (showUrlInput) {
+        AlertDialog(
+            onDismissRequest = { if (!isAddingUrl) showUrlInput = false },
+            title = { Text(stringResource(R.string.ref_from_url), color = colors.primaryText) },
+            text = {
+                OutlinedTextField(
+                    value = urlToAdd,
+                    onValueChange = { urlToAdd = it },
+                    label = { Text(stringResource(R.string.ref_url_hint)) },
+                    singleLine = true,
+                    enabled = !isAddingUrl,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = urlToAdd.isNotBlank() && !isAddingUrl,
+                    onClick = {
+                        isAddingUrl = true
+                        scope.launch {
+                            val success = repository.addReferenceFromUrl(projectId, urlToAdd.trim())
+                            isAddingUrl = false
+                            if (success) {
+                                urlToAdd = ""
+                                showUrlInput = false
+                            } else {
+                                showUrlInput = false
+                                showUrlLoadFailure = true
+                            }
+                        }
+                    }
+                ) {
+                    if (isAddingUrl) CircularProgressIndicator() else Text(stringResource(R.string.ref_btn_decide))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUrlInput = false }, enabled = !isAddingUrl) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
+    }
+
+    if (showUrlLoadFailure) {
+        AlertDialog(
+            onDismissRequest = { showUrlLoadFailure = false },
+            title = { Text(stringResource(R.string.ref_url_add_failed_title), color = colors.primaryText) },
+            text = { Text(stringResource(R.string.ref_url_add_failed_message), color = colors.primaryText) },
+            confirmButton = {
+                Button(onClick = { showUrlLoadFailure = false }) {
+                    Text(stringResource(R.string.btn_ok))
+                }
+            }
+        )
     }
 
     selectedIndex?.let { index ->

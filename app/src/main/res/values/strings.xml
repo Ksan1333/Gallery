@@ -369,6 +369,10 @@
     <string name="ref_add_reference">資料を追加</string>
     <string name="ref_from_gallery">ギャラリーから選ぶ</string>
     <string name="ref_from_web">Webで画像を探す</string>
+    <string name="ref_from_url">URLを直接入力</string>
+    <string name="ref_url_hint">画像URL</string>
+    <string name="ref_url_add_failed_title">資料を追加できません</string>
+    <string name="ref_url_add_failed_message">画像を読み込めませんでした。URLを確認してください。</string>
     <string name="ref_detail_title">詳細</string>
     <string name="ref_mark_complete">完了にする</string>
     <string name="ref_resume_project">進行中に戻す</string>
@@ -673,6 +677,7 @@
     <string name="label_match_or">OR</string>
 
     <string name="label_action_play_pause">再生/停止</string>
+    <string name="label_action_play">再生</string>
     <string name="label_action_previous_video">前へ</string>
     <string name="label_action_next_video">次へ</string>
     <string name="label_action_close_playback">閉じる</string>
@@ -751,6 +756,7 @@
     <string name="ref_msg_added_format">%1$d件追加しました</string>
     <string name="ref_msg_add_failed">追加に失敗しました</string>
     <string name="ref_btn_decide">追加</string>
+    <string name="ref_btn_confirm">確定</string>
     <string name="ref_msg_added">Webリンクを資料に追加しました</string>
     <string name="ref_msg_screenshot_added">スクショを資料に追加しました</string>
     <string name="ref_msg_screenshot_failed">スクショに失敗しました</string>
@@ -888,7 +894,7 @@
     <string name="label_action_favorite">お気に入り</string>
     <string name="label_action_slideshow">スライドショー</string>
     <string name="label_action_gif">GIF</string>
-    <string name="label_action_convert_gif">GIFに変換</string>
+    <string name="label_action_convert_gif">GIF変換</string>
     <string name="label_action_ascii2d">ascii2d</string>
     <string name="label_action_wallpaper">壁紙</string>
     <string name="label_action_folder_thumbnail">フォルダサムネイル</string>

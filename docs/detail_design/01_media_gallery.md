@@ -24,13 +24,20 @@
 
 | 項目 | 内容 |
 | --- | --- |
-| 主画面 | `HomeGalleryScreen`, `FolderGalleryScreen`, `CategoryScreen` |
+| 主画面 | `HomeGalleryScreen`, `FolderGalleryScreen`, `VideoGalleryScreen`, `TrashScreen` |
 | 一覧部品 | `GalleryGridView` |
 | 表示単位 | メディアセル、日/月/年/ストレージヘッダー |
 | 操作 | タップでビューア、長押しで選択、ドラッグで範囲選択、一括編集、一括移動 |
 | 表示切替 | 列数 2 / 3 / 4 / 7 / 28、日付見出し、類似画像グループ、メディア種別、年齢制限、端末向け比率、ソート |
 
-### 4.2.1 類似画像グループ
+### 4.2.1 スクロールバー終端
+
+- スクロールバーのレールは、一覧の上部バーと下部ナビゲーション／追加パディングを除いた領域に合わせる。
+- レール最下端へドラッグして離した場合は、最終アイテムのインデックスへ移動した後、`LazyStaggeredGridState.scrollBy()` で実際のスクロール可能下端まで移動する。
+- Staggered Grid はレーンごとに高さが異なるため、最終アイテム番号だけを指定して終端とみなしてはならない。`canScrollForward == false` を下端到達の判定とする。
+- 下端到達時はサムネイルのバーもレール下端に表示し、ギャラリー内容の下端と同じ位置になることを保証する。
+
+### 4.2.2 類似画像グループ
 
 1. `MediaRepository.findAdjacentSimilarMediaGroups()`は対象画像を日時昇順に並べる。
 2. 隣接ペアのコサイン類似度が0.6以上なら同じグループへ追加する。
@@ -40,7 +47,7 @@
 6. 吹き出し内は4列・最大2段、超過分は内部スクロールとする。
 7. 吹き出しから画像を開く場合、`MediaViewerScreen`にはグループ内画像だけを吹き出し順で渡す。
 
-### 4.2.2 列数変更
+### 4.2.3 列数変更
 
 - 2列は画像ごとの縦横比を使用する。
 - 2列から3・4列へ戻る場合はスタッガードレーンを再生成し、表示位置を維持したまま均一高へ戻す。
@@ -167,7 +174,7 @@ erDiagram
 
 ```mermaid
 sequenceDiagram
-    participant UI as Home/Folder/Category
+    participant UI as Home/Folder/Video/Trash
     participant Grid as GalleryGridView
     participant State as GalleryState
     participant Repo as MediaRepository
