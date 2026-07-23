@@ -37,7 +37,6 @@ object BookPageCacheManager {
                         cachedPages[i] = bitmap
                     }
                 }
-                Log.d(TAG, "Cache prepared: ${cachedPages.size} pages for ${book.title}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to prepare book cache", e)
             }

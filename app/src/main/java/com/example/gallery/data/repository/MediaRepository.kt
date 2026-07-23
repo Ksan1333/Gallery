@@ -8,6 +8,7 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import java.io.File
@@ -29,6 +30,7 @@ import com.example.gallery.ui.state.*
 import com.example.gallery.service.GlobalOperationService
 import com.example.gallery.data.service.VectorSearchService
 import com.example.gallery.ui.AppDefaults
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -41,6 +43,7 @@ import java.util.*
 
 private const val FOLDER_MOVE_TRACE = "FOLDER_MOVE_TRACE"
 private const val SIMILAR_GROUP_TRACE = "GALLERY_SIMILAR_GROUP_TRACE"
+private const val MEDIA_SYNC_TRACE = "GALLERY_MEDIA_SYNC_TRACE"
 
 class MediaRepository(
     private val context: Context,
@@ -72,6 +75,8 @@ class MediaRepository(
     private var cachedMediaList: List<MediaData>? = null
     private var lastCacheTime: Long = 0
     private val cacheMutex = Mutex()
+    private val syncStateMutex = Mutex()
+    private var activeMediaStoreSync: CompletableDeferred<Unit>? = null
 
     fun getGridItemPagingFlow(
         mediaType: MediaTypeFilter,
@@ -213,7 +218,31 @@ class MediaRepository(
         }
     }
 
-    suspend fun syncMediaStoreToRoom() = withContext(Dispatchers.IO) {
+    suspend fun syncMediaStoreToRoom() {
+        val (sync, ownsSync) = syncStateMutex.withLock {
+            activeMediaStoreSync?.let { return@withLock it to false }
+            CompletableDeferred<Unit>().also { activeMediaStoreSync = it } to true
+        }
+        if (!ownsSync) {
+            Log.d(MEDIA_SYNC_TRACE, "joined active_sync")
+            return sync.await()
+        }
+
+        try {
+            withContext(Dispatchers.IO) { syncMediaStoreToRoomInternal() }
+            sync.complete(Unit)
+        } catch (throwable: Throwable) {
+            sync.completeExceptionally(throwable)
+            throw throwable
+        } finally {
+            syncStateMutex.withLock {
+                if (activeMediaStoreSync === sync) activeMediaStoreSync = null
+            }
+        }
+    }
+
+    private suspend fun syncMediaStoreToRoomInternal() {
+        val syncStartedAt = SystemClock.elapsedRealtime()
         val hasAnyPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasImages = context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED
             val hasVideos = context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -225,9 +254,18 @@ class MediaRepository(
             context.checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
 
-        if (!hasAnyPermission) return@withContext
+        if (!hasAnyPermission) {
+            Log.d(MEDIA_SYNC_TRACE, "skipped reason=no_media_permission")
+            return
+        }
 
         var opId: String? = null
+        var scannedMediaCount = 0
+        var updatedMetadataCount = 0
+        var deletedMetadataCount = 0
+        var preservedVectorCount = 0
+        var queryCount = 0
+        var metadataSnapshotElapsedMs = 0L
         fun ensureSyncOperation(): String {
             opId?.let { return it }
             val newOpId = GlobalOperationService.startOperation(context.getString(R.string.msg_syncing_library), tag = "SYNC_MEDIA_STORE")
@@ -237,30 +275,11 @@ class MediaRepository(
         }
         
         try {
-            val existingFullMetadata = mediaDao.getAllMetadata().associateBy { it.uri }
-            val existingMetadata = existingFullMetadata.mapValues { (_, entity) ->
-                MediaMetadataSummary(
-                    uri = entity.uri,
-                    dateAdded = entity.dateAdded,
-                    mimeType = entity.mimeType,
-                    duration = entity.duration,
-                    width = entity.width,
-                    height = entity.height,
-                    fileSize = entity.fileSize,
-                    fileName = entity.fileName,
-                    isFavorite = entity.isFavorite,
-                    ageRating = entity.ageRating,
-                    isAiAnalyzed = entity.isAiAnalyzed,
-                    aiAnalysisModel = entity.aiAnalysisModel,
-                    folderName = entity.folderName,
-                    isDeleted = entity.isDeleted,
-                    deletedDate = entity.deletedDate,
-                    hasFeatureVector = entity.featureVector != null,
-                    hasThumbnail = entity.hasThumbnail,
-                    startupThumbnailAttempted = entity.startupThumbnailAttempted,
-                    startupVectorAttempted = entity.startupVectorAttempted
-                )
-            }
+            val metadataSnapshotStartedAt = SystemClock.elapsedRealtime()
+            // Avoid loading every feature-vector BLOB during a normal gallery sync. A vector is
+            // read only when its MediaStore row has changed and needs to be preserved.
+            val existingMetadata = mediaDao.getAllMetadataSummary().associateBy { it.uri }
+            metadataSnapshotElapsedMs = SystemClock.elapsedRealtime() - metadataSnapshotStartedAt
             val foundUris = HashSet<String>(10000)
             val newEntities = mutableListOf<MediaMetadataEntity>()
 
@@ -289,19 +308,10 @@ class MediaRepository(
                 setOf("external")
             }
 
-            // 先に全体件数を取得して進捗率を正確にする。
-            var totalToProcess = 0
-            volumeNames.forEach { vn ->
-                listOf(MediaStore.Images.Media.getContentUri(vn), MediaStore.Video.Media.getContentUri(vn)).forEach { col ->
-                    queryMediaStore(col, arrayOf(MediaStore.MediaColumns._ID))?.use {
-                        totalToProcess += it.count 
-                    }
-                }
-            }
-            Log.d("MediaRepository", "Sync started: total to process = $totalToProcess")
-            val totalF = totalToProcess.toFloat().coerceAtLeast(1f)
-
-            var processedCount = 0
+            // Cursor.count is available from the query needed for the actual synchronization.
+            // This removes the former ID-only traversal of the entire MediaStore.
+            val totalCollections = (volumeNames.size * 2).coerceAtLeast(1)
+            var collectionIndex = 0
             volumeNames.forEach { volumeName ->
                 val collections = listOf(
                     MediaStore.Images.Media.getContentUri(volumeName),
@@ -309,8 +319,11 @@ class MediaRepository(
                 )
 
                 collections.forEach { collection ->
+                    val currentCollectionIndex = collectionIndex++
                     try {
                         queryMediaStore(collection, projection)?.use { cursor ->
+                            queryCount++
+                            val collectionCount = cursor.count.coerceAtLeast(1)
                             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                             val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
@@ -333,12 +346,15 @@ class MediaRepository(
                             }
 
                             while (cursor.moveToNext()) {
-                                processedCount++
-                                if (processedCount % 100 == 0) {
+                                scannedMediaCount++
+                                if (scannedMediaCount % 100 == 0) {
                                     // 読み込み進捗を 0-85% で表現する。
                                     opId?.let { activeOpId ->
+                                        val collectionStart = currentCollectionIndex.toFloat() / totalCollections * 0.85f
+                                        val collectionEnd = (currentCollectionIndex + 1).toFloat() / totalCollections * 0.85f
+                                        val collectionProgress = (cursor.position + 1).toFloat() / collectionCount
                                         GlobalOperationService.updateProgress(
-                                            (processedCount.toFloat() / totalF) * 0.85f,
+                                            collectionStart + (collectionEnd - collectionStart) * collectionProgress,
                                             id = activeOpId
                                         )
                                     }
@@ -349,7 +365,6 @@ class MediaRepository(
                                 if (!foundUris.add(contentUri)) continue
 
                                 val existing = existingMetadata[contentUri]
-                                val existingEntity = existingFullMetadata[contentUri]
                                 
                                 val dateTaken = if (dateTakenColumn != -1) cursor.getLong(dateTakenColumn) else 0L
                                 val dateAdded = cursor.getLong(dateColumn) * 1000
@@ -383,6 +398,12 @@ class MediaRepository(
                                     existing.isDeleted != nextIsDeleted
                                 ) {
                                     ensureSyncOperation()
+                                    val featureVector = if (existing?.hasFeatureVector == true) {
+                                        preservedVectorCount++
+                                        mediaDao.getMetadata(contentUri)?.featureVector
+                                    } else {
+                                        null
+                                    }
                                     newEntities.add(MediaMetadataEntity(
                                         uri = contentUri,
                                         dateAdded = date,
@@ -397,7 +418,7 @@ class MediaRepository(
                                         ageRating = existing?.ageRating ?: "SFW",
                                         isAiAnalyzed = existing?.isAiAnalyzed ?: false,
                                         aiAnalysisModel = existing?.aiAnalysisModel ?: "",
-                                        featureVector = existingEntity?.featureVector,
+                                        featureVector = featureVector,
                                         isDeleted = nextIsDeleted,
                                         deletedDate = existing?.deletedDate ?: if (isMediaStoreTrashed) System.currentTimeMillis() else null,
                                         hasThumbnail = existing?.hasThumbnail ?: false,
@@ -415,6 +436,7 @@ class MediaRepository(
 
             if (newEntities.isNotEmpty()) {
                 val activeOpId = ensureSyncOperation()
+                updatedMetadataCount = newEntities.size
                 GlobalOperationService.updateProgress(0.9f, context.getString(R.string.msg_updating_db), id = activeOpId)
                 newEntities.chunked(100).forEach { chunk ->
                     mediaDao.bulkInsertMetadata(chunk)
@@ -427,6 +449,7 @@ class MediaRepository(
             }
             if (dbUrisToDelete.isNotEmpty()) {
                 val activeOpId = ensureSyncOperation()
+                deletedMetadataCount = dbUrisToDelete.size
                 GlobalOperationService.updateProgress(0.95f, context.getString(R.string.msg_deleting_obsolete), id = activeOpId)
                 dbUrisToDelete.chunked(100).forEach { chunk ->
                     mediaDao.bulkDeleteMetadata(chunk)
@@ -456,6 +479,13 @@ class MediaRepository(
             lastCacheTime = System.currentTimeMillis()
         } finally {
             opId?.let { GlobalOperationService.finishOperation(it) }
+            Log.d(
+                MEDIA_SYNC_TRACE,
+                "finished scanned=$scannedMediaCount changed=$updatedMetadataCount " +
+                    "deleted=$deletedMetadataCount preservedVectors=$preservedVectorCount " +
+                    "queries=$queryCount snapshotMs=$metadataSnapshotElapsedMs " +
+                    "totalMs=${SystemClock.elapsedRealtime() - syncStartedAt}"
+            )
         }
     }
 

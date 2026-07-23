@@ -33,6 +33,7 @@ import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryAlphaTokens
 import com.example.gallery.ui.state.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -272,7 +273,9 @@ fun HomeGalleryScreen(
             galleryState.repository.syncMediaStoreToRoom()
             
             // 2. Viewer用の全リスト同期などのためにDBから取得
-            val updatedMedia = galleryState.repository.getAllMedia(forceRefresh = true).let { list ->
+            // syncMediaStoreToRoom() has just refreshed the repository cache. Reusing that
+            // result avoids immediately performing a second full MediaStore scan.
+            val updatedMedia = galleryState.repository.getAllMedia().let { list ->
                 if (!homeShowVideos && galleryState.mediaTypeFilter == MediaTypeFilter.ALL) {
                     list.filter { !it.isVideo }
                 } else {
@@ -325,8 +328,27 @@ fun HomeGalleryScreen(
         localLoadImages()
     }
 
-    val allTagsData by galleryState.repository.getAllTagsWithUris().collectAsState(initial = emptyList())
-    val metadataList by galleryState.repository.getAllMetadataSummaryFlow().collectAsState(initial = emptyList())
+    val isSearchActive = galleryState.isHomeSearchActive
+    val isFavoriteFilterActive = galleryState.homeFavoritesOnly
+    // The Paging grid already reads the small visible window from Room. Loading and grouping the
+    // complete tag/metadata tables here is only needed for a home search or favorites filter.
+    val shouldLoadFilterMetadata = isSearchActive || isFavoriteFilterActive
+    val homeTagsFlow = remember(shouldLoadFilterMetadata, galleryState.repository) {
+        if (shouldLoadFilterMetadata) {
+            galleryState.repository.getAllTagsWithUris()
+        } else {
+            flowOf(emptyList<com.example.gallery.data.local.entity.TagEntity>())
+        }
+    }
+    val homeMetadataFlow = remember(shouldLoadFilterMetadata, galleryState.repository) {
+        if (shouldLoadFilterMetadata) {
+            galleryState.repository.getAllMetadataSummaryFlow()
+        } else {
+            flowOf(emptyList<com.example.gallery.data.local.entity.MediaMetadataSummary>())
+        }
+    }
+    val allTagsData by homeTagsFlow.collectAsState(initial = emptyList())
+    val metadataList by homeMetadataFlow.collectAsState(initial = emptyList())
     val metadataMap = remember(metadataList) { metadataList.associateBy { it.uri } }
     val tagsByUri = remember(allTagsData) { allTagsData.groupBy({ it.uri }, { it.tag }) }
 
@@ -338,8 +360,6 @@ fun HomeGalleryScreen(
         }
     }
 
-    val isSearchActive = galleryState.isHomeSearchActive
-    val isFavoriteFilterActive = galleryState.homeFavoritesOnly
     var displayedImages by remember { mutableStateOf<List<MediaData>>(emptyList()) }
     var isSearchFiltering by remember { mutableStateOf(false) }
 

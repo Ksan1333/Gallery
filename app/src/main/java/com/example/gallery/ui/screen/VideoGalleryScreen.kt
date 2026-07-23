@@ -236,6 +236,7 @@ fun VideoGalleryScreen(
                     onBulkEdit = { },
                     showCategoryTopBar = false,
                     showSelectedCategoryTopBar = false,
+                    initialColumnIndex = 3,
                     gridExtraBottomPadding = dimensionResource(R.dimen.spacing_micro) - dimensionResource(R.dimen.spacing_micro), // 0.dp
                     openInternalViewer = false,
                     onImageClickOverride = { index, list ->

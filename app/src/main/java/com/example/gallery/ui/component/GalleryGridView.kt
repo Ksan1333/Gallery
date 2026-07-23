@@ -69,6 +69,7 @@ import coil.request.videoFrameMillis
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.PreferenceManager
 import com.example.gallery.data.repository.MediaRepository
+import com.example.gallery.service.ThumbnailGenerationService
 import com.example.gallery.ui.AppDefaults
 import com.example.gallery.ui.state.*
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -137,12 +138,17 @@ private const val SCROLL_RESTORE_TRACE = "GALLERY_SCROLL_RESTORE_TRACE"
 private const val SELECTION_TRACE = "GALLERY_SELECTION_TRACE"
 private const val SCROLLBAR_TRACE = "GALLERY_SCROLLBAR_TRACE"
 private const val GRID_LAYOUT_TRACE = "GALLERY_GRID_LAYOUT_TRACE"
+private const val SCROLL_PERFORMANCE_TRACE = "GALLERY_SCROLL_PERFORMANCE_TRACE"
+private const val GRID_FULL_WORK_TRACE = "GALLERY_GRID_FULL_WORK_TRACE"
 private const val ZOOM_TRACE = "GALLERY_ZOOM_TRACE"
 private const val GRID_ZOOM_IN_TRIGGER = 1.005f
 private const val GRID_ZOOM_OUT_TRIGGER = 0.995f
 private const val DENSE28_ROWS_PER_YEAR = 6
 private const val DENSE28_THUMB_SIZE = 48
 private const val DENSE28_THUMB_LOAD_ROWS = 12
+private const val FULL_GRID_PREPARATION_DELAY_MS = 8_000L
+private const val VIEWER_RETURN_TARGET_WAIT_MS = 5_000L
+private const val SCROLL_IMAGE_LOAD_MAX_ITEMS_PER_SEC = 18f
 private val EmptyMetadataMap = emptyMap<String, com.example.gallery.data.local.entity.MediaMetadataSummary>()
 
 private fun calculateGridThumbnailSize(screenWidthPx: Int, columnCount: Int): Int {
@@ -157,37 +163,23 @@ private fun calculateGridThumbnailSize(screenWidthPx: Int, columnCount: Int): In
     }
 }
 
-private fun thumbnailPrefetchPolicy(columnCount: Int, isScrolling: Boolean): ThumbnailPrefetchPolicy {
-    return if (isScrolling) {
-        ThumbnailPrefetchPolicy(
-            maxRequests = when {
-                columnCount >= 28 -> 4
-                columnCount >= 7 -> 3
-                columnCount >= 4 -> 3
-                else -> 2
-            },
-            rowsBehind = 0,
-            rowsAhead = 1,
-            delayMs = 24L
-        )
-    } else {
-        ThumbnailPrefetchPolicy(
-            maxRequests = when {
-                columnCount >= 28 -> 12
-                columnCount >= 7 -> 8
-                columnCount >= 4 -> 8
-                else -> 4
-            },
-            rowsBehind = 1,
-            rowsAhead = when {
-                columnCount >= 28 -> DENSE28_THUMB_LOAD_ROWS
-                columnCount >= 7 -> 3
-                columnCount >= 4 -> 2
-                else -> 1
-            },
-            delayMs = 8L
-        )
-    }
+private fun thumbnailPrefetchPolicy(columnCount: Int): ThumbnailPrefetchPolicy {
+    return ThumbnailPrefetchPolicy(
+        maxRequests = when {
+            columnCount >= 28 -> 12
+            columnCount >= 7 -> 8
+            columnCount >= 4 -> 8
+            else -> 4
+        },
+        rowsBehind = 1,
+        rowsAhead = when {
+            columnCount >= 28 -> DENSE28_THUMB_LOAD_ROWS
+            columnCount >= 7 -> 3
+            columnCount >= 4 -> 2
+            else -> 1
+        },
+        delayMs = 8L
+    )
 }
 
 private fun buildGridThumbnailRequest(
@@ -225,6 +217,14 @@ private fun logDense28Trace(message: String) {
 
 private fun logScrollRestoreTrace(message: String) {
     Log.d(SCROLL_RESTORE_TRACE, "$SCROLL_RESTORE_TRACE $message")
+}
+
+private fun logScrollPerformanceTrace(message: String) {
+    Log.d(SCROLL_PERFORMANCE_TRACE, "$SCROLL_PERFORMANCE_TRACE $message")
+}
+
+private fun logGridFullWorkTrace(message: String) {
+    Log.d(GRID_FULL_WORK_TRACE, "$GRID_FULL_WORK_TRACE $message")
 }
 
 private fun logSelectionTrace(message: String) {
@@ -485,6 +485,7 @@ fun GalleryGridView(
     // 列数の選択肢 (28:年, 7:月, 4/3/1:日)
     val columnOptions = listOf(28, 7, 4, 3, 2)
     var currentColumnIndex by remember { mutableIntStateOf(2) }
+    val maxLineSpan = columnOptions[currentColumnIndex]
 
     val colors = GalleryThemeTokens.colors
     val scope = rememberCoroutineScope()
@@ -602,8 +603,11 @@ fun GalleryGridView(
             isRestoringScroll = false
         }
     }
-    // Track if user is actively using scrollbar to suppress heavy work (bounds updates, prefetch, etc.)
+    // Track foreground scrolling in the parent as well, so full-library work can wait for it.
     var isScrollbarDragging by remember { mutableStateOf(false) }
+    val isForegroundScrolling by remember(gridState) {
+        derivedStateOf { gridState.isScrollInProgress || isScrollbarDragging }
+    }
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val globalSettingsPrefs = remember(context) {
@@ -762,8 +766,19 @@ fun GalleryGridView(
     // スクロールでトップバーを隠すためのオフセット。
     var topBarOffsetHeightPx by remember { mutableFloatStateOf(0f) }
 
+    // A selection action needs its controls immediately. Reset a collapsed top bar as soon as
+    // selection starts instead of merely preventing subsequent scroll deltas from changing it.
+    LaunchedEffect(isSelectionMode) {
+        if (isSelectionMode && topBarOffsetHeightPx != 0f) {
+            logSelectionTrace(
+                "top_bar_restore_for_selection offset=${topBarOffsetHeightPx.roundToInt()}"
+            )
+            topBarOffsetHeightPx = 0f
+        }
+    }
+
     // 入れ子スクロールの挙動。上方向ではバーを隠し、下方向では出す。
-    val nestedScrollConnection = remember {
+    val nestedScrollConnection = remember(isSelectionMode, totalTopBarHeightPx) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
@@ -791,10 +806,59 @@ fun GalleryGridView(
     }
 
     // --- メタデータの同期 (お気に入り・レーティングなど) ---
+    // Standard 3/4/7-column home views already have a Paging source. Let that lightweight
+    // path render first, then prepare the all-library data only after the user has been idle.
+    val usesDeferredPagingPreparation = pagingItems != null && maxLineSpan in 3..7
+    val requiresFullGridImmediately = !usesDeferredPagingPreparation ||
+        scrollToUri != null ||
+        restoreScrollRequestKey > 0
+    var isFullGridPreparationEnabled by remember(
+        pagingItems,
+        maxLineSpan,
+        scrollToUri,
+        restoreScrollRequestKey
+    ) {
+        mutableStateOf(requiresFullGridImmediately)
+    }
+    LaunchedEffect(
+        pagingItems,
+        maxLineSpan,
+        requiresFullGridImmediately,
+        isForegroundScrolling
+    ) {
+        if (isFullGridPreparationEnabled) return@LaunchedEffect
+        if (requiresFullGridImmediately) {
+            isFullGridPreparationEnabled = true
+            logGridFullWorkTrace(
+                "enabled reason=required columns=$maxLineSpan paging=${pagingItems != null}"
+            )
+            return@LaunchedEffect
+        }
+        if (isForegroundScrolling) {
+            return@LaunchedEffect
+        }
+        logGridFullWorkTrace(
+            "deferred columns=$maxLineSpan paging=true " +
+                "delayMs=$FULL_GRID_PREPARATION_DELAY_MS"
+        )
+        delay(FULL_GRID_PREPARATION_DELAY_MS)
+        if (!isForegroundScrolling) {
+            isFullGridPreparationEnabled = true
+            logGridFullWorkTrace(
+                "enabled reason=idle_delay columns=$maxLineSpan paging=true"
+            )
+        }
+    }
+
     var metadataMap by remember {
         mutableStateOf<Map<String, com.example.gallery.data.local.entity.MediaMetadataSummary>>(emptyMap())
     }
-    LaunchedEffect(galleryState.repository) {
+    LaunchedEffect(galleryState.repository, isFullGridPreparationEnabled) {
+        if (!isFullGridPreparationEnabled) {
+            metadataMap = emptyMap()
+            return@LaunchedEffect
+        }
+        val metadataStartedAt = System.currentTimeMillis()
         galleryState.repository.getAllMetadataSummaryFlow()
             .debounce(1000)  // スクロール中の更新を減らすため、反映を少し遅らせる。
             .distinctUntilChanged()
@@ -803,6 +867,10 @@ fun GalleryGridView(
                     list.associateBy { it.uri }
                 }
                 metadataMap = newMap
+                logGridFullWorkTrace(
+                    "metadata_ready count=${newMap.size} columns=$maxLineSpan " +
+                        "elapsedMs=${System.currentTimeMillis() - metadataStartedAt}"
+                )
             }
     }
 
@@ -815,12 +883,17 @@ fun GalleryGridView(
         metadataMap
     }
 
-    LaunchedEffect(imageList, galleryState.mediaTypeFilter, galleryState.ageRatingFilter, galleryState.deviceFilter, galleryState.sortMode, galleryState.isAscending, metadataForFiltering) {
+    LaunchedEffect(isFullGridPreparationEnabled, imageList, galleryState.mediaTypeFilter, galleryState.ageRatingFilter, galleryState.deviceFilter, galleryState.sortMode, galleryState.isAscending, metadataForFiltering) {
+        if (!isFullGridPreparationEnabled) {
+            sortedList = emptyList()
+            return@LaunchedEffect
+        }
         if (imageList.isEmpty()) {
             sortedList = emptyList()
             return@LaunchedEffect
         }
 
+        val sortStartedAt = System.currentTimeMillis()
         val nextSortedList = withContext(Dispatchers.Default) {
             val sequence = imageList.asSequence()
                 .filter { item ->
@@ -876,15 +949,33 @@ fun GalleryGridView(
             }
         }
         sortedList = nextSortedList
+        logGridFullWorkTrace(
+            "sort_ready count=${nextSortedList.size} columns=$maxLineSpan " +
+                "elapsedMs=${System.currentTimeMillis() - sortStartedAt}"
+        )
     }
 
     // --- グリッド用フラットリストの生成 ---
-    val maxLineSpan = columnOptions[currentColumnIndex]
-    val vectorReadyCount = remember(metadataMap) { metadataMap.values.count { it.hasFeatureVector } }
+    val vectorReadyCount = if (isFullGridPreparationEnabled) {
+        remember(metadataMap) { metadataMap.values.count { it.hasFeatureVector } }
+    } else {
+        0
+    }
     var similarMediaGroups by remember {
         mutableStateOf<List<MediaRepository.SimilarMediaGroup>>(emptyList())
     }
-    LaunchedEffect(sortedList, vectorReadyCount, similarImageGroupingEnabled, similarImageThreshold) {
+    LaunchedEffect(
+        isFullGridPreparationEnabled,
+        sortedList,
+        vectorReadyCount,
+        similarImageGroupingEnabled,
+        similarImageThreshold
+    ) {
+        if (!isFullGridPreparationEnabled) {
+            similarMediaGroups = emptyList()
+            return@LaunchedEffect
+        }
+        val similarStartedAt = System.currentTimeMillis()
         similarMediaGroups = if (
             similarImageGroupingEnabled && vectorReadyCount >= 2 && sortedList.size >= 2
         ) {
@@ -895,26 +986,35 @@ fun GalleryGridView(
         } else {
             emptyList()
         }
+        logGridFullWorkTrace(
+            "similar_ready groups=${similarMediaGroups.size} vectors=$vectorReadyCount " +
+                "columns=$maxLineSpan elapsedMs=${System.currentTimeMillis() - similarStartedAt}"
+        )
     }
-    val activeSimilarGroupByUri = remember(similarMediaGroups, maxLineSpan, sortedList) {
-        if (maxLineSpan < 28) {
-            val galleryOrderByUri = sortedList
-                .mapIndexed { index, media -> media.uri to index }
-                .toMap()
-            buildMap {
-                similarMediaGroups.forEach { group ->
-                    val displayOrderedItems = group.items.sortedBy { media ->
-                        galleryOrderByUri[media.uri] ?: Int.MAX_VALUE
+    val activeSimilarGroupByUri = if (isFullGridPreparationEnabled) {
+        remember(similarMediaGroups, maxLineSpan, sortedList) {
+            if (maxLineSpan < 28) {
+                val galleryOrderByUri = sortedList
+                    .mapIndexed { index, media -> media.uri to index }
+                    .toMap()
+                buildMap {
+                    similarMediaGroups.forEach { group ->
+                        val displayOrderedItems = group.items.sortedBy { media ->
+                            galleryOrderByUri[media.uri] ?: Int.MAX_VALUE
+                        }
+                        val displayGroup = group.copy(items = displayOrderedItems)
+                        displayGroup.items.forEach { media -> put(media.uri, displayGroup) }
                     }
-                    val displayGroup = group.copy(items = displayOrderedItems)
-                    displayGroup.items.forEach { media -> put(media.uri, displayGroup) }
                 }
+            } else {
+                emptyMap()
             }
-        } else {
-            emptyMap()
         }
+    } else {
+        emptyMap()
     }
-    val useFlatGridPresentation = maxLineSpan >= 28 || maxLineSpan == 2 || activeSimilarGroupByUri.isNotEmpty()
+    val useFlatGridPresentation = isFullGridPreparationEnabled &&
+        (maxLineSpan >= 28 || maxLineSpan == 2 || activeSimilarGroupByUri.isNotEmpty())
     val activePagingItems = if (useFlatGridPresentation) null else pagingItems
 
     var flatGridItems by remember { mutableStateOf<List<GridItem>>(emptyList()) }
@@ -922,7 +1022,13 @@ fun GalleryGridView(
     var flatGridBuiltColumns by remember { mutableIntStateOf(columnOptions[currentColumnIndex]) }
     val currentFlatGridItems by rememberUpdatedState(flatGridItems)
 
-    LaunchedEffect(sortedList, currentColumnIndex, activeSimilarGroupByUri) {
+    LaunchedEffect(isFullGridPreparationEnabled, sortedList, currentColumnIndex, activeSimilarGroupByUri) {
+        if (!isFullGridPreparationEnabled) {
+            flatGridItems = emptyList()
+            mediaItemsOnly = emptyList()
+            flatGridBuiltColumns = columnOptions[currentColumnIndex]
+            return@LaunchedEffect
+        }
         if (sortedList.isEmpty()) {
             flatGridItems = emptyList()
             mediaItemsOnly = emptyList()
@@ -1055,6 +1161,10 @@ fun GalleryGridView(
         flatGridItems = buildResult.gridItems
         mediaItemsOnly = buildResult.mediaItems
         flatGridBuiltColumns = buildColumns
+        logGridFullWorkTrace(
+            "flat_ready gridItems=${buildResult.gridItems.size} mediaItems=${buildResult.mediaItems.size} " +
+                "columns=$buildColumns elapsedMs=${System.currentTimeMillis() - startTime}"
+        )
         buildResult.denseLogMessage?.let(::logDense28Trace)
     }
 
@@ -1171,58 +1281,68 @@ fun GalleryGridView(
     }
 
     LaunchedEffect(scrollToUri, galleryState.isSelectionMode) {
-        if (scrollToUri != null) {
-            if (galleryState.isSelectionMode) {
+        val targetUri = scrollToUri ?: return@LaunchedEffect
+        if (galleryState.isSelectionMode) {
                 logSelectionTrace(
-                    "scroll_to_uri_skip_selection uri=${traceUri(scrollToUri)} " +
+                    "scroll_to_uri_skip_selection uri=${traceUri(targetUri)} " +
                         "first=${gridState.firstVisibleItemIndex} offset=${gridState.firstVisibleItemScrollOffset}"
                 )
                 onScrollConsumed()
                 return@LaunchedEffect
+        }
+        val startTime = System.currentTimeMillis()
+        logScrollRestoreTrace(
+            "grid_scroll_to_uri_start uriHash=${targetUri.hashCode()} center=$centerScrollToUri " +
+                "flatItems=${flatGridItems.size} firstBefore=${gridState.firstVisibleItemIndex} " +
+                "offsetBefore=${gridState.firstVisibleItemScrollOffset} " +
+                "totalBefore=${gridState.layoutInfo.totalItemsCount} inProgress=${gridState.isScrollInProgress}"
+        )
+        // Returning from the viewer requests the full list, but its asynchronous construction can
+        // finish a few frames later. Keep the URI until its grid position is actually available.
+        val index = withTimeoutOrNull<Int>(VIEWER_RETURN_TARGET_WAIT_MS) {
+            var targetIndex = -1
+            while (targetIndex < 0) {
+                val candidate = indexOfRestoreUri(targetUri)
+                if (candidate >= 0 && gridState.layoutInfo.totalItemsCount > candidate) {
+                    targetIndex = candidate
+                } else {
+                    delay(50)
+                }
+            }
+            targetIndex
+        }
+        if (index == null) {
+            logScrollRestoreTrace(
+                "grid_scroll_to_uri_timeout uriHash=${targetUri.hashCode()} flatItems=${flatGridItems.size} " +
+                    "first=${gridState.firstVisibleItemIndex} total=${gridState.layoutInfo.totalItemsCount} " +
+                    "waitMs=${System.currentTimeMillis() - startTime}"
+            )
+            onScrollConsumed()
+            return@LaunchedEffect
+        }
+
+        val alreadyVisible = gridState.layoutInfo.visibleItemsInfo.any { it.index == index }
+        isRestoringScroll = true
+        try {
+            if (!alreadyVisible) {
+                gridState.scrollToItem(index)
             }
             logScrollRestoreTrace(
-                "grid_scroll_to_uri_start uriHash=${scrollToUri.hashCode()} center=$centerScrollToUri " +
-                    "flatItems=${flatGridItems.size} firstBefore=${gridState.firstVisibleItemIndex} " +
-                    "offsetBefore=${gridState.firstVisibleItemScrollOffset} " +
-                    "totalBefore=${gridState.layoutInfo.totalItemsCount} inProgress=${gridState.isScrollInProgress}"
+                "grid_scroll_to_uri_found uriHash=${targetUri.hashCode()} index=$index visible=$alreadyVisible " +
+                    "firstNow=${gridState.firstVisibleItemIndex} offsetNow=${gridState.firstVisibleItemScrollOffset} " +
+                    "total=${gridState.layoutInfo.totalItemsCount} " +
+                    "waitMs=${System.currentTimeMillis() - startTime}"
             )
-            val index = flatGridItems.indexOfFirst { item ->
-                when (item) {
-                    is GridItem.Header -> false
-                    is GridItem.Media -> item.data.uri == scrollToUri
-                    is GridItem.SimilarGroup -> item.items.any { it.uri == scrollToUri }
-                }
-            }
-            if (index != -1) {
-                val alreadyVisible = gridState.layoutInfo.visibleItemsInfo.any { it.index == index }
-                isRestoringScroll = true
-                try {
-                    if (!alreadyVisible) {
-                        gridState.scrollToItem(index)
-                    }
-                    logScrollRestoreTrace(
-                        "grid_scroll_to_uri_found uriHash=${scrollToUri.hashCode()} index=$index visible=$alreadyVisible " +
-                            "firstNow=${gridState.firstVisibleItemIndex} offsetNow=${gridState.firstVisibleItemScrollOffset} " +
-                            "total=${gridState.layoutInfo.totalItemsCount}"
-                    )
-                } finally {
-                    isRestoringScroll = false
-                }
-                highlightUri = scrollToUri
-                onScrollConsumed()
-                logScrollRestoreTrace(
-                    "grid_scroll_to_uri_consumed uriHash=${scrollToUri.hashCode()} index=$index " +
-                        "firstAfter=${gridState.firstVisibleItemIndex} offsetAfter=${gridState.firstVisibleItemScrollOffset} " +
-                        "centerRequested=$centerScrollToUri"
-                )
-            } else {
-                logScrollRestoreTrace(
-                    "grid_scroll_to_uri_not_found uriHash=${scrollToUri.hashCode()} flatItems=${flatGridItems.size} " +
-                        "first=${gridState.firstVisibleItemIndex} total=${gridState.layoutInfo.totalItemsCount}"
-                )
-                onScrollConsumed()
-            }
+        } finally {
+            isRestoringScroll = false
         }
+        highlightUri = targetUri
+        onScrollConsumed()
+        logScrollRestoreTrace(
+            "grid_scroll_to_uri_consumed uriHash=${targetUri.hashCode()} index=$index " +
+                "firstAfter=${gridState.firstVisibleItemIndex} offsetAfter=${gridState.firstVisibleItemScrollOffset} " +
+                "centerRequested=$centerScrollToUri"
+        )
     }
 
     val gridSidePadding = dimensionResource(R.dimen.grid_side_padding)
@@ -1241,15 +1361,17 @@ fun GalleryGridView(
         snapshotFlow {
             Triple(gridState.firstVisibleItemIndex, gridState.isScrollInProgress, isScrollbarDragging)
         }
-            .debounce(120)
+            .debounce(180)
             .collectLatest { (firstIndex, isScrolling, dragging) ->
                 if (maxLineSpan >= 28 && flatGridBuiltColumns != maxLineSpan) {
                     return@collectLatest
                 }
-                val prefetchPolicy = thumbnailPrefetchPolicy(maxLineSpan, isScrolling)
-                if (dragging) {
+                // Image decoding competes with Compose layout and rendering. Resume prefetch
+                // only after the gesture settles so flings and slow drags stay responsive.
+                if (isScrolling || dragging) {
                     return@collectLatest
                 }
+                val prefetchPolicy = thumbnailPrefetchPolicy(maxLineSpan)
                 val totalItems = activePagingItems?.itemCount ?: flatGridItems.size
                 if (totalItems == 0) return@collectLatest
 
@@ -1329,7 +1451,13 @@ fun GalleryGridView(
             .then(pinchZoomModifier)
     ) {
         val displayedFlatGridItems = flatGridItems
-        val displayedMediaItemsOnly = mediaItemsOnly
+        val displayedMediaItemsOnly = if (isFullGridPreparationEnabled) {
+            mediaItemsOnly
+        } else {
+            // The Paging list owns the initial viewport. Keep immediate taps useful without
+            // constructing a second all-item GridItem representation during startup.
+            imageList
+        }
         GalleryGridContent(
             gridState = gridState,
             flatGridItems = if (activePagingItems != null) emptyList() else displayedFlatGridItems,
@@ -1426,7 +1554,9 @@ fun GalleryGridView(
             )
         }
 
-        if (maxLineSpan < 28 && sortedList.isNotEmpty() && (!isSelectionMode || showScrollbarWhenSelecting) && !galleryState.isZooming) {
+        if (maxLineSpan < 28 && (activePagingItems != null || sortedList.isNotEmpty()) &&
+            (!isSelectionMode || showScrollbarWhenSelecting) && !galleryState.isZooming
+        ) {
             GalleryScrollbar(
                 gridState = gridState,
                 columnCount = maxLineSpan,
@@ -1469,6 +1599,14 @@ private fun GalleryGridContent(
 ) {
     val colors = GalleryThemeTokens.colors
     val rawIsGridScrolling by remember { derivedStateOf { gridState.isScrollInProgress } }
+    LaunchedEffect(rawIsGridScrolling, isScrollbarDragging) {
+        ThumbnailGenerationService.setForegroundScrollActive(
+            rawIsGridScrolling || isScrollbarDragging
+        )
+    }
+    DisposableEffect(Unit) {
+        onDispose { ThumbnailGenerationService.setForegroundScrollActive(false) }
+    }
     val context = LocalContext.current
     val selectionLongPressMs = remember(context) {
         context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
@@ -1520,13 +1658,46 @@ private fun GalleryGridContent(
         }
     }
 
-    // Pause uncached image loads only during expensive movement. Taps and slow drags still
-    // let a small amount of loading continue so the grid does not appear frozen.
-    val thumbnailThrottleVelocityThreshold = if (maxLineSpan >= 28) 18f else 12f
+    // During a gentle drag, let visible tiles request thumbnails. Fast flings and scrollbar
+    // drags remain cache-only; explicit prefetch also stays paused until the gesture settles.
     val isGridScrolling by remember(maxLineSpan, isScrollbarDragging) {
         derivedStateOf {
-            isScrollbarDragging || (rawIsGridScrolling && scrollVelocity.floatValue > thumbnailThrottleVelocityThreshold)
+            isScrollbarDragging ||
+                (rawIsGridScrolling && scrollVelocity.floatValue > SCROLL_IMAGE_LOAD_MAX_ITEMS_PER_SEC)
         }
+    }
+    LaunchedEffect(gridState, maxLineSpan) {
+        var scrollStartedAt = 0L
+        var startIndex = 0
+        var lastIndex = 0
+        var peakVelocity = 0f
+        snapshotFlow {
+            Triple(
+                gridState.isScrollInProgress,
+                gridState.firstVisibleItemIndex,
+                scrollVelocity.floatValue
+            )
+        }
+            .distinctUntilChanged()
+            .collect { (isScrolling, firstIndex, velocity) ->
+                if (isScrolling) {
+                    if (scrollStartedAt == 0L) {
+                        scrollStartedAt = System.currentTimeMillis()
+                        startIndex = firstIndex
+                        peakVelocity = 0f
+                    }
+                    lastIndex = firstIndex
+                    peakVelocity = maxOf(peakVelocity, velocity)
+                } else if (scrollStartedAt != 0L) {
+                    logScrollPerformanceTrace(
+                        "finished columns=$maxLineSpan from=$startIndex to=$lastIndex " +
+                            "delta=${lastIndex - startIndex} durationMs=${System.currentTimeMillis() - scrollStartedAt} " +
+                            "peakItemsPerSec=${"%.1f".format(Locale.US, peakVelocity)} " +
+                            "visibleLoadMaxItemsPerSec=$SCROLL_IMAGE_LOAD_MAX_ITEMS_PER_SEC"
+                    )
+                    scrollStartedAt = 0L
+                }
+            }
     }
     LaunchedEffect(gridState, maxLineSpan, flatGridItems.size, pagingItems?.itemCount) {
         if (maxLineSpan < 28) return@LaunchedEffect
@@ -1550,9 +1721,6 @@ private fun GalleryGridContent(
             }
         }
     }
-    // Bounds are read only from pointer handlers. Keeping them outside snapshot state prevents
-    // every pixel of scroll from invalidating visible item compositions.
-    val itemBoundsInRoot = remember(maxLineSpan) { mutableMapOf<Int, Rect>() }
     var gridBoundsInRoot by remember(maxLineSpan) { mutableStateOf<Rect?>(null) }
     var dragAutoScrollDelta by remember { mutableFloatStateOf(0f) }
     var dragSelectionBase by remember { mutableStateOf<Set<String>?>(null) }
@@ -1614,25 +1782,6 @@ private fun GalleryGridContent(
     }
 
     fun mediaIndexAtRootPosition(position: Offset, allowNearest: Boolean = false): Int? {
-        val hit = itemBoundsInRoot.entries.firstOrNull { (_, bounds) -> bounds.contains(position) }
-        if (hit != null) return hit.key
-
-        if (allowNearest && itemBoundsInRoot.isNotEmpty()) {
-            return itemBoundsInRoot.minByOrNull { (_, bounds) ->
-                val horizontalDistance = when {
-                    position.x < bounds.left -> bounds.left - position.x
-                    position.x > bounds.right -> position.x - bounds.right
-                    else -> 0f
-                }
-                val verticalDistance = when {
-                    position.y < bounds.top -> bounds.top - position.y
-                    position.y > bounds.bottom -> position.y - bounds.bottom
-                    else -> 0f
-                }
-                horizontalDistance * horizontalDistance + verticalDistance * verticalDistance
-            }?.key
-        }
-
         val gridPosition = gridBoundsInRoot?.let { bounds ->
             Offset(position.x - bounds.left, position.y - bounds.top)
         }
@@ -1641,6 +1790,15 @@ private fun GalleryGridContent(
         }
 
         return null
+    }
+
+    fun rootPositionForGridItem(index: Int, positionInItem: Offset): Offset? {
+        val gridBounds = gridBoundsInRoot ?: return null
+        val item = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return null
+        return Offset(
+            x = gridBounds.left + item.offset.x + positionInItem.x,
+            y = gridBounds.top + item.offset.y + positionInItem.y
+        )
     }
 
     fun applySelectionPreview(
@@ -2008,9 +2166,7 @@ private fun GalleryGridContent(
             .background(colors.background)
             .padding(end = dimensionResource(R.dimen.grid_side_padding))
             .onGloballyPositioned { coordinates ->
-                if (!isScrollbarDragging) {
-                    gridBoundsInRoot = coordinates.boundsInRoot()
-                }
+                gridBoundsInRoot = coordinates.boundsInRoot()
             }
             .then(
                 if (selectionEnabled && maxLineSpan >= 28) {
@@ -2063,7 +2219,7 @@ private fun GalleryGridContent(
                     if (dragRootDown == null) {
                         logSelectionTrace(
                             "grid_long_press_miss rootY=null " +
-                                "first=${gridState.firstVisibleItemIndex} visible=${itemBoundsInRoot.size}"
+                                "first=${gridState.firstVisibleItemIndex} visible=${gridState.layoutInfo.visibleItemsInfo.size}"
                         )
                         return@awaitEachGesture
                     }
@@ -2071,7 +2227,7 @@ private fun GalleryGridContent(
                     if (startGridIndex == null) {
                         logSelectionTrace(
                             "grid_long_press_miss rootY=${dragRootDown.y.roundToInt()} " +
-                                "first=${gridState.firstVisibleItemIndex} visible=${itemBoundsInRoot.size}"
+                                "first=${gridState.firstVisibleItemIndex} visible=${gridState.layoutInfo.visibleItemsInfo.size}"
                         )
                         return@awaitEachGesture
                     }
@@ -2155,11 +2311,7 @@ private fun GalleryGridContent(
                     denseThumbnailEndIndex = denseThumbnailEndIndex,
                     selectionLongPressMs = selectionLongPressMs,
                     highlightUri = highlightUri,
-                    onMediaBoundsChanged = { gridIndex, bounds ->
-                        if (!isScrollbarDragging) {
-                            if (bounds == null) itemBoundsInRoot.remove(gridIndex) else itemBoundsInRoot[gridIndex] = bounds
-                        }
-                    },
+                    onPositionInItem = ::rootPositionForGridItem,
                     onMediaClick = ::handleTap,
                     onSimilarGroupToggle = ::toggleSimilarGroup,
                     onSimilarMediaClick = ::openMediaFromSimilarGroup,
@@ -2196,11 +2348,7 @@ private fun GalleryGridContent(
                     denseThumbnailEndIndex = denseThumbnailEndIndex,
                     selectionLongPressMs = selectionLongPressMs,
                     highlightUri = highlightUri,
-                    onMediaBoundsChanged = { gridIndex, bounds ->
-                        if (!isScrollbarDragging) {
-                            if (bounds == null) itemBoundsInRoot.remove(gridIndex) else itemBoundsInRoot[gridIndex] = bounds
-                        }
-                    },
+                    onPositionInItem = ::rootPositionForGridItem,
                     onMediaClick = ::handleTap,
                     onSimilarGroupToggle = ::toggleSimilarGroup,
                     onSimilarMediaClick = ::openMediaFromSimilarGroup,
@@ -2312,7 +2460,7 @@ private fun GridItemRenderer(
     denseThumbnailEndIndex: Int,
     selectionLongPressMs: Long,
     highlightUri: String?,
-    onMediaBoundsChanged: (Int, Rect?) -> Unit,
+    onPositionInItem: (Int, Offset) -> Offset?,
     onMediaClick: (GridItem.Media) -> Unit,
     onSimilarGroupToggle: (GridItem.SimilarGroup) -> Unit,
     onSimilarMediaClick: (GridItem.SimilarGroup, MediaData) -> Unit,
@@ -2346,7 +2494,6 @@ private fun GridItemRenderer(
                     isSelected = selectedUris.containsKey(item.data.uri),
                     isFavorite = metadataMap[item.data.uri]?.isFavorite == true,
                     isHighlighted = highlightUri == item.data.uri,
-                    onBoundsChanged = onMediaBoundsChanged,
                     onClick = { onMediaClick(item) }
                 )
             } else {
@@ -2364,7 +2511,7 @@ private fun GridItemRenderer(
                     isHighlighted = highlightUri == item.data.uri,
                     selectionLongPressMs = selectionLongPressMs,
                     selectionEnabled = selectionEnabled,
-                    onBoundsChanged = onMediaBoundsChanged,
+                    onPositionInItem = onPositionInItem,
                     onClick = { onMediaClick(item) },
                     onDragSelectionStart = onDragSelectionStart,
                     onDragSelectionMove = onDragSelectionMove,
@@ -2385,7 +2532,6 @@ private fun GridItemRenderer(
                 selectedCount = item.items.count { selectedUris.containsKey(it.uri) },
                 isHighlighted = highlightUri != null && item.items.any { it.uri == highlightUri },
                 isSelectionInteractionActive = isSelectionInteractionActive,
-                onBoundsChanged = onMediaBoundsChanged,
                 onToggleSelection = { onSimilarGroupToggle(item) },
                 onMediaClick = { media -> onSimilarMediaClick(item, media) }
             )
@@ -2406,7 +2552,6 @@ private fun SimilarGroupGridItem(
     selectedCount: Int,
     isHighlighted: Boolean,
     isSelectionInteractionActive: Boolean,
-    onBoundsChanged: (Int, Rect?) -> Unit,
     onToggleSelection: () -> Unit,
     onMediaClick: (MediaData) -> Unit
 ) {
@@ -2441,10 +2586,6 @@ private fun SimilarGroupGridItem(
     val popupGridHeight = visibleRows.toFloat() * popupTileSize.value + (visibleRows - 1) * 4
     val popupScrollState = rememberScrollState()
 
-    DisposableEffect(gridIndex) {
-        onDispose { onBoundsChanged(gridIndex, null) }
-    }
-
     Box {
         Box(
             modifier = modifier
@@ -2452,9 +2593,6 @@ private fun SimilarGroupGridItem(
                 .aspectRatio(aspectRatio)
                 .padding(gridItemGapPadding(columnCount))
                 .clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small) / 4))
-                .onGloballyPositioned { coordinates ->
-                    if (!isScrollbarDragging) onBoundsChanged(gridIndex, coordinates.boundsInRoot())
-                }
                 .clickable {
                     if (isSelectionInteractionActive) onToggleSelection() else expanded = true
                 }
@@ -2577,7 +2715,6 @@ private fun DenseMediaGridItem(
     isSelected: Boolean,
     isFavorite: Boolean,
     isHighlighted: Boolean,
-    onBoundsChanged: (Int, Rect?) -> Unit,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2594,19 +2731,11 @@ private fun DenseMediaGridItem(
     val model = remember(media.uri, thumbSize) {
         buildGridThumbnailRequest(context, media, thumbSize)
     }
-    DisposableEffect(gridIndex) {
-        onDispose { onBoundsChanged(gridIndex, null) }
-    }
     Box(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(gridItemGapPadding(28))
-            .onGloballyPositioned { coordinates ->
-                if (!isScrollbarDragging) {
-                    onBoundsChanged(gridIndex, coordinates.boundsInRoot())
-                }
-            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2663,7 +2792,7 @@ private fun MediaGridItemWrapper(
     isHighlighted: Boolean,
     selectionLongPressMs: Long,
     selectionEnabled: Boolean,
-    onBoundsChanged: (Int, Rect?) -> Unit,
+    onPositionInItem: (Int, Offset) -> Offset?,
     onClick: () -> Unit,
     onDragSelectionStart: (Int) -> Pair<Set<String>, Boolean>,
     onDragSelectionMove: (Offset, Set<String>, Int, Int, Boolean) -> Int,
@@ -2688,7 +2817,7 @@ private fun MediaGridItemWrapper(
         gridIndex = gridIndex,
         selectionLongPressMs = selectionLongPressMs,
         selectionEnabled = selectionEnabled,
-        onBoundsChanged = onBoundsChanged,
+        onPositionInItem = onPositionInItem,
         onClick = onClick,
         onDragSelectionStart = onDragSelectionStart,
         onDragSelectionMove = onDragSelectionMove,
@@ -2716,7 +2845,7 @@ private fun MediaGridItem(
     gridIndex: Int,
     selectionLongPressMs: Long,
     selectionEnabled: Boolean,
-    onBoundsChanged: (Int, Rect?) -> Unit,
+    onPositionInItem: (Int, Offset) -> Offset?,
     onClick: () -> Unit,
     onDragSelectionStart: (Int) -> Pair<Set<String>, Boolean>,
     onDragSelectionMove: (Offset, Set<String>, Int, Int, Boolean) -> Int,
@@ -2769,7 +2898,6 @@ private fun MediaGridItem(
     // 強調表示と選択状態を graphicsLayer で処理し、レイアウト計算を避ける。
     val highlightCornerRadius = if (columnCount > 1) dimensionResource(R.dimen.radius_small) / 2 else dimensionResource(R.dimen.radius_large)
     val currentOnClick by rememberUpdatedState(onClick)
-    val itemBoundsInRootRef = remember(gridIndex) { arrayOfNulls<Rect>(1) }
     val dragBaseSelectionRef = remember(gridIndex) { arrayOfNulls<Set<String>>(1) }
     val dragShouldSelectRef = remember(gridIndex) { BooleanArray(1) }
     val dragLastIndexRef = remember(gridIndex) { IntArray(1) { gridIndex } }
@@ -2777,22 +2905,8 @@ private fun MediaGridItem(
     val suppressTapRef = remember(gridIndex) { BooleanArray(1) }
     val interactionSource = remember { MutableInteractionSource() }
 
-    DisposableEffect(gridIndex) {
-        onDispose {
-            itemBoundsInRootRef[0] = null
-            onBoundsChanged(gridIndex, null)
-        }
-    }
-
     Box(
         modifier = itemModifier
-            .onGloballyPositioned { coordinates ->
-                val bounds = coordinates.boundsInRoot()
-                itemBoundsInRootRef[0] = bounds
-                if (!isScrollbarDragging) {
-                    onBoundsChanged(gridIndex, bounds)
-                }
-            }
             .pointerInput(gridIndex, selectionLongPressMs) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -2827,29 +2941,25 @@ private fun MediaGridItem(
                 if (selectionEnabled) {
                     Modifier.pointerInput(gridIndex, selectionLongPressMs) {
                 detectDragGesturesAfterLongPress(
-                    onDragStart = {
+                    onDragStart = { position ->
                         val (baseSelection, shouldSelect) = onDragSelectionStart(gridIndex)
                         dragBaseSelectionRef[0] = baseSelection
                         dragShouldSelectRef[0] = shouldSelect
                         dragLastIndexRef[0] = gridIndex
                         dragMoveCountRef[0] = 0
                         suppressTapRef[0] = true
-                        val bounds = itemBoundsInRootRef[0]
+                        val rootPosition = onPositionInItem(gridIndex, position)
                         logSelectionTrace(
                             "tile_drag_start index=$gridIndex uri=${traceUri(media.uri)} " +
-                                "bounds=${bounds?.let { "${it.left.roundToInt()},${it.top.roundToInt()},${it.right.roundToInt()},${it.bottom.roundToInt()}" }} " +
+                                "root=${rootPosition?.let { "${it.x.roundToInt()},${it.y.roundToInt()}" }} " +
                                 "longPressMs=$selectionLongPressMs"
                         )
                     },
                     onDrag = { change, _ ->
                         val baseSelection = dragBaseSelectionRef[0] ?: return@detectDragGesturesAfterLongPress
-                        val bounds = itemBoundsInRootRef[0]
-                        if (bounds != null) {
+                        val rootPosition = onPositionInItem(gridIndex, change.position)
+                        if (rootPosition != null) {
                             val previousIndex = dragLastIndexRef[0]
-                            val rootPosition = Offset(
-                                bounds.left + change.position.x,
-                                bounds.top + change.position.y
-                            )
                             dragLastIndexRef[0] = onDragSelectionMove(
                                 rootPosition,
                                 baseSelection,

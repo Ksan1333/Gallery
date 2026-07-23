@@ -17,6 +17,7 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -37,7 +38,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -83,6 +87,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
@@ -507,6 +512,65 @@ private fun DownloadMediaPreview(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DownloadMediaCarousel(
+    mediaItems: List<MediaUrlCandidate>,
+    modifier: Modifier = Modifier
+) {
+    if (mediaItems.isEmpty()) {
+        DownloadMediaPreview(uri = null, modifier = modifier)
+        return
+    }
+
+    val pagerState = rememberPagerState(pageCount = { mediaItems.size })
+    LaunchedEffect(mediaItems.size) {
+        if (pagerState.currentPage >= mediaItems.size) {
+            pagerState.scrollToPage(mediaItems.lastIndex)
+        }
+    }
+
+    Column(modifier = modifier) {
+        HorizontalPager(
+            state = pagerState,
+            beyondViewportPageCount = 1,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+        ) { page ->
+            DownloadMediaPreview(
+                uri = mediaItems[page].url,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (mediaItems.size > 1) {
+            Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(mediaItems.size) { index ->
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (index == pagerState.currentPage) {
+                                    galleryColors.accent
+                                } else {
+                                    galleryColors.mutedText.copy(alpha = 0.45f)
+                                }
+                            )
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DownloadOptionsModal(
@@ -537,7 +601,11 @@ private fun DownloadOptionsModal(
         selectedUrlByMediaKey = selectedUrlByMediaKey,
         selectedMediaKeys = selectedMediaKeys.filterValues { it }.keys
     )
-    val previewMedia = selections.firstOrNull()?.media
+    val previewMedia = downloadGroups.mapNotNull { group ->
+        val mediaKey = group.firstOrNull()?.mediaKey ?: return@mapNotNull null
+        val selectedUrl = selectedUrlByMediaKey[mediaKey]
+        group.firstOrNull { it.url == selectedUrl } ?: group.firstOrNull()
+    }
 
     LaunchedEffect(url) {
         isLoading = true
@@ -602,11 +670,9 @@ private fun DownloadOptionsModal(
                 }
                 else -> {
                     Column {
-                        DownloadMediaPreview(
-                            uri = previewMedia?.url,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
+                        DownloadMediaCarousel(
+                            mediaItems = previewMedia,
+                            modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(Modifier.height(dimensionResource(R.dimen.spacing_base)))
                         if (isDuplicate) {

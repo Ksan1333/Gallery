@@ -69,6 +69,7 @@ import com.example.gallery.ui.AppConstants
 import com.example.gallery.util.AppUpdateManager
 import com.example.gallery.util.AppUpdateRelease
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -84,6 +85,8 @@ private const val CUSTOM_ANALYSIS_PERIOD = -2
 private const val TUTORIAL_SETUP_DONE_PREF = "tutorial_setup_done"
 private const val TUTORIAL_ENABLED_PREFIX = "tutorial_enabled_"
 private const val TUTORIAL_SHOWN_PREFIX = "tutorial_shown_"
+private const val STARTUP_BACKGROUND_WORK_DELAY_MS = 8_000L
+private const val STARTUP_WORK_TRACE = "GALLERY_STARTUP_WORK_TRACE"
 
 private fun logScrollRestoreTrace(message: String) {
     Log.d(SCROLL_RESTORE_TRACE, "$SCROLL_RESTORE_TRACE $message")
@@ -561,6 +564,14 @@ fun AppNavigation(
     val refreshTrigger = galleryState.refreshTrigger
     LaunchedEffect(refreshTrigger, isStartupUnlocked) {
         if (!isStartupUnlocked) return@LaunchedEffect
+        if (!ThumbnailGenerationService.isStartupTasksCompleted.value) {
+            Log.d(
+                STARTUP_WORK_TRACE,
+                "thumbnail_generation_deferred refresh=$refreshTrigger delayMs=$STARTUP_BACKGROUND_WORK_DELAY_MS"
+            )
+            delay(STARTUP_BACKGROUND_WORK_DELAY_MS)
+        }
+        Log.d(STARTUP_WORK_TRACE, "thumbnail_generation_start refresh=$refreshTrigger")
         ThumbnailGenerationService.startGenerating(
             context,
             galleryState.repository,
