@@ -147,6 +147,7 @@ private const val DENSE28_ROWS_PER_YEAR = 6
 private const val DENSE28_THUMB_SIZE = 48
 private const val DENSE28_THUMB_LOAD_ROWS = 12
 private const val FULL_GRID_PREPARATION_DELAY_MS = 8_000L
+private const val SIMILAR_GROUP_PREPARATION_DELAY_MS = 750L
 private const val VIEWER_RETURN_TARGET_WAIT_MS = 5_000L
 private const val SCROLL_IMAGE_LOAD_MAX_ITEMS_PER_SEC = 18f
 private val EmptyMetadataMap = emptyMap<String, com.example.gallery.data.local.entity.MediaMetadataSummary>()
@@ -427,9 +428,29 @@ private suspend fun LazyStaggeredGridState.scrollToGalleryPhysicalEnd(lastItemIn
     if (lastItemIndex < 0) return
 
     scrollToItem(lastItemIndex)
-    repeat(2) {
+    // A staggered grid can have a shorter final lane. Scrolling to the final
+    // item alone therefore does not always reach the physical bottom.
+    repeat(4) {
         if (!canScrollForward || scrollBy(Float.MAX_VALUE) <= 0f) return
     }
+}
+
+/**
+ * A URI-based restore needs the complete item list. Paging may not have loaded
+ * the target yet, so keep it out of this path until the restore is complete.
+ */
+internal fun shouldUseFlatGridPresentation(
+    isFullGridPreparationEnabled: Boolean,
+    columnCount: Int,
+    hasSimilarGroups: Boolean,
+    isPositionRestorePinned: Boolean
+): Boolean {
+    return isFullGridPreparationEnabled && (
+        columnCount >= 28 ||
+            columnCount == 2 ||
+            hasSimilarGroups ||
+            isPositionRestorePinned
+        )
 }
 
 /**
@@ -814,11 +835,20 @@ fun GalleryGridView(
         restoreScrollRequestKey > 0
     var isFullGridPreparationEnabled by remember(
         pagingItems,
-        maxLineSpan,
-        scrollToUri,
-        restoreScrollRequestKey
+        maxLineSpan
     ) {
         mutableStateOf(requiresFullGridImmediately)
+    }
+    // The grid stays mounted behind the viewer. Once a URI/index restore is
+    // requested, retain the full representation so its item indices cannot
+    // switch back to Paging (whose placeholders and separators differ).
+    var isPositionRestorePinned by remember(pagingItems, maxLineSpan) {
+        mutableStateOf(requiresFullGridImmediately)
+    }
+    LaunchedEffect(requiresFullGridImmediately) {
+        if (requiresFullGridImmediately) {
+            isPositionRestorePinned = true
+        }
     }
     LaunchedEffect(
         pagingItems,
@@ -964,8 +994,44 @@ fun GalleryGridView(
     var similarMediaGroups by remember {
         mutableStateOf<List<MediaRepository.SimilarMediaGroup>>(emptyList())
     }
+    var similarGroupingGeneration by remember { mutableIntStateOf(0) }
+    var isSimilarGroupingPreparationEnabled by remember { mutableStateOf(false) }
     LaunchedEffect(
         isFullGridPreparationEnabled,
+        sortedList,
+        vectorReadyCount,
+        similarImageGroupingEnabled,
+        similarImageThreshold
+    ) {
+        similarGroupingGeneration++
+        isSimilarGroupingPreparationEnabled = false
+    }
+    LaunchedEffect(similarGroupingGeneration, isForegroundScrolling) {
+        val canPrepareSimilarGroups =
+            isFullGridPreparationEnabled &&
+                similarImageGroupingEnabled &&
+                vectorReadyCount >= 2 &&
+                sortedList.size >= 2
+        if (!canPrepareSimilarGroups || isSimilarGroupingPreparationEnabled || isForegroundScrolling) {
+            return@LaunchedEffect
+        }
+
+        logGridFullWorkTrace(
+            "similar_deferred generation=$similarGroupingGeneration count=${sortedList.size} " +
+                "vectors=$vectorReadyCount delayMs=$SIMILAR_GROUP_PREPARATION_DELAY_MS"
+        )
+        delay(SIMILAR_GROUP_PREPARATION_DELAY_MS)
+        if (!isForegroundScrolling) {
+            isSimilarGroupingPreparationEnabled = true
+            logGridFullWorkTrace(
+                "similar_enabled generation=$similarGroupingGeneration count=${sortedList.size} " +
+                    "vectors=$vectorReadyCount"
+            )
+        }
+    }
+    LaunchedEffect(
+        isFullGridPreparationEnabled,
+        isSimilarGroupingPreparationEnabled,
         sortedList,
         vectorReadyCount,
         similarImageGroupingEnabled,
@@ -977,7 +1043,10 @@ fun GalleryGridView(
         }
         val similarStartedAt = System.currentTimeMillis()
         similarMediaGroups = if (
-            similarImageGroupingEnabled && vectorReadyCount >= 2 && sortedList.size >= 2
+            isSimilarGroupingPreparationEnabled &&
+                similarImageGroupingEnabled &&
+                vectorReadyCount >= 2 &&
+                sortedList.size >= 2
         ) {
             galleryState.repository.findAdjacentSimilarMediaGroups(
                 mediaItems = sortedList,
@@ -1013,8 +1082,12 @@ fun GalleryGridView(
     } else {
         emptyMap()
     }
-    val useFlatGridPresentation = isFullGridPreparationEnabled &&
-        (maxLineSpan >= 28 || maxLineSpan == 2 || activeSimilarGroupByUri.isNotEmpty())
+    val useFlatGridPresentation = shouldUseFlatGridPresentation(
+        isFullGridPreparationEnabled = isFullGridPreparationEnabled,
+        columnCount = maxLineSpan,
+        hasSimilarGroups = activeSimilarGroupByUri.isNotEmpty(),
+        isPositionRestorePinned = isPositionRestorePinned
+    )
     val activePagingItems = if (useFlatGridPresentation) null else pagingItems
 
     var flatGridItems by remember { mutableStateOf<List<GridItem>>(emptyList()) }

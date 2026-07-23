@@ -45,6 +45,9 @@ private const val FOLDER_MOVE_TRACE = "FOLDER_MOVE_TRACE"
 private const val SIMILAR_GROUP_TRACE = "GALLERY_SIMILAR_GROUP_TRACE"
 private const val MEDIA_SYNC_TRACE = "GALLERY_MEDIA_SYNC_TRACE"
 
+private fun String.normalizeMediaStoreRelativePath(): String =
+    replace('\\', '/').trim().trim('/')
+
 class MediaRepository(
     private val context: Context,
     val mediaDao: MediaDao,
@@ -282,6 +285,9 @@ class MediaRepository(
             metadataSnapshotElapsedMs = SystemClock.elapsedRealtime() - metadataSnapshotStartedAt
             val foundUris = HashSet<String>(10000)
             val newEntities = mutableListOf<MediaMetadataEntity>()
+            val videoDownloadRelativePath = context
+                .getString(R.string.video_dl_rel_path_movies)
+                .normalizeMediaStoreRelativePath()
 
             val projection = buildList {
                 add(MediaStore.MediaColumns._ID)
@@ -368,7 +374,6 @@ class MediaRepository(
                                 
                                 val dateTaken = if (dateTakenColumn != -1) cursor.getLong(dateTakenColumn) else 0L
                                 val dateAdded = cursor.getLong(dateColumn) * 1000
-                                val date = if (dateTaken > 0L) dateTaken else dateAdded
                                 val mime = cursor.getString(mimeColumn)
                                 val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
                                 val width = if (widthColumn != -1) cursor.getInt(widthColumn) else 0
@@ -377,6 +382,14 @@ class MediaRepository(
                                 val name = if (nameColumn != -1) cursor.getString(nameColumn) ?: "" else ""
                                 val path = if (dataColumn != -1) cursor.getString(dataColumn) else null
                                 val relativePath = if (relativePathColumn != -1) cursor.getString(relativePathColumn) else null
+                                // X downloads are saved into this app's Movies/Gallery folder.
+                                // MediaStore extracts DATE_TAKEN from the MP4 header and can retain
+                                // the original post's time even when DATE_ADDED/MODIFIED are the
+                                // actual download time. For this owned download location, use the
+                                // filesystem/MediaStore download time consistently in the gallery.
+                                val isVideoDownload = mime?.startsWith("video/") == true &&
+                                    relativePath?.normalizeMediaStoreRelativePath() == videoDownloadRelativePath
+                                val date = if (isVideoDownload) dateAdded else if (dateTaken > 0L) dateTaken else dateAdded
                                 val isMediaStoreTrashed = trashedColumn != -1 && cursor.getInt(trashedColumn) == 1
                                 
                                 val folderName = if (!relativePath.isNullOrBlank()) {

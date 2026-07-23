@@ -299,7 +299,7 @@ fun AppSettingsScreen(
                                 text = { Text(stringResource(R.string.backup_save_standard)) },
                                 onClick = {
                                     showBackupSaveMenu = false
-                                    exportSettings { GalleryBackupManager.exportAllToFile(context).absolutePath }
+                                    exportSettings { GalleryBackupManager.exportAllToDefaultLocation(context) }
                                 }
                             )
                             DropdownMenuItem(

@@ -110,7 +110,7 @@ fun VideoGalleryScreen(
         }
 
         if (allVideos.isEmpty()) isLoading = true
-        val videos = galleryState.repository.getAllMedia().filter { it.isVideo }
+        val videos = galleryState.repository.getAllMedia(forceRefresh = true).filter { it.isVideo }
         galleryState.cachedVideoItems = videos
         galleryState.cachedVideoRefreshTrigger = galleryState.refreshTrigger
         applyVideoList(videos)

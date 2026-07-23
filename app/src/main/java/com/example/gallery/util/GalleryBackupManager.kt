@@ -3,10 +3,14 @@ package com.example.gallery.util
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.OutputStream
 
 object GalleryBackupManager {
     private const val GLOBAL_SETTINGS_PREFS = "global_settings"
@@ -16,6 +20,11 @@ object GalleryBackupManager {
     private const val APP_PREFS = "app_prefs"
     private const val FAVORITE_ARTISTS_PREFS = "favorite_artists"
     private const val FAVORITE_SITES_PREFS = "favorite_sites_prefs"
+    private const val BACKUP_STATE_PREFS = "gallery_backup_state"
+    private const val DEFAULT_BACKUP_URI_KEY = "default_backup_uri"
+    private const val DEFAULT_BACKUP_NAME = "gallery_backup.json"
+    private const val DEFAULT_BACKUP_RELATIVE_PATH = "Download/Gallery/Backups"
+    private const val BACKUP_TRACE = "GalleryBackup"
 
     private val settingsPrefs = listOf(
         GLOBAL_SETTINGS_PREFS,
@@ -26,13 +35,12 @@ object GalleryBackupManager {
     )
 
     fun backupFile(context: Context): File {
-        return publicBackupFile("gallery_backup.json")
+        return appScopedBackupFile(context)
     }
 
-    private fun publicBackupFile(fileName: String): File {
+    private fun legacyPublicBackupFile(fileName: String): File {
         val baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
         val folder = File(baseDir, "Gallery/Backups")
-        if (!folder.exists()) folder.mkdirs()
         return File(folder, fileName)
     }
 
@@ -43,35 +51,110 @@ object GalleryBackupManager {
     }
 
     private fun readableBackupFile(context: Context): File {
-        val primary = backupFile(context)
-        return if (primary.exists()) primary else appScopedBackupFile(context)
+        val legacyPublic = legacyPublicBackupFile(DEFAULT_BACKUP_NAME)
+        return if (legacyPublic.exists()) legacyPublic else appScopedBackupFile(context)
     }
 
     private fun readBackupRoot(context: Context): JSONObject {
+        defaultBackupUri(context)?.let { uri ->
+            val root = runCatching { readBackupRootFromUri(context, uri) }
+                .onFailure { error ->
+                    Log.w(BACKUP_TRACE, "Default backup URI is no longer readable: $uri", error)
+                }
+                .getOrNull()
+            if (root != null) return root
+        }
         val file = readableBackupFile(context)
         require(file.exists()) { "Backup file not found: ${file.absolutePath}" }
         return parseBackupRoot(file.readText(Charsets.UTF_8), file.absolutePath)
     }
 
+    private fun defaultBackupUri(context: Context): Uri? {
+        val value = context.getSharedPreferences(BACKUP_STATE_PREFS, Context.MODE_PRIVATE)
+            .getString(DEFAULT_BACKUP_URI_KEY, null)
+            ?: return null
+        return Uri.parse(value)
+    }
+
+    private fun readBackupRootFromUri(context: Context, uri: Uri): JSONObject {
+        val content = context.contentResolver.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?: error("Unable to open backup file: $uri")
+        Log.i(BACKUP_TRACE, "Backup imported from URI: $uri")
+        return parseBackupRoot(content, uri.toString())
+    }
+
     private fun parseBackupRoot(content: String, source: String): JSONObject {
-        val trimmed = content.trim()
+        val trimmed = content.removePrefix("\uFEFF").trim()
         require(trimmed.isNotEmpty()) { "Backup file is empty: $source" }
-        return JSONObject(trimmed)
+        return runCatching { JSONObject(trimmed) }
+            .getOrElse { error -> throw IllegalArgumentException("Invalid backup JSON: $source", error) }
     }
 
     fun exportAllToFile(context: Context): File {
         val root = createBackupRoot(context)
         val file = backupFile(context)
+        file.parentFile?.mkdirs()
         file.writeText(root.toString(2), Charsets.UTF_8)
         return file
     }
 
+    fun exportAllToDefaultLocation(context: Context): String {
+        val content = createBackupRoot(context).toString(2)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            val file = exportAllToFile(context)
+            return file.absolutePath
+        }
+
+        val resolver = context.contentResolver
+        val values = android.content.ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, DEFAULT_BACKUP_NAME)
+            put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, DEFAULT_BACKUP_RELATIVE_PATH)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Unable to create backup in Downloads")
+        try {
+            openBackupOutputStream(context, uri)
+                ?.bufferedWriter(Charsets.UTF_8)
+                ?.use { it.write(content) }
+                ?: error("Unable to open backup destination: $uri")
+            resolver.update(
+                uri,
+                android.content.ContentValues().apply {
+                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                },
+                null,
+                null
+            )
+            context.getSharedPreferences(BACKUP_STATE_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(DEFAULT_BACKUP_URI_KEY, uri.toString())
+                .apply()
+            Log.i(BACKUP_TRACE, "Backup exported to default URI: $uri")
+            return uri.toString()
+        } catch (error: Throwable) {
+            resolver.delete(uri, null, null)
+            Log.e(BACKUP_TRACE, "Failed to export backup to default location", error)
+            throw error
+        }
+    }
+
     fun exportAllToUri(context: Context, uri: Uri) {
         val content = createBackupRoot(context).toString(2)
-        context.contentResolver.openOutputStream(uri)
+        openBackupOutputStream(context, uri)
             ?.bufferedWriter(Charsets.UTF_8)
             ?.use { it.write(content) }
             ?: error("Unable to open backup destination: $uri")
+        Log.i(BACKUP_TRACE, "Backup exported to selected URI: $uri")
+    }
+
+    private fun openBackupOutputStream(context: Context, uri: Uri): OutputStream? {
+        return runCatching { context.contentResolver.openOutputStream(uri, "wt") }
+            .getOrNull()
+            ?: context.contentResolver.openOutputStream(uri, "w")
     }
 
     private fun createBackupRoot(context: Context): JSONObject {
@@ -92,11 +175,7 @@ object GalleryBackupManager {
     }
 
     fun importSettingsFromUri(context: Context, uri: Uri) {
-        val content = context.contentResolver.openInputStream(uri)
-            ?.bufferedReader(Charsets.UTF_8)
-            ?.use { it.readText() }
-            ?: error("Unable to open backup file: $uri")
-        importSettingsFromRoot(context, parseBackupRoot(content, uri.toString()))
+        importSettingsFromRoot(context, readBackupRootFromUri(context, uri))
     }
 
     private fun importSettingsFromRoot(context: Context, root: JSONObject) {
@@ -129,7 +208,7 @@ object GalleryBackupManager {
                     root.optJSONArray("custom_sites")?.let { put("custom_sites", it.toString()) }
                 }
             } else null
-            ?: publicBackupFile("favorite_artists.json")
+            ?: legacyPublicBackupFile("favorite_artists.json")
                 .takeIf { it.exists() }
                 ?.let { file ->
                     val legacy = JSONObject(file.readText(Charsets.UTF_8))
@@ -146,7 +225,7 @@ object GalleryBackupManager {
     fun importFavoriteSitesFromFile(context: Context) {
         val root = runCatching { readBackupRoot(context) }.getOrNull()
         val json = root?.optJSONObject("favorite_sites")
-            ?: publicBackupFile("favorite_sites.json")
+            ?: legacyPublicBackupFile("favorite_sites.json")
                 .takeIf { it.exists() }
                 ?.let { file ->
                     JSONObject().put("favorite_sites", JSONArray(file.readText(Charsets.UTF_8)).toString())

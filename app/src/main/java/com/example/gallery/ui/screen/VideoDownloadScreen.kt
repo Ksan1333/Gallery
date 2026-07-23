@@ -11,7 +11,6 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.media.MediaScannerConnection
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.SystemClock
@@ -483,15 +482,16 @@ private fun DownloadMediaPreview(
     ) {
         if (!uri.isNullOrBlank()) {
             val context = LocalContext.current
-            val mimeType = remember(uri) {
+            val playableUri = remember(uri) { resolveDownloadPlaybackUri(context, uri) }
+            val mimeType = remember(playableUri) {
                 runCatching {
-                    context.contentResolver.getType(Uri.parse(uri))
-                }.getOrNull() ?: VideoDownloadUrlUtils.detectMediaType(uri, null).second
+                    context.contentResolver.getType(Uri.parse(playableUri))
+                }.getOrNull() ?: VideoDownloadUrlUtils.detectMediaType(playableUri, null).second
             }
             val isVideo = mimeType.startsWith("video/")
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(uri)
+                    .data(playableUri)
                     .apply { if (isVideo) videoFrameMillis(1000) }
                     .build(),
                 contentDescription = null,
@@ -1202,7 +1202,7 @@ fun startDownloadTask(
 ) {
     val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
     scope.launch {
-        val timestamp = System.currentTimeMillis()
+        val downloadStartedAt = System.currentTimeMillis()
         val checkUrl = originalUrl ?: url
         val historyUrl = if (batchTotal > 1) {
             val identityHash = Integer.toUnsignedString((downloadIdentity ?: url).hashCode(), 16)
@@ -1228,14 +1228,14 @@ fun startDownloadTask(
                 if (batchTotal > 1) append(" ($batchIndex/$batchTotal)")
             }
         } else {
-            context.getString(R.string.video_dl_media_title_format, timestamp, quality)
+            context.getString(R.string.video_dl_media_title_format, downloadStartedAt, quality)
         }
 
         val entity = VideoDownloadEntity(
             url = historyUrl,
             title = displayTitle,
             savePath = pendingStatus,
-            downloadDate = timestamp,
+            downloadDate = downloadStartedAt,
             status = context.getString(R.string.video_dl_status_downloading)
         )
         galleryState.repository.mediaDao.insertVideoDownload(entity)
@@ -1278,9 +1278,9 @@ fun startDownloadTask(
                     }
                 } else {
                     if (batchTotal > 1) {
-                        "X_Media_${timestamp}_${batchIndex}.$extension"
+                        "X_Media_${downloadStartedAt}_${batchIndex}.$extension"
                     } else {
-                        context.getString(R.string.video_dl_filename_format, timestamp, extension)
+                        context.getString(R.string.video_dl_filename_format, downloadStartedAt, extension)
                     }
                 }
 
@@ -1326,9 +1326,9 @@ fun startDownloadTask(
                 val contentValues = android.content.ContentValues().apply {
                     put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
                     put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000)
-                    put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
-                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
+                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, downloadStartedAt / 1000L)
+                    put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, downloadStartedAt / 1000L)
+                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, downloadStartedAt)
 
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                         val relativePath = if (mimeType.startsWith("video/")) {
@@ -1369,10 +1369,12 @@ fun startDownloadTask(
                     outputStream.flush()
                 } ?: throw Exception("Failed to open output stream")
 
+                val downloadedAt = System.currentTimeMillis()
+                val actualPath = resolveMediaStoreFilePath(resolver, uri)
                 val updateValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, timestamp / 1000)
-                    put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, timestamp / 1000)
-                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, timestamp)
+                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, downloadedAt / 1000L)
+                    put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, downloadedAt / 1000L)
+                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, downloadedAt)
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                         put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
                         put(android.provider.MediaStore.MediaColumns.DATE_EXPIRES, null as Long?)
@@ -1380,32 +1382,48 @@ fun startDownloadTask(
                 }
                 resolver.update(uri, updateValues, null, null)
 
-                val actualPath = try {
-                    val cursor = resolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DATA), null, null, null)
-                    cursor?.use { if (it.moveToFirst()) it.getString(0) else uri.toString() } ?: uri.toString()
-                } catch (_: Exception) {
-                    uri.toString()
-                }
+                val fileTimestampUpdated = actualPath
+                    ?.takeUnless { it.startsWith("content://") }
+                    ?.let { path ->
+                        runCatching { File(path).setLastModified(downloadedAt) }
+                            .onFailure { error ->
+                                Log.w("VideoDownloader", "Failed to update downloaded file timestamp: $path", error)
+                            }
+                            .getOrDefault(false)
+                    } ?: false
+                val timestampRowsUpdated = resolver.update(
+                    uri,
+                    android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.MediaColumns.DATE_ADDED, downloadedAt / 1000L)
+                        put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, downloadedAt / 1000L)
+                        put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, downloadedAt)
+                    },
+                    null,
+                    null
+                )
+                val persistedTimestamps = queryMediaStoreTimestamps(resolver, uri)
 
                 Log.i("VideoDownloader", "DOWNLOAD COMPLETE")
-                Log.i("VideoDownloader", "Saved Path: $actualPath")
+                Log.i("VideoDownloader", "Saved Path: ${actualPath ?: uri}")
+                Log.i(
+                    "VideoDownloader",
+                    "Timestamp updated: epochMs=$downloadedAt mediaStoreRows=$timestampRowsUpdated " +
+                        "fileModified=$fileTimestampUpdated persisted=$persistedTimestamps"
+                )
                 Log.i("VideoDownloader", "========================================")
-
-                if (!actualPath.startsWith("content://")) {
-                    MediaScannerConnection.scanFile(context, arrayOf(actualPath), arrayOf(mimeType)) { _, scannedUri ->
-                        Log.d("VideoDownloader", "Scan finished for $scannedUri")
-                        scope.launch { galleryState.refresh() }
-                    }
-                } else {
-                    galleryState.refresh()
-                }
 
                 galleryState.repository.mediaDao.insertVideoDownload(
                     entity.copy(
                         status = context.getString(R.string.video_dl_status_completed),
-                        savePath = actualPath
+                        // Keep the MediaStore URI in history. A raw filesystem path is not
+                        // consistently readable by Coil/ExoPlayer under scoped storage.
+                        savePath = uri.toString(),
+                        downloadDate = downloadedAt
                     )
                 )
+                // Publish the new MediaStore row to Room before notifying gallery screens.
+                // A separate media scan is not necessary and can rewrite the stored dates.
+                galleryState.repository.syncMediaStoreToRoom()
                 GlobalOperationService.updateProgress(1f, context.getString(R.string.video_dl_complete), operationId)
 
                 if (batchTotal <= 1) {
@@ -1424,6 +1442,60 @@ fun startDownloadTask(
             GlobalOperationService.finishOperation(operationId)
         }
     }
+}
+
+private fun resolveMediaStoreFilePath(
+    resolver: android.content.ContentResolver,
+    uri: Uri
+): String? = try {
+    resolver.query(
+        uri,
+        arrayOf(android.provider.MediaStore.MediaColumns.DATA),
+        null,
+        null,
+        null
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+} catch (error: Exception) {
+    Log.w("VideoDownloader", "Failed to resolve downloaded file path", error)
+    null
+}
+
+private data class PersistedMediaStoreTimestamps(
+    val dateAddedSeconds: Long,
+    val dateModifiedSeconds: Long,
+    val dateTakenMillis: Long
+)
+
+private fun queryMediaStoreTimestamps(
+    resolver: android.content.ContentResolver,
+    uri: Uri
+): PersistedMediaStoreTimestamps? = try {
+    resolver.query(
+        uri,
+        arrayOf(
+            android.provider.MediaStore.MediaColumns.DATE_ADDED,
+            android.provider.MediaStore.MediaColumns.DATE_MODIFIED,
+            android.provider.MediaStore.MediaColumns.DATE_TAKEN
+        ),
+        null,
+        null,
+        null
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            PersistedMediaStoreTimestamps(
+                dateAddedSeconds = cursor.getLong(0),
+                dateModifiedSeconds = cursor.getLong(1),
+                dateTakenMillis = cursor.getLong(2)
+            )
+        } else {
+            null
+        }
+    }
+} catch (error: Exception) {
+    Log.w("VideoDownloader", "Failed to verify downloaded media timestamps", error)
+    null
 }
 
 private suspend fun copyDownloadWithProgress(
@@ -2446,18 +2518,18 @@ private fun buildDownloadMediaData(context: Context, download: VideoDownloadEnti
     val path = download.savePath
     val pendingStatus = context.getString(R.string.video_dl_status_pending)
     if (path.isBlank() || path == pendingStatus) return null
-    val uri = Uri.parse(path)
+    val viewerUri = resolveDownloadPlaybackUri(context, path)
+    val uri = Uri.parse(viewerUri)
     val resolverMimeType = runCatching {
-        if (path.startsWith("content://")) context.contentResolver.getType(uri) else null
+        if (viewerUri.startsWith("content://")) context.contentResolver.getType(uri) else null
     }.getOrNull()
     val mimeType = resolverMimeType ?: when {
-        path.contains(".gif", ignoreCase = true) -> "image/gif"
-        path.contains(".webp", ignoreCase = true) -> "image/webp"
-        path.contains(".jpg", ignoreCase = true) || path.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
-        path.contains(".png", ignoreCase = true) -> "image/png"
+        viewerUri.contains(".gif", ignoreCase = true) -> "image/gif"
+        viewerUri.contains(".webp", ignoreCase = true) -> "image/webp"
+        viewerUri.contains(".jpg", ignoreCase = true) || viewerUri.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
+        viewerUri.contains(".png", ignoreCase = true) -> "image/png"
         else -> "video/*"
     }
-    val viewerUri = if (path.contains("://")) path else "file://$path"
     return MediaData(
         uri = viewerUri,
         dateAdded = download.downloadDate,
@@ -2465,4 +2537,54 @@ private fun buildDownloadMediaData(context: Context, download: VideoDownloadEnti
         fileName = download.title,
         folderName = context.getString(R.string.label_downloads)
     )
+}
+
+private fun resolveDownloadPlaybackUri(context: Context, savedPath: String): String {
+    val parsedUri = Uri.parse(savedPath)
+    if (parsedUri.scheme == "content") return savedPath
+
+    val localPath = when (parsedUri.scheme) {
+        "file" -> parsedUri.path
+        null -> savedPath
+        else -> null
+    }?.takeIf { it.isNotBlank() } ?: return savedPath
+
+    val lowerCasePath = localPath.lowercase(Locale.ROOT)
+    val collections = if (lowerCasePath.endsWith(".gif") ||
+        lowerCasePath.endsWith(".webp") ||
+        lowerCasePath.endsWith(".jpg") ||
+        lowerCasePath.endsWith(".jpeg") ||
+        lowerCasePath.endsWith(".png")
+    ) {
+        listOf(
+            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        )
+    } else {
+        listOf(
+            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        )
+    }
+
+    collections.forEach { collection ->
+        val contentUri = runCatching {
+            context.contentResolver.query(
+                collection,
+                arrayOf(android.provider.MediaStore.MediaColumns._ID),
+                "${android.provider.MediaStore.MediaColumns.DATA} = ?",
+                arrayOf(localPath),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    android.content.ContentUris.withAppendedId(collection, cursor.getLong(0)).toString()
+                } else {
+                    null
+                }
+            }
+        }.getOrNull()
+        if (contentUri != null) return contentUri
+    }
+
+    return Uri.fromFile(File(localPath)).toString()
 }

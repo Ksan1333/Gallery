@@ -70,7 +70,9 @@ fun FolderGalleryScreen(
     val folderOrders by galleryState.repository.getAllFolderOrders().collectAsState(initial = emptyList())
     val orderMap = remember(folderOrders) { folderOrders.associate { it.id to it.position } }
 
-    val metadataMap = remember { mutableStateMapOf<String, com.example.gallery.data.local.entity.MediaMetadataSummary>() }
+    var metadataMap by remember {
+        mutableStateOf<Map<String, com.example.gallery.data.local.entity.MediaMetadataSummary>>(emptyMap())
+    }
     var metadataVersion by remember { mutableIntStateOf(0) }
     var folderDataVersion by remember { mutableIntStateOf(0) }
     var refreshVersion by remember { mutableIntStateOf(0) }
@@ -80,10 +82,8 @@ fun FolderGalleryScreen(
             .debounce(1000)
             .distinctUntilChanged()
             .collect { list ->
-                list.forEach { metadataMap[it.uri] = it }
-                if (metadataMap.size > list.size + 100) {
-                    val uris = list.map { it.uri }.toSet()
-                    metadataMap.keys.retainAll(uris)
+                metadataMap = withContext(Dispatchers.Default) {
+                    list.associateBy { it.uri }
                 }
                 metadataVersion++
             }
@@ -103,7 +103,7 @@ fun FolderGalleryScreen(
             }
             try {
                 val newMap = mutableMapOf<String, MutableList<MediaData>>()
-                val allMedia = galleryState.repository.getAllMedia(forceRefresh = false)
+                val allMedia = galleryState.repository.getAllMedia(forceRefresh = isRefresh)
                 android.util.Log.d("FolderGallery", "loadAllMedia: allMedia size = ${allMedia.size}")
 
                 // ディレクトリ走査は重いので、allMedia の folderName だけで構成する。
@@ -153,7 +153,7 @@ fun FolderGalleryScreen(
         }
 
         if (hasAnyPermission) {
-            loadAllMedia()
+            loadAllMedia(isRefresh = true)
         } else {
             android.util.Log.d("FolderGallery", "No permission, launching launcher")
             permissionLauncher.launch(perms)
@@ -185,7 +185,7 @@ fun FolderGalleryScreen(
         isCategoriesCalculating = true
 
         val folderSnapshot = folderData.toMap()
-        val metadataSnapshot = metadataMap.toMap()
+        val metadataSnapshot = metadataMap
         val thumbnailSnapshot = folderThumbnails.toMap()
         val orderSnapshot = orderMap.toMap()
         val managedSnapshot = managedFolderNames.toSet()
@@ -222,9 +222,14 @@ fun FolderGalleryScreen(
     LaunchedEffect(selectedFolderName, folderDataVersion, metadataVersion, galleryState.ageRatingFilter) {
         val folderName = selectedFolderName
         val mediaSnapshot = folderName?.let { folderData[it]?.toList() }.orEmpty()
-        val metadataSnapshot = metadataMap.toMap()
+        val metadataSnapshot = metadataMap
         val ageFilter = galleryState.ageRatingFilter
+        val startedAt = System.currentTimeMillis()
         isMediaCalculationFinished = false
+        android.util.Log.d(
+            "FolderGallery",
+            "folder_open_prepare folder=$folderName media=${mediaSnapshot.size} metadata=${metadataSnapshot.size} filter=$ageFilter"
+        )
         selectedCategoryMedia = withContext(Dispatchers.Default) {
             mediaSnapshot.filter { m ->
                 val rating = metadataSnapshot[m.uri]?.ageRating ?: "SFW"
@@ -237,6 +242,10 @@ fun FolderGalleryScreen(
             }
         }
         isMediaCalculationFinished = true
+        android.util.Log.d(
+            "FolderGallery",
+            "folder_open_ready folder=$folderName visible=${selectedCategoryMedia.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
+        )
     }
 
     LaunchedEffect(selectedCategoryMedia, selectedFolderName, isLoading, isMediaCalculationFinished) {
