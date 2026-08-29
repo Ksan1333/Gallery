@@ -395,6 +395,7 @@ fun FolderGalleryScreen(
                 }
                 persistFolderGroups(updated)
             },
+            enableCategoryReorder = !isSelectionMode,
             showThumbnails = true,
             initialColumnIndex = 3,
             onShowViewer = onShowViewer, onHideViewer = onHideViewer,

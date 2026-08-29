@@ -104,6 +104,8 @@
     <string name="btn_complete">完了する</string>
     <string name="btn_interrupt">中断</string>
     <string name="btn_deselect">選択を解除</string>
+    <string name="btn_done">完了</string>
+    <string name="label_select_all">すべて選択</string>
     <string name="btn_reload">再読み込み</string>
     <string name="btn_rotate">回転</string>
 
@@ -147,6 +149,8 @@
     <string name="msg_deleting_obsolete">不要なデータを削除中…</string>
     <string name="msg_sync_complete">同期完了</string>
     <string name="msg_moving_to_trash">ゴミ箱へ移動中…</string>
+    <string name="trash_move_confirm_title">ゴミ箱へ移動しますか？</string>
+    <string name="trash_move_confirm_message">選択した%1$d件をゴミ箱へ移動します。</string>
     <string name="msg_restoring">元に戻しています…</string>
     <string name="msg_permanently_deleting">ファイルを完全に削除中…</string>
     <string name="msg_moving_to_folder">フォルダへ移動中: %1$s</string>
@@ -221,6 +225,8 @@
     <string name="video_dl_gif_detected">GIF投稿を検出しました。GIF画像としてダウンロードします。</string>
     <string name="video_dl_select_quality">画質</string>
     <string name="video_dl_select_media">保存するメディア</string>
+    <string name="video_dl_save_folder">保存先フォルダ</string>
+    <string name="video_dl_save_folder_auto">自動（画像・動画別）</string>
     <string name="video_dl_detected_media_count">メディアを%1$d件検出しました</string>
     <string name="video_dl_media_number">メディア %1$d</string>
     <string name="video_dl_media_image">画像</string>
@@ -333,6 +339,9 @@
     <string name="folder_group_default_name">フォルダグループ %1$d</string>
     <string name="folder_group_count">フォルダ %1$d件</string>
     <string name="folder_group_ungroup">グループ解除</string>
+    <string name="folder_reorder">フォルダを並び替え</string>
+    <string name="folder_move_up">上へ移動</string>
+    <string name="folder_move_down">下へ移動</string>
 
     <!-- Media Edit -->
     <string name="edit_target_age">対象年齢</string>
@@ -1098,4 +1107,5 @@
     <string name="label_pointer_video_dl">URL入力と保存ボタン付近</string>
     <string name="label_pointer_references">資料追加ボタン付近</string>
     <string name="label_pointer_overview">現在の画面の主要ボタン付近</string>
+    <string name="pc_migration_export">PC版への移行ファイルを作成</string>
 </resources>

@@ -50,6 +50,8 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,6 +61,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -355,7 +360,7 @@ fun VideoDownloadScreen(
             url = urlInput,
             galleryState = galleryState,
             onDismiss = { showDownloadModal = false },
-            onDownloadStart = { selections ->
+            onDownloadStart = { selections, targetFolder ->
                 showDownloadModal = false
                 selections.forEachIndexed { index, selection ->
                     startDownloadTask(
@@ -369,7 +374,8 @@ fun VideoDownloadScreen(
                         postId = selection.media.tweetId,
                         batchIndex = index + 1,
                         batchTotal = selections.size,
-                        downloadIdentity = selection.media.mediaKey
+                        downloadIdentity = selection.media.mediaKey,
+                        targetFolder = targetFolder
                     )
                 }
                 if (selections.size > 1) {
@@ -577,7 +583,7 @@ private fun DownloadOptionsModal(
     url: String,
     galleryState: GalleryState,
     onDismiss: () -> Unit,
-    onDownloadStart: (List<MediaDownloadSelection>) -> Unit
+    onDownloadStart: (List<MediaDownloadSelection>, String?) -> Unit
 ) {
     val context = LocalContext.current
     val colors = galleryColors
@@ -589,6 +595,9 @@ private fun DownloadOptionsModal(
     val selectedUrlByMediaKey = remember { mutableStateMapOf<String, String>() }
     val selectedMediaKeys = remember { mutableStateMapOf<String, Boolean>() }
     var gifSaveFormat by remember(url) { mutableStateOf(GifSaveFormat.GIF) }
+    var mediaFolderNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedTargetFolder by rememberSaveable(url) { mutableStateOf<String?>(null) }
+    var showTargetFolderMenu by remember { mutableStateOf(false) }
 
     val isGifPost = resolvedUrls.any { it.isGifSource }
     val hasDirectGif = resolvedUrls.any { it.isDirectGifCandidate }
@@ -628,6 +637,18 @@ private fun DownloadOptionsModal(
             error = context.getString(R.string.msg_error_fetch_media_url)
         }
         isLoading = false
+    }
+
+    LaunchedEffect(galleryState.repository) {
+        mediaFolderNames = withContext(Dispatchers.IO) {
+            galleryState.repository.getAllMedia()
+                .asSequence()
+                .filter { it.folderName.isNotBlank() }
+                .map { it.folderName }
+                .distinct()
+                .sortedWith(String.CASE_INSENSITIVE_ORDER)
+                .toList()
+        }
     }
 
     LaunchedEffect(resolvedUrls, gifSaveFormat) {
@@ -679,6 +700,45 @@ private fun DownloadOptionsModal(
                             Text(stringResource(R.string.video_dl_already_downloaded), color = colors.accent, fontSize = textSizes.subtitle)
                             Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
                         }
+                        Text(stringResource(R.string.video_dl_save_folder), color = colors.secondaryText)
+                        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_tiny)))
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { showTargetFolderMenu = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Folder, contentDescription = null)
+                                Spacer(Modifier.width(dimensionResource(R.dimen.spacing_small)))
+                                Text(
+                                    selectedTargetFolder ?: stringResource(R.string.video_dl_save_folder_auto),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                            DropdownMenu(
+                                expanded = showTargetFolderMenu,
+                                onDismissRequest = { showTargetFolderMenu = false },
+                                modifier = Modifier.fillMaxWidth(0.86f)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.video_dl_save_folder_auto)) },
+                                    onClick = {
+                                        selectedTargetFolder = null
+                                        showTargetFolderMenu = false
+                                    }
+                                )
+                                mediaFolderNames.forEach { folderName ->
+                                    DropdownMenuItem(
+                                        text = { Text(folderName) },
+                                        onClick = {
+                                            selectedTargetFolder = folderName
+                                            showTargetFolderMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
                         if (downloadGroups.size > 1) {
                             Text(
                                 stringResource(R.string.video_dl_detected_media_count, downloadGroups.size),
@@ -856,7 +916,7 @@ private fun DownloadOptionsModal(
         confirmButton = {
             Button(
                 onClick = {
-                    if (selections.isNotEmpty()) onDownloadStart(selections)
+                    if (selections.isNotEmpty()) onDownloadStart(selections, selectedTargetFolder)
                 },
                 enabled = !isLoading && error == null && selections.isNotEmpty()
             ) {
@@ -1198,7 +1258,8 @@ fun startDownloadTask(
     postId: String? = null,
     batchIndex: Int = 1,
     batchTotal: Int = 1,
-    downloadIdentity: String? = null
+    downloadIdentity: String? = null,
+    targetFolder: String? = null
 ) {
     val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
     scope.launch {
@@ -1331,7 +1392,9 @@ fun startDownloadTask(
                     put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, downloadStartedAt)
 
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        val relativePath = if (mimeType.startsWith("video/")) {
+                        val relativePath = targetFolder?.let {
+                            galleryState.repository.resolveDownloadTargetRelativePath(it)
+                        } ?: if (mimeType.startsWith("video/")) {
                             context.getString(R.string.video_dl_rel_path_movies)
                         } else {
                             context.getString(R.string.video_dl_rel_path_pictures)

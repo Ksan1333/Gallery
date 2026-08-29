@@ -43,6 +43,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.ContentScale
@@ -258,6 +260,7 @@ private fun rememberGalleryPinchZoomModifier(
             var cumulativeZoom = 1f
             var isPinching = false
             var zoomUiActive = false
+            var stepTriggered = false
             var eventCount = 0
             val activePointerPositions = mutableMapOf<Long, Offset>()
             try {
@@ -309,7 +312,7 @@ private fun rememberGalleryPinchZoomModifier(
                                     "cumulative=${"%.3f".format(Locale.US, cumulativeZoom)}"
                             )
                         }
-                        if (cumulativeZoom >= GRID_ZOOM_IN_TRIGGER) {
+                        if (!stepTriggered && cumulativeZoom >= GRID_ZOOM_IN_TRIGGER) {
                             logZoomTrace(
                                 "gesture_step direction=in columns=$currentZoomColumnCount " +
                                     "cumulative=${"%.3f".format(Locale.US, cumulativeZoom)}"
@@ -319,9 +322,9 @@ private fun rememberGalleryPinchZoomModifier(
                                 currentOnZoomingStateChanged(true)
                             }
                             currentOnZoomIn()
+                            stepTriggered = true
                             event.changes.forEach { change -> if (change.pressed) change.consume() }
-                            cumulativeZoom = 1f
-                        } else if (cumulativeZoom <= GRID_ZOOM_OUT_TRIGGER) {
+                        } else if (!stepTriggered && cumulativeZoom <= GRID_ZOOM_OUT_TRIGGER) {
                             logZoomTrace(
                                 "gesture_step direction=out columns=$currentZoomColumnCount " +
                                     "cumulative=${"%.3f".format(Locale.US, cumulativeZoom)}"
@@ -331,8 +334,10 @@ private fun rememberGalleryPinchZoomModifier(
                                 currentOnZoomingStateChanged(true)
                             }
                             currentOnZoomOut()
+                            stepTriggered = true
                             event.changes.forEach { change -> if (change.pressed) change.consume() }
-                            cumulativeZoom = 1f
+                        } else if (stepTriggered) {
+                            event.changes.forEach { change -> if (change.pressed) change.consume() }
                         }
                     }
 
@@ -432,6 +437,51 @@ private suspend fun LazyStaggeredGridState.scrollToGalleryPhysicalEnd(lastItemIn
     // item alone therefore does not always reach the physical bottom.
     repeat(4) {
         if (!canScrollForward || scrollBy(Float.MAX_VALUE) <= 0f) return
+    }
+}
+
+private suspend fun PointerInputScope.detectDragGesturesAfterLongPressTimeout(
+    timeoutMs: Long,
+    onDragStart: (Offset) -> Unit,
+    onDrag: (PointerInputChange, Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        var lastPosition = down.position
+        val longPressReached = withTimeoutOrNull(timeoutMs) {
+            while (true) {
+                val event = awaitPointerEvent()
+                if (event.changes.count { it.pressed } > 1) return@withTimeoutOrNull false
+                val change = event.changes.firstOrNull { it.id == down.id }
+                    ?: return@withTimeoutOrNull false
+                if (!change.pressed) return@withTimeoutOrNull false
+                lastPosition = change.position
+                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                    return@withTimeoutOrNull false
+                }
+            }
+        } == null
+        if (!longPressReached) return@awaitEachGesture
+
+        onDragStart(lastPosition)
+        var ended = false
+        try {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) {
+                    ended = true
+                    break
+                }
+                val dragAmount = change.position - lastPosition
+                lastPosition = change.position
+                onDrag(change, dragAmount)
+            }
+        } finally {
+            if (ended) onDragEnd() else onDragCancel()
+        }
     }
 }
 
@@ -701,6 +751,8 @@ fun GalleryGridView(
     var isSelectionMode by remember { mutableStateOf(false) }
     val selectedUris = remember { mutableStateMapOf<String, Boolean>() }
     var lastSelectedIndex by remember { mutableIntStateOf(-1) }
+    var pendingTrashUris by remember { mutableStateOf<List<String>?>(null) }
+    var isTrashOperationInProgress by remember { mutableStateOf(false) }
 
     fun selectedTraceSample(): String = traceUri(selectedUris.keys.firstOrNull())
 
@@ -720,6 +772,21 @@ fun GalleryGridView(
         )
         selectedUris.clear()
         lastSelectedIndex = -1
+    }
+
+    fun performBulkDelete(uris: List<String>) {
+        if (uris.isEmpty() || isTrashOperationInProgress) return
+        isTrashOperationInProgress = true
+        scope.launch {
+            try {
+                if (isTrashMode) galleryState.repository.permanentlyDelete(uris)
+                else galleryState.repository.moveToTrash(uris)
+                setSelectionMode(false, "bulk_delete")
+                clearSelectedUris("bulk_delete")
+            } finally {
+                isTrashOperationInProgress = false
+            }
+        }
     }
 
     LaunchedEffect(isSelectionMode) {
@@ -838,6 +905,11 @@ fun GalleryGridView(
         maxLineSpan
     ) {
         mutableStateOf(requiresFullGridImmediately)
+    }
+    LaunchedEffect(isSelectionMode) {
+        if (isSelectionMode) {
+            isFullGridPreparationEnabled = true
+        }
     }
     // The grid stays mounted behind the viewer. Once a URI/index restore is
     // requested, retain the full representation so its item indices cannot
@@ -1580,6 +1652,16 @@ fun GalleryGridView(
                     setSelectionMode(false, "top_close")
                     clearSelectedUris("top_close")
                 },
+                onSelectAll = {
+                    val allUris = (if (sortedList.isNotEmpty()) sortedList else imageList)
+                        .asSequence()
+                        .map { it.uri }
+                        .distinct()
+                        .toList()
+                    allUris.forEach { uri -> selectedUris[uri] = true }
+                    if (selectedUris.isNotEmpty()) setSelectionMode(true, "select_all")
+                    logSelectionTrace("select_all count=${selectedUris.size}")
+                },
                 onBulkFavorite = {
                     scope.launch {
                         val uris = selectedUris.keys.toList()
@@ -1591,14 +1673,10 @@ fun GalleryGridView(
                     }
                 },
                 onBulkDelete = {
-                    scope.launch {
-                        val uris = selectedUris.keys.toList()
-                        logSelectionTrace("bulk_delete count=${uris.size} trash=$isTrashMode mode=$isSelectionMode")
-                        if (isTrashMode) galleryState.repository.permanentlyDelete(uris)
-                        else galleryState.repository.moveToTrash(uris)
-                        setSelectionMode(false, "bulk_delete")
-                        clearSelectedUris("bulk_delete")
-                    }
+                    val uris = selectedUris.keys.toList()
+                    logSelectionTrace("bulk_delete count=${uris.size} trash=$isTrashMode mode=$isSelectionMode")
+                    val shouldConfirmMove = !isTrashMode && globalSettingsPrefs.getBoolean("confirmDelete", true)
+                    if (shouldConfirmMove) pendingTrashUris = uris else performBulkDelete(uris)
                 },
                 onBulkEdit = { uris: List<String> ->
                     logSelectionTrace("bulk_edit count=${uris.size} mode=$isSelectionMode")
@@ -1640,6 +1718,44 @@ fun GalleryGridView(
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
         }
+
+        if (isTrashOperationInProgress) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(200f)
+                    .background(colors.background.copy(alpha = 0.72f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = colors.accent)
+                    Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                    Text(stringResource(R.string.msg_moving_to_trash), color = colors.primaryText)
+                }
+            }
+        }
+    }
+
+    pendingTrashUris?.let { uris ->
+        AlertDialog(
+            onDismissRequest = { pendingTrashUris = null },
+            title = { Text(stringResource(R.string.trash_move_confirm_title)) },
+            text = { Text(stringResource(R.string.trash_move_confirm_message, uris.size)) },
+            confirmButton = {
+                Button(onClick = {
+                    pendingTrashUris = null
+                    performBulkDelete(uris)
+                }) { Text(stringResource(R.string.trash_move_to)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingTrashUris = null }) { Text(stringResource(R.string.btn_cancel)) }
+            }
+        )
     }
 }
 
@@ -1681,11 +1797,16 @@ private fun GalleryGridContent(
         onDispose { ThumbnailGenerationService.setForegroundScrollActive(false) }
     }
     val context = LocalContext.current
-    val selectionLongPressMs = remember(context) {
+    val configuredSelectionLongPressMs = remember(context) {
         context.getSharedPreferences("global_settings", Context.MODE_PRIVATE)
             .getInt("selectionLongPressMs", AppDefaults.SELECTION_LONG_PRESS_MS)
             .coerceIn(150, 2000)
             .toLong()
+    }
+    val selectionLongPressMs = if (isSelectionMode) {
+        minOf(configuredSelectionLongPressMs, 220L)
+    } else {
+        configuredSelectionLongPressMs
     }
     var previousLineSpan by remember { mutableIntStateOf(maxLineSpan) }
     LaunchedEffect(maxLineSpan) {
@@ -1838,11 +1959,17 @@ private fun GalleryGridContent(
 
     fun mediaIndexAtGridPosition(position: Offset, allowNearest: Boolean = false): Int? {
         val visibleItems = gridState.layoutInfo.visibleItemsInfo
+        // LazyStaggeredGrid item offsets are expressed from viewportStartOffset. With a
+        // top content padding (the gallery bars), pointer coordinates are viewport-local,
+        // so comparing them directly shifts the hit target downward by roughly two rows.
+        val layoutPosition = position.copy(
+            y = position.y + gridState.layoutInfo.viewportStartOffset
+        )
         val hit = visibleItems.firstOrNull { item ->
-            position.x >= item.offset.x &&
-                position.x <= item.offset.x + item.size.width &&
-                position.y >= item.offset.y &&
-                position.y <= item.offset.y + item.size.height &&
+            layoutPosition.x >= item.offset.x &&
+                layoutPosition.x <= item.offset.x + item.size.width &&
+                layoutPosition.y >= item.offset.y &&
+                layoutPosition.y <= item.offset.y + item.size.height &&
                 selectableUrisAtGridIndex(item.index).isNotEmpty()
         }
         if (hit != null) return hit.index
@@ -1850,7 +1977,7 @@ private fun GalleryGridContent(
         if (!allowNearest) return null
         return visibleItems
             .filter { selectableUrisAtGridIndex(it.index).isNotEmpty() }
-            .minByOrNull { item -> abs(position.y - (item.offset.y + item.size.height / 2f)) }
+            .minByOrNull { item -> abs(layoutPosition.y - (item.offset.y + item.size.height / 2f)) }
             ?.index
     }
 
@@ -2026,7 +2153,8 @@ private fun GalleryGridContent(
     }
 
     fun handleTap(media: GridItem.Media) {
-        val shouldToggle = selectionEnabled && (selectOnTap || isSelectionMode)
+        val shouldOpenSelected = isSelectionMode && !selectOnTap && selectedUris.containsKey(media.data.uri)
+        val shouldToggle = selectionEnabled && (selectOnTap || isSelectionMode) && !shouldOpenSelected
         logSelectionTrace(
             "tap uri=${traceUri(media.data.uri)} index=${media.index} action=${if (shouldToggle) "toggle" else "open"} " +
                 "mode=$isSelectionMode count=${selectedUris.size} selectOnTap=$selectOnTap"
@@ -2242,12 +2370,18 @@ private fun GalleryGridContent(
                 gridBoundsInRoot = coordinates.boundsInRoot()
             }
             .then(
-                if (selectionEnabled && maxLineSpan >= 28) {
+                if (selectionEnabled) {
                     Modifier.pointerInput(maxLineSpan, selectionLongPressMs) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     var movedBeforeLongPress = false
-                    val longPressReached = withTimeoutOrNull(selectionLongPressMs) {
+                    val pressedGridIndex = mediaIndexAtGridPosition(down.position, allowNearest = false)
+                    val pressedItemSelected = pressedGridIndex
+                        ?.let(::selectableUrisAtGridIndex)
+                        .orEmpty()
+                        .any { it in selectedUris }
+                    val activeLongPressMs = if (pressedItemSelected) minOf(selectionLongPressMs, 150L) else selectionLongPressMs
+                    val longPressReached = withTimeoutOrNull(activeLongPressMs) {
                         while (true) {
                             val event = awaitPointerEvent()
                             if (event.changes.count { it.pressed } > 1) {
@@ -2279,7 +2413,7 @@ private fun GalleryGridContent(
                         if (movedBeforeLongPress) {
                             logSelectionTrace(
                                 "grid_press_moved_before_long_press x=${down.position.x.roundToInt()} " +
-                                    "y=${down.position.y.roundToInt()} longPressMs=$selectionLongPressMs"
+                                    "y=${down.position.y.roundToInt()} longPressMs=$activeLongPressMs"
                             )
                         }
                         return@awaitEachGesture
@@ -2308,7 +2442,7 @@ private fun GalleryGridContent(
 
                     logSelectionTrace(
                         "grid_long_press start=$dragStartGridIndex rootY=${dragRootDown.y.roundToInt()} " +
-                            "first=${gridState.firstVisibleItemIndex} longPressMs=$selectionLongPressMs"
+                            "first=${gridState.firstVisibleItemIndex} longPressMs=$activeLongPressMs"
                     )
                     val (baseSelection, shouldSelect) = beginDragSelection(dragStartGridIndex)
                     var lastGridIndex: Int = dragStartGridIndex
@@ -2371,7 +2505,7 @@ private fun GalleryGridContent(
                 }
                 GridItemRenderer(
                     item = item,
-                    modifier = if (maxLineSpan <= 4) Modifier.animateItem() else Modifier,
+                    modifier = if (maxLineSpan in 3..4) Modifier.animateItem() else Modifier,
                     gridIndex = index,
                     selectedUris = selectedUris,
                     metadataMap = metadataMap,
@@ -2408,7 +2542,7 @@ private fun GalleryGridContent(
             ) { index, item ->
                 GridItemRenderer(
                     item = item,
-                    modifier = if (maxLineSpan <= 4) Modifier.animateItem() else Modifier,
+                    modifier = if (maxLineSpan in 3..4) Modifier.animateItem() else Modifier,
                     gridIndex = index,
                     selectedUris = selectedUris,
                     metadataMap = metadataMap,
@@ -2512,9 +2646,9 @@ private fun gridItemGapPadding(columnCount: Int): Dp {
 }
 
 private fun mediaGridAspectRatio(media: MediaData, columnCount: Int): Float {
-    if (columnCount != 2) return 1f
-    if (media.width <= 0 || media.height <= 0) return 1f
-    return (media.width.toFloat() / media.height.toFloat()).coerceIn(0.56f, 1.78f)
+    // Multiple aspect ratios make LazyVerticalStaggeredGrid recalculate lane heights while
+    // thumbnails resolve. A fixed cell height keeps reverse scrolling stable, especially at 2 columns.
+    return 1f
 }
 
 @Composable
@@ -2554,6 +2688,8 @@ private fun GridItemRenderer(
             )
         }
         is GridItem.Media -> {
+            val isSelected = selectedUris.containsKey(item.data.uri)
+            val itemLongPressMs = if (isSelected) minOf(selectionLongPressMs, 150L) else selectionLongPressMs
             if (maxLineSpan >= 28) {
                 DenseMediaGridItem(
                     media = item.data,
@@ -2564,7 +2700,7 @@ private fun GridItemRenderer(
                     shouldLoadThumbnail = gridIndex in denseThumbnailStartIndex..denseThumbnailEndIndex,
                     isGridScrolling = isGridScrolling,
                     isScrollbarDragging = isScrollbarDragging,
-                    isSelected = selectedUris.containsKey(item.data.uri),
+                    isSelected = isSelected,
                     isFavorite = metadataMap[item.data.uri]?.isFavorite == true,
                     isHighlighted = highlightUri == item.data.uri,
                     onClick = { onMediaClick(item) }
@@ -2574,7 +2710,7 @@ private fun GridItemRenderer(
                     item = item,
                     modifier = modifier,
                     gridIndex = gridIndex,
-                    isSelected = selectedUris.containsKey(item.data.uri),
+                    isSelected = isSelected,
                     metadataMap = metadataMap,
                     columnCount = maxLineSpan,
                     thumbSize = thumbSize,
@@ -2582,8 +2718,9 @@ private fun GridItemRenderer(
                     isGridScrolling = isGridScrolling,
                     isScrollbarDragging = isScrollbarDragging,
                     isHighlighted = highlightUri == item.data.uri,
-                    selectionLongPressMs = selectionLongPressMs,
-                    selectionEnabled = selectionEnabled,
+                    selectionLongPressMs = itemLongPressMs,
+                    // The grid-level detector survives item recycling during edge auto-scroll.
+                    selectionEnabled = false,
                     onPositionInItem = onPositionInItem,
                     onClick = { onMediaClick(item) },
                     onDragSelectionStart = onDragSelectionStart,
@@ -2639,15 +2776,7 @@ private fun SimilarGroupGridItem(
     val isMemoryCached = remember(representative.uri, imageLoader, isGridScrolling) {
         imageLoader.hasGridMemoryCache(representative.uri)
     }
-    val aspectRatio = if (columnCount == 2) {
-        if (representative.width > 0 && representative.height > 0) {
-            (representative.width.toFloat() / representative.height.toFloat()).coerceIn(0.56f, 1.78f)
-        } else {
-            1f
-        }
-    } else {
-        1f
-    }
+    val aspectRatio = 1f
     val popupWidth = (configuration.screenWidthDp.dp - 32.dp).coerceIn(
         dimensionResource(R.dimen.similar_group_popup_width_min),
         dimensionResource(R.dimen.similar_group_popup_width_max)
@@ -2889,7 +3018,8 @@ private fun MediaGridItemWrapper(
         isSelected = isSelected,
         gridIndex = gridIndex,
         selectionLongPressMs = selectionLongPressMs,
-        selectionEnabled = selectionEnabled,
+                    // The grid-level detector survives item recycling during edge auto-scroll.
+                    selectionEnabled = false,
         onPositionInItem = onPositionInItem,
         onClick = onClick,
         onDragSelectionStart = onDragSelectionStart,
@@ -3013,7 +3143,8 @@ private fun MediaGridItem(
             .then(
                 if (selectionEnabled) {
                     Modifier.pointerInput(gridIndex, selectionLongPressMs) {
-                detectDragGesturesAfterLongPress(
+                detectDragGesturesAfterLongPressTimeout(
+                    timeoutMs = selectionLongPressMs,
                     onDragStart = { position ->
                         val (baseSelection, shouldSelect) = onDragSelectionStart(gridIndex)
                         dragBaseSelectionRef[0] = baseSelection
@@ -3029,7 +3160,7 @@ private fun MediaGridItem(
                         )
                     },
                     onDrag = { change, _ ->
-                        val baseSelection = dragBaseSelectionRef[0] ?: return@detectDragGesturesAfterLongPress
+                        val baseSelection = dragBaseSelectionRef[0] ?: return@detectDragGesturesAfterLongPressTimeout
                         val rootPosition = onPositionInItem(gridIndex, change.position)
                         if (rootPosition != null) {
                             val previousIndex = dragLastIndexRef[0]
@@ -3171,6 +3302,7 @@ private fun GalleryTopSection(
     backContentDescription: String?,
     onMenuClick: (() -> Unit)?,
     onCloseSelection: () -> Unit,
+    onSelectAll: () -> Unit,
     onBulkFavorite: () -> Unit,
     onBulkDelete: () -> Unit,
     onBulkEdit: (List<String>) -> Unit,
@@ -3206,6 +3338,7 @@ private fun GalleryTopSection(
                     selectedCount,
                     isTrashMode,
                     onCloseSelection,
+                    onSelectAll,
                     onBulkFavorite,
                     onBulkDelete,
                     { onBulkEdit(selectedUris) },
@@ -3228,6 +3361,7 @@ private fun SelectionModeBar(
     selectedCount: Int,
     isTrashMode: Boolean,
     onClose: () -> Unit,
+    onSelectAll: () -> Unit,
     onFavorite: () -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
@@ -3249,6 +3383,9 @@ private fun SelectionModeBar(
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onSelectAll) {
+                Icon(Icons.Default.SelectAll, stringResource(R.string.label_select_all))
+            }
             if (!isTrashMode) { IconButton(onClick = onFavorite) { Icon(Icons.Default.Favorite, null, tint = colors.danger) } }
             var showOverflow by remember { mutableStateOf(false) }
             Box {

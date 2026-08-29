@@ -26,6 +26,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.lazy.LazyRow
@@ -75,6 +76,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -146,6 +148,7 @@ private fun handleViewerAction(
     isFrameSteppingVisible: Boolean,
     gifFrames: List<Bitmap>,
     onClickedClose: () -> Unit,
+    onTrash: () -> Unit,
     onRotate: () -> Unit,
     onTogglePlayback: () -> Unit,
     onConvertToGif: () -> Unit,
@@ -155,13 +158,7 @@ private fun handleViewerAction(
     onSearchAscii2d: () -> Unit
 ) {
     when (function) {
-        context.getString(R.string.label_action_trash) -> galleryState?.let { state ->
-            scope.launch {
-                state.repository.moveToTrash(listOf(currentMediaItem.uri))
-                Toast.makeText(context, context.getString(R.string.msg_deleted_count, 1), Toast.LENGTH_SHORT).show()
-                onClickedClose()
-            }
-        }
+        context.getString(R.string.label_action_trash) -> onTrash()
         context.getString(R.string.label_action_close) -> onClickedClose()
         context.getString(R.string.label_action_settings) -> galleryState?.navController?.navigate(AppRoutes.MEDIA_VIEWER_SETTINGS)
         context.getString(R.string.label_action_rotate) -> onRotate()
@@ -296,6 +293,8 @@ fun MediaViewerScreen(
 
     var isUiVisible by rememberSaveable { mutableStateOf(false) }
     var showTagDialog by remember { mutableStateOf(false) }
+    var pendingTrashItem by remember { mutableStateOf<MediaData?>(null) }
+    var isMovingToTrash by remember { mutableStateOf(false) }
     var showRecommendationTagEditor by remember { mutableStateOf(false) }
     val configuredScreenOrientation = when (orientationMode) {
         "PORTRAIT" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -312,6 +311,36 @@ fun MediaViewerScreen(
         // the viewer's orientation for a composition frame (or longer on a route change).
         activity?.requestedOrientation = configuredScreenOrientation
         onClickedClose()
+    }
+
+    fun performViewerTrash(item: MediaData) {
+        val state = galleryState ?: return
+        if (isMovingToTrash) return
+        isMovingToTrash = true
+        val deletingPage = pagerState.currentPage
+        scope.launch {
+            try {
+                state.repository.moveToTrash(listOf(item.uri))
+                Toast.makeText(context, context.getString(R.string.msg_deleted_count, 1), Toast.LENGTH_SHORT).show()
+                if (imageList.size <= 1) {
+                    closeMediaViewer()
+                } else {
+                    val nextPage = if (deletingPage < imageList.lastIndex) deletingPage + 1 else deletingPage - 1
+                    pagerState.scrollToPage(nextPage.coerceIn(0, imageList.lastIndex))
+                }
+            } finally {
+                isMovingToTrash = false
+            }
+        }
+    }
+
+    fun requestViewerTrash(item: MediaData) {
+        if (isMovingToTrash) return
+        if (globalSettingsPrefs.getBoolean("confirmDelete", true)) {
+            pendingTrashItem = item
+        } else {
+            performViewerTrash(item)
+        }
     }
 
     var isRecommendationVisible by rememberSaveable { mutableStateOf(showInfoOverlayEnabled) }
@@ -1276,6 +1305,7 @@ fun MediaViewerScreen(
                                             isFrameSteppingVisible = isFrameSteppingVisible,
                                             gifFrames = gifFrames,
                                             onClickedClose = ::closeMediaViewer,
+                                            onTrash = { requestViewerTrash(currentMediaItem) },
                                             onRotate = {
                                                 val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                 screenOrientation = target
@@ -1354,6 +1384,7 @@ fun MediaViewerScreen(
                                                         isFrameSteppingVisible = isFrameSteppingVisible,
                                                         gifFrames = gifFrames,
                                                         onClickedClose = ::closeMediaViewer,
+                                                        onTrash = { requestViewerTrash(currentMediaItem) },
                                                         onRotate = {
                                                             val target = if (screenOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                                                             screenOrientation = target
@@ -1749,6 +1780,44 @@ fun MediaViewerScreen(
                     )
                 }
             }
+        }
+
+        if (isMovingToTrash) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(300f)
+                    .background(colors.background.copy(alpha = 0.75f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = colors.accent)
+                    Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
+                    Text(stringResource(R.string.msg_moving_to_trash), color = colors.primaryText)
+                }
+            }
+        }
+
+        pendingTrashItem?.let { item ->
+            AlertDialog(
+                onDismissRequest = { pendingTrashItem = null },
+                title = { Text(stringResource(R.string.trash_move_confirm_title)) },
+                text = { Text(stringResource(R.string.trash_move_confirm_message, 1)) },
+                confirmButton = {
+                    Button(onClick = {
+                        pendingTrashItem = null
+                        performViewerTrash(item)
+                    }) { Text(stringResource(R.string.trash_move_to)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingTrashItem = null }) { Text(stringResource(R.string.btn_cancel)) }
+                }
+            )
         }
     }
 }

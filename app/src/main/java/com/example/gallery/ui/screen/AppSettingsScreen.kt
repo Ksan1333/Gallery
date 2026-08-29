@@ -125,6 +125,7 @@ import androidx.compose.material3.SuggestionChipDefaults
 import com.example.gallery.ui.theme.GalleryPaletteSwatches
 import com.example.gallery.ui.theme.galleryTypography
 import com.example.gallery.util.GalleryBackupManager
+import com.example.gallery.util.PcMigrationExportManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -222,6 +223,30 @@ fun AppSettingsScreen(
         }
     }
 
+    val pcMigrationExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri?.let { selectedUri ->
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    PcMigrationExportManager.exportToUri(context, selectedUri).destination
+                }
+                    .onSuccess { destination ->
+                        withContext(Dispatchers.Main) {
+                            val msg = context.getString(R.string.msg_saved_to, destination)
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .onFailure { error ->
+                        withContext(Dispatchers.Main) {
+                            val msg = context.getString(R.string.msg_save_failed, error.message)
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
+                    }
+            }
+        }
+    }
+
     // Reset scroll when page changes
     LaunchedEffect(currentPage, resetToken) {
         listState.scrollToItem(0)
@@ -307,6 +332,15 @@ fun AppSettingsScreen(
                                 onClick = {
                                     showBackupSaveMenu = false
                                     backupExportLauncher.launch("gallery_backup.json")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.pc_migration_export)) },
+                                onClick = {
+                                    showBackupSaveMenu = false
+                                    pcMigrationExportLauncher.launch(
+                                        PcMigrationExportManager.suggestedArchiveName()
+                                    )
                                 }
                             )
                         }

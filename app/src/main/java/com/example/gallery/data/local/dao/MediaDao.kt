@@ -93,6 +93,15 @@ interface MediaDao {
     @Query("SELECT * FROM media_tags")
     fun getAllTagsWithUris(): Flow<List<TagEntity>>
 
+    /**
+     * Stable, one-shot view used by the read-only PC migration exporter.
+     *
+     * Keeping this separate from the Flow API lets the exporter take a consistent
+     * Room snapshot without continuing to observe (or mutate) application state.
+     */
+    @Query("SELECT * FROM media_tags ORDER BY uri ASC, tag ASC, confidence ASC")
+    suspend fun getAllTagsForPcMigration(): List<TagEntity>
+
     @Query("SELECT * FROM media_tags WHERE tag = :tag")
     fun getMediaForTag(tag: String): Flow<List<TagEntity>>
 
@@ -229,6 +238,9 @@ interface MediaDao {
 
     @Query("SELECT * FROM video_downloads ORDER BY downloadDate DESC")
     fun getAllVideoDownloads(): Flow<List<com.example.gallery.data.local.entity.VideoDownloadEntity>>
+
+    @Query("SELECT * FROM video_downloads ORDER BY url ASC")
+    suspend fun getAllVideoDownloadsForPcMigration(): List<com.example.gallery.data.local.entity.VideoDownloadEntity>
 
     @Query("SELECT EXISTS(SELECT 1 FROM video_downloads WHERE url = :url OR url LIKE :url || '#gallery-media=%')")
     suspend fun isVideoDownloaded(url: String): Boolean

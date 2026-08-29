@@ -834,6 +834,9 @@ class MediaRepository(
         }
     }
 
+    suspend fun resolveDownloadTargetRelativePath(targetFolder: String): String =
+        resolveMoveTargetRelativePath(targetFolder)
+
     private suspend fun resolveMoveTargetRelativePath(targetFolder: String): String {
         val normalizedInput = normalizeRelativePath(targetFolder)
         if (targetFolder.replace('\\', '/').contains('/')) return normalizedInput

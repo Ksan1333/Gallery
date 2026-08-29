@@ -1,6 +1,7 @@
 package com.example.gallery.ui.screen
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -44,11 +45,15 @@ fun FolderPickerScreen(
     var isLoading by remember { mutableStateOf(true) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
+    var selectedGroup by remember { mutableStateOf<CategoryData?>(null) }
 
     val displayedCategories = remember(baseCategories, folderGroups, orderMap) {
         val sorted = baseCategories.sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.title }))
         buildFolderGroupCategories(sorted, folderGroups)
     }
+    val pickerCategories = selectedGroup?.groupMembers ?: displayedCategories
+
+    BackHandler(selectedGroup != null) { selectedGroup = null }
 
     fun loadFolders() {
         scope.launch(Dispatchers.IO) {
@@ -76,10 +81,10 @@ fun FolderPickerScreen(
     Scaffold(
         topBar = {
             GalleryTopAppBar(
-                title = stringResource(R.string.folder_picker_title),
+                title = selectedGroup?.title ?: stringResource(R.string.folder_picker_title),
                 navigationIcon = Icons.Default.ArrowBack,
                 navigationContentDescription = stringResource(R.string.btn_back),
-                onNavigationClick = onBack,
+                onNavigationClick = { if (selectedGroup != null) selectedGroup = null else onBack() },
                 centered = true,
                 actions = {
                     IconButton(onClick = { showCreateFolderDialog = true }) {
@@ -95,13 +100,19 @@ fun FolderPickerScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = colors.primaryText)
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
+                    columns = GridCells.Fixed(3),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(displayedCategories, key = { it.id }) { category ->
-                        CategoryCard(data = category, onClick = { onFolderSelected(category.id) })
+                    items(pickerCategories, key = { it.id }) { category ->
+                        CategoryCard(
+                            data = category,
+                            onClick = {
+                                if (category.groupMembers.isNotEmpty()) selectedGroup = category
+                                else onFolderSelected(category.id)
+                            }
+                        )
                     }
                 }
             }

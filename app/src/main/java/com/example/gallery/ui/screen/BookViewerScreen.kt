@@ -853,9 +853,23 @@ fun BookViewerScreen(
                                                 handleTapZone(zoneIndex, zoneCount)
                                             }
                                         },
-                                        onDoubleTap = {
-                                            showBookTouchIndicator(it)
-                                            if (viewerSettings.doubleTapFastZoom) {
+                                        onDoubleTap = { position ->
+                                            showBookTouchIndicator(position)
+                                            val zoneIndex = tapZoneIndexAt(
+                                                zoneCount = zoneCount,
+                                                width = size.width.toFloat(),
+                                                height = size.height.toFloat(),
+                                                x = position.x,
+                                                y = position.y
+                                            )
+                                            val zoneAction = bookTouchAssignments.getOrElse(zoneIndex) { "なし" }
+                                            val isNavigationAction = zoneAction == AppConstants.ACTION_PREV_PAGE ||
+                                                zoneAction == AppConstants.ACTION_NEXT_PAGE ||
+                                                zoneAction == AppConstants.ACTION_PREV_BOOK ||
+                                                zoneAction == AppConstants.ACTION_NEXT_BOOK
+                                            if (isNavigationAction) {
+                                                handleTapZone(zoneIndex, zoneCount)
+                                            } else if (viewerSettings.doubleTapFastZoom) {
                                                 scale = if (scale > 1.01f) 1f else 2.5f
                                                 offset = Offset.Zero
                                             }

@@ -10,6 +10,9 @@ interface ReferenceDao {
     @Query("SELECT * FROM reference_projects ORDER BY createdAt DESC")
     fun getAllProjectsFlow(): Flow<List<ReferenceProjectEntity>>
 
+    @Query("SELECT * FROM reference_projects ORDER BY id ASC")
+    suspend fun getAllProjectsForPcMigration(): List<ReferenceProjectEntity>
+
     @Insert
     suspend fun insertProject(project: ReferenceProjectEntity): Long
 
@@ -24,6 +27,9 @@ interface ReferenceDao {
 
     @Query("SELECT * FROM reference_items WHERE projectId = :projectId")
     suspend fun getItemsForProject(projectId: Long): List<ReferenceItemEntity>
+
+    @Query("SELECT * FROM reference_items ORDER BY projectId ASC, id ASC")
+    suspend fun getAllItemsForPcMigration(): List<ReferenceItemEntity>
 
     @Insert
     suspend fun insertItem(item: ReferenceItemEntity): Long
