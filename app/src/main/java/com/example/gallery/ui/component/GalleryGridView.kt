@@ -486,6 +486,25 @@ private suspend fun PointerInputScope.detectDragGesturesAfterLongPressTimeout(
 }
 
 /**
+ * Entering selection from the normal gallery needs more intent than continuing an
+ * existing selection. The extra delay prevents a short pause before a swipe from
+ * being interpreted as range selection, while selected items remain quick to edit.
+ */
+internal fun gallerySelectionLongPressTimeoutMs(
+    configuredTimeoutMs: Long,
+    isSelectionMode: Boolean,
+    pressedItemSelected: Boolean
+): Long {
+    val configured = configuredTimeoutMs.coerceIn(150L, 2000L)
+    return when {
+        pressedItemSelected -> minOf(configured, 150L)
+        isSelectionMode -> minOf(configured, 220L)
+        else -> (configured + AppConstants.GALLERY_SELECTION_LONG_PRESS_EXTRA_MS)
+            .coerceAtMost(2000L)
+    }
+}
+
+/**
  * A URI-based restore needs the complete item list. Paging may not have loaded
  * the target yet, so keep it out of this path until the restore is complete.
  */
@@ -1803,11 +1822,11 @@ private fun GalleryGridContent(
             .coerceIn(150, 2000)
             .toLong()
     }
-    val selectionLongPressMs = if (isSelectionMode) {
-        minOf(configuredSelectionLongPressMs, 220L)
-    } else {
-        configuredSelectionLongPressMs
-    }
+    val selectionLongPressMs = gallerySelectionLongPressTimeoutMs(
+        configuredTimeoutMs = configuredSelectionLongPressMs,
+        isSelectionMode = isSelectionMode,
+        pressedItemSelected = false
+    )
     var previousLineSpan by remember { mutableIntStateOf(maxLineSpan) }
     LaunchedEffect(maxLineSpan) {
         val previous = previousLineSpan
@@ -2371,16 +2390,28 @@ private fun GalleryGridContent(
             }
             .then(
                 if (selectionEnabled) {
-                    Modifier.pointerInput(maxLineSpan, selectionLongPressMs) {
+                    Modifier.pointerInput(maxLineSpan, selectionLongPressMs, isScrollbarDragging) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    val scrollWasActiveAtDown = gridState.isScrollInProgress || isScrollbarDragging
+                    if (scrollWasActiveAtDown) {
+                        logSelectionTrace(
+                            "grid_press_ignored_for_scroll x=${down.position.x.roundToInt()} " +
+                                "y=${down.position.y.roundToInt()}"
+                        )
+                        return@awaitEachGesture
+                    }
                     var movedBeforeLongPress = false
                     val pressedGridIndex = mediaIndexAtGridPosition(down.position, allowNearest = false)
                     val pressedItemSelected = pressedGridIndex
                         ?.let(::selectableUrisAtGridIndex)
                         .orEmpty()
                         .any { it in selectedUris }
-                    val activeLongPressMs = if (pressedItemSelected) minOf(selectionLongPressMs, 150L) else selectionLongPressMs
+                    val activeLongPressMs = gallerySelectionLongPressTimeoutMs(
+                        configuredTimeoutMs = configuredSelectionLongPressMs,
+                        isSelectionMode = isSelectionMode,
+                        pressedItemSelected = pressedItemSelected
+                    )
                     val longPressReached = withTimeoutOrNull(activeLongPressMs) {
                         while (true) {
                             val event = awaitPointerEvent()
@@ -2409,12 +2440,15 @@ private fun GalleryGridContent(
                         }
                     } == null
 
-                    if (!longPressReached) {
+                    if (!longPressReached || gridState.isScrollInProgress || isScrollbarDragging) {
                         if (movedBeforeLongPress) {
                             logSelectionTrace(
                                 "grid_press_moved_before_long_press x=${down.position.x.roundToInt()} " +
                                     "y=${down.position.y.roundToInt()} longPressMs=$activeLongPressMs"
                             )
+                        }
+                        if (longPressReached) {
+                            logSelectionTrace("grid_long_press_cancelled_for_scroll")
                         }
                         return@awaitEachGesture
                     }

@@ -26,4 +26,5 @@ local.properties
 /app/release/baselineProfiles/0/app-x86_64-release.dm
 /app/release/baselineProfiles/1/app-x86_64-release.dm
 /gallery-release
+/artifacts/
 /jks_info.txt
