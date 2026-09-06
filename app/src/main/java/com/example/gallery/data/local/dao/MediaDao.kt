@@ -269,8 +269,20 @@ interface MediaDao {
             CASE WHEN :sortMode = 'DATE_ADDED' AND :isAscending = 0 THEN dateAdded END DESC,
             CASE WHEN :sortMode = 'SIZE' AND :isAscending = 1 THEN fileSize END ASC,
             CASE WHEN :sortMode = 'SIZE' AND :isAscending = 0 THEN fileSize END DESC,
+            CASE WHEN :sortMode = 'NAME' AND :isAscending = 1 THEN
+                CASE WHEN substr(fileName, 1, 1) GLOB '[0-9]' THEN 0 ELSE 1 END
+            END ASC,
+            CASE WHEN :sortMode = 'NAME' AND :isAscending = 0 THEN
+                CASE WHEN substr(fileName, 1, 1) GLOB '[0-9]' THEN 0 ELSE 1 END
+            END DESC,
             CASE WHEN :sortMode = 'NAME' AND :isAscending = 1 THEN fileName END ASC,
-            CASE WHEN :sortMode = 'NAME' AND :isAscending = 0 THEN fileName END DESC
+            CASE WHEN :sortMode = 'NAME' AND :isAscending = 0 THEN fileName END DESC,
+            CASE WHEN :sortMode = 'NAME' AND :isAscending = 1 THEN uri END ASC,
+            CASE WHEN :sortMode = 'NAME' AND :isAscending = 0 THEN uri END DESC,
+            CASE WHEN :sortMode = 'DATE_ADDED' AND :isAscending = 1 THEN uri END ASC,
+            CASE WHEN :sortMode = 'DATE_ADDED' AND :isAscending = 0 THEN uri END DESC,
+            CASE WHEN :sortMode = 'SIZE' AND :isAscending = 1 THEN uri END ASC,
+            CASE WHEN :sortMode = 'SIZE' AND :isAscending = 0 THEN uri END DESC
     """)
     fun getFilteredMediaPagingSource(
         mediaType: String, 

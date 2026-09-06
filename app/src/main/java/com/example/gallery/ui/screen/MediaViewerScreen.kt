@@ -137,6 +137,7 @@ import com.example.gallery.ui.component.tapZoneCountForLayout
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryAlphaTokens
+import com.example.gallery.ui.theme.relativeLuminance
 
 private fun handleViewerAction(
     function: String,
@@ -566,6 +567,16 @@ fun MediaViewerScreen(
 
     val density = LocalDensity.current
     val colors = GalleryThemeTokens.colors
+    // The recommendation sheet used to be permanently black.  That made the
+    // light-theme text (which is intentionally dark) nearly invisible in the
+    // file-info and tag sections.  Keep the immersive dark sheet for dark
+    // palettes, but use the theme surface in light mode so every row remains
+    // readable.
+    val recommendationPanelBackground = if (colors.background.relativeLuminance() < 0.5f) {
+        Color.Black.copy(alpha = GalleryAlphaTokens.Recommendation)
+    } else {
+        colors.surface.copy(alpha = 0.98f)
+    }
     val maxRecDrag = with(density) { dimensionResource(R.dimen.search_section_tags_max_height).toPx() }
 
     val textSizes = GalleryThemeTokens.textSizes
@@ -1491,7 +1502,7 @@ fun MediaViewerScreen(
         AnimatedVisibility(visible = isRecommendationVisible, enter = slideInVertically(initialOffsetY = { it }) + fadeIn(), exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             val density = LocalDensity.current
             val maxDrag = with(density) { dimensionResource(R.dimen.search_section_tags_max_height).toPx() }
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(recommendationPanelHeightFraction).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(Color.Black.copy(alpha = GalleryAlphaTokens.Recommendation))) {
+            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(recommendationPanelHeightFraction).offset { IntOffset(0, recommendationDragOffset.value.roundToInt()) }.background(recommendationPanelBackground)) {
                 Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
                     Box(
                         modifier = Modifier

@@ -32,6 +32,7 @@ import com.example.gallery.ui.search.filterGallerySearchResults
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryAlphaTokens
 import com.example.gallery.ui.state.*
+import com.example.gallery.ui.state.sortMediaForGallery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -148,11 +149,12 @@ fun HomeGalleryScreen(
 
     LaunchedEffect(imageList.size, initialMediaUri) {
         if (initialMediaUri != null && imageList.isNotEmpty()) {
-            val idx = imageList.indexOfFirst { it.uri == initialMediaUri }
+            val viewerItems = sortMediaForGallery(imageList, galleryState.sortMode, galleryState.isAscending)
+            val idx = viewerItems.indexOfFirst { it.uri == initialMediaUri }
             if (idx != -1) {
                 centerViewedMediaOnReturn = true
                 galleryState.lastViewedUri = initialMediaUri
-                flatListForViewer = imageList
+                flatListForViewer = viewerItems
                 selectedIndex = idx
                 onShowViewer()
             }
@@ -438,7 +440,9 @@ fun HomeGalleryScreen(
                         galleryState.activeMediaViewerIndex = viewerIndex
                         onShowViewer()
                     }
-                    openViewerWith(list)
+                    openViewerWith(
+                        sortMediaForGallery(list, galleryState.sortMode, galleryState.isAscending)
+                    )
                 },
                 galleryState = galleryState,
                 isLoading = isLoading,
@@ -618,11 +622,16 @@ fun HomeGalleryScreen(
                     onNavigateToMedia = { uri ->
                         centerViewedMediaOnReturn = true
                         galleryState.lastViewedUri = uri
-                        val idx = imageList.indexOfFirst { it.uri == uri }
-                        if (idx != -1) { flatListForViewer = imageList.toList(); selectedIndex = idx }
+                        val viewerItems = sortMediaForGallery(imageList, galleryState.sortMode, galleryState.isAscending)
+                        val idx = viewerItems.indexOfFirst { it.uri == uri }
+                        if (idx != -1) { flatListForViewer = viewerItems; selectedIndex = idx }
                         else {
                             scope.launch {
-                                val allMedia = galleryState.repository.getAllMedia()
+                                val allMedia = sortMediaForGallery(
+                                    galleryState.repository.getAllMedia(),
+                                    galleryState.sortMode,
+                                    galleryState.isAscending
+                                )
                                 val newIdx = allMedia.indexOfFirst { it.uri == uri }
                                 if (newIdx != -1) { flatListForViewer = allMedia; selectedIndex = newIdx }
                                 else {

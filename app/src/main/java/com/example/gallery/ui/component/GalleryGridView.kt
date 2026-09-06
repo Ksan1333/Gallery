@@ -74,6 +74,7 @@ import com.example.gallery.data.repository.MediaRepository
 import com.example.gallery.service.ThumbnailGenerationService
 import com.example.gallery.ui.AppDefaults
 import com.example.gallery.ui.state.*
+import com.example.gallery.ui.state.sortMediaForGallery
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryAlphaTokens
 import kotlinx.coroutines.Dispatchers
@@ -1057,17 +1058,7 @@ fun GalleryGridView(
                     }
                 }
 
-            val sorted = when (galleryState.sortMode) {
-                SortMode.DATE_ADDED -> sequence.sortedByDescending { it.dateAdded }
-                SortMode.SIZE -> sequence.sortedBy { it.fileSize }
-                SortMode.NAME -> sequence.sortedWith(
-                    compareBy({ val c = it.fileName.firstOrNull(); c == null || !c.isDigit() }, { it.fileName })
-                )
-            }
-
-            sorted.toMutableList().apply {
-                if (galleryState.isAscending) reverse()
-            }
+            sortMediaForGallery(sequence.toList(), galleryState.sortMode, galleryState.isAscending)
         }
         sortedList = nextSortedList
         logGridFullWorkTrace(

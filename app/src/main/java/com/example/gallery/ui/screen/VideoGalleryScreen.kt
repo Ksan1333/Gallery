@@ -36,6 +36,7 @@ import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.component.VideoMiniPlayer
 import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.state.SortMode
+import com.example.gallery.ui.state.sortMediaForGallery
 import com.example.gallery.ui.theme.GalleryThemeTokens
 
 @Composable
@@ -241,7 +242,11 @@ fun VideoGalleryScreen(
                     openInternalViewer = false,
                     onImageClickOverride = { index, list ->
                         val clickedUri = list.getOrNull(index)?.uri
-                        val targetList = list.filter { it.isVideo }.ifEmpty { folderVideos }
+                        val targetList = sortMediaForGallery(
+                            list.filter { it.isVideo }.ifEmpty { folderVideos },
+                            galleryState.sortMode,
+                            galleryState.isAscending
+                        )
                         val targetIndex = clickedUri
                             ?.let { uri -> targetList.indexOfFirst { it.uri == uri } }
                             ?.takeIf { it >= 0 }

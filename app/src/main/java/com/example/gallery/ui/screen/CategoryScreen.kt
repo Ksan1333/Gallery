@@ -46,6 +46,7 @@ import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.example.gallery.ui.state.GalleryState
+import com.example.gallery.ui.state.sortMediaForGallery
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.ui.component.GalleryGridView
 import com.example.gallery.ui.component.UnifiedMediaEditDialog
@@ -516,8 +517,17 @@ fun CategoryScreen(
                     if (onImageClickOverride != null) {
                         onImageClickOverride(index, list)
                     } else if (openInternalViewer) {
-                        currentMediaList = list
-                        selectedImageIndex = index
+                        val clickedUri = list.getOrNull(index)?.uri
+                        val viewerList = sortMediaForGallery(
+                            list,
+                            galleryState.sortMode,
+                            galleryState.isAscending
+                        )
+                        currentMediaList = viewerList
+                        selectedImageIndex = clickedUri
+                            ?.let { uri -> viewerList.indexOfFirst { it.uri == uri } }
+                            ?.takeIf { it >= 0 }
+                            ?: index.coerceIn(0, (viewerList.size - 1).coerceAtLeast(0))
                         onShowViewer()
                     }
                 },
@@ -616,13 +626,22 @@ fun CategoryScreen(
                         currentMediaList.getOrNull(it)?.uri?.let { uri -> onPageChangedInViewer(uri) }
                     },
                     onNavigateToMedia = { uri: String ->
-                        val idx = selectedCategoryMedia.indexOfFirst { it.uri == uri }
+                        val viewerList = sortMediaForGallery(
+                            selectedCategoryMedia,
+                            galleryState.sortMode,
+                            galleryState.isAscending
+                        )
+                        val idx = viewerList.indexOfFirst { it.uri == uri }
                         if (idx != -1) {
-                            currentMediaList = selectedCategoryMedia
+                            currentMediaList = viewerList
                             selectedImageIndex = idx
                         } else {
                             scope.launch {
-                                val allMedia = galleryState.repository.getAllMedia()
+                                val allMedia = sortMediaForGallery(
+                                    galleryState.repository.getAllMedia(),
+                                    galleryState.sortMode,
+                                    galleryState.isAscending
+                                )
                                 val newIdx = allMedia.indexOfFirst { it.uri == uri }
                                 if (newIdx != -1) {
                                     currentMediaList = allMedia

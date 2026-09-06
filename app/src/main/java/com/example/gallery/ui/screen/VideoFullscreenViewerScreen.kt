@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import android.view.ViewGroup
@@ -187,6 +188,14 @@ fun VideoFullscreenViewerScreen(
     }
     val scope = rememberCoroutineScope()
     val globalSettingsPrefs = remember { context.getSharedPreferences("global_settings", Context.MODE_PRIVATE) }
+    val videoViewerPrefs = remember { context.getSharedPreferences("video_viewer_settings", Context.MODE_PRIVATE) }
+    val doubleTapSeekIntervalMs = remember(videoViewerPrefs) {
+        videoViewerPrefs.getString("seekInterval", "10")
+            ?.toLongOrNull()
+            ?.coerceIn(1L, 120L)
+            ?.times(1000L)
+            ?: 10_000L
+    }
     val controlPanelAutoHideMs = remember { globalSettingsPrefs.getInt("controlPanelAutoHideMs", AppDefaults.CONTROL_PANEL_AUTO_HIDE_MS).coerceIn(1000, 10000) }
     val touchIndicatorEnabled = remember { globalSettingsPrefs.getBoolean("touchIndicator", false) }
     val tapZoneLayout = globalSettingsPrefs.getString("tapZoneLayout", "THREE") ?: "THREE"
@@ -225,6 +234,9 @@ fun VideoFullscreenViewerScreen(
     var isPlayerBuffering by remember { mutableStateOf(false) }
     var lastSeekRequestedAt by remember { mutableLongStateOf(0L) }
     var showCacheOverlay by remember { mutableStateOf(false) }
+    var lastTapUptime by remember { mutableLongStateOf(0L) }
+    var lastTapPosition by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+    var tapGeneration by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(isSeekBarDragging, isPlayerBuffering) {
         if (isSeekBarDragging && isPlayerBuffering) {
@@ -537,7 +549,7 @@ fun VideoFullscreenViewerScreen(
                         },
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(player, durationMs) {
+                            .pointerInput(player, durationMs, doubleTapSeekIntervalMs) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     var totalX = 0f
@@ -645,9 +657,41 @@ fun VideoFullscreenViewerScreen(
                                         }
                                     }
                                     if (!didHorizontalSeek && abs(totalX) < 8f && abs(totalY) < 8f) {
-                                        showTouchIndicator(down.position)
-                                        isControlsVisible = !isControlsVisible
-                                        interactionToken++
+                                        val now = SystemClock.uptimeMillis()
+                                        val previousTapTime = lastTapUptime
+                                        val previousTapPosition = lastTapPosition
+                                        val isDoubleTap = previousTapTime > 0L &&
+                                            now - previousTapTime <= 300L &&
+                                            previousTapPosition != null &&
+                                            (down.position - previousTapPosition!!).getDistance() <= 96f
+
+                                        if (isDoubleTap) {
+                                            // The dedicated video screen uses a single tap for
+                                            // controls.  Double-tap on either half now performs
+                                            // the configured seek, matching the video settings
+                                            // description and avoiding the former no-op gesture.
+                                            tapGeneration++
+                                            lastTapUptime = 0L
+                                            lastTapPosition = null
+                                            val direction = if (down.position.x < size.width / 2f) -1L else 1L
+                                            seekTo(positionMs + direction * doubleTapSeekIntervalMs, pausePlayback = false)
+                                            showTouchIndicator(down.position)
+                                            showControlsTemporarily()
+                                        } else {
+                                            lastTapUptime = now
+                                            lastTapPosition = down.position
+                                            val generation = ++tapGeneration
+                                            scope.launch {
+                                                delay(300L)
+                                                if (tapGeneration == generation && lastTapUptime == now) {
+                                                    showTouchIndicator(down.position)
+                                                    isControlsVisible = !isControlsVisible
+                                                    interactionToken++
+                                                    lastTapUptime = 0L
+                                                    lastTapPosition = null
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
