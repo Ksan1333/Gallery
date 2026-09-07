@@ -138,6 +138,7 @@ import com.example.gallery.ui.component.UnifiedMediaEditDialog
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.ui.theme.GalleryAlphaTokens
 import com.example.gallery.ui.theme.relativeLuminance
+import com.example.gallery.util.VideoVolumeAnalyzer
 
 private fun handleViewerAction(
     function: String,
@@ -2420,6 +2421,8 @@ fun VideoPlayer(
     val density = LocalDensity.current
     val colors = GalleryThemeTokens.colors
     val textSizes = GalleryThemeTokens.textSizes
+    var autoVolumeReductionActive by remember(uri) { mutableStateOf(false) }
+    var appVolumeGain by remember(uri) { mutableFloatStateOf(1f) }
     val exoPlayer = remember(uri) {
         logVideoViewerTrace("player_create uriHash=${uri.hashCode()}")
         ExoPlayer.Builder(context).setRenderersFactory(
@@ -2461,7 +2464,12 @@ fun VideoPlayer(
         }
     }
     LaunchedEffect(isPlaying) { exoPlayer.playWhenReady = isPlaying }
-    LaunchedEffect(isMuted) { exoPlayer.volume = if (isMuted) 0f else 1f }
+    LaunchedEffect(uri) {
+        val analysis = VideoVolumeAnalyzer.analyze(context, uri)
+        autoVolumeReductionActive = analysis?.shouldReduce == true
+        appVolumeGain = if (autoVolumeReductionActive) 0.5f else 1f
+    }
+    LaunchedEffect(isMuted, appVolumeGain) { exoPlayer.volume = if (isMuted) 0f else appVolumeGain }
     LaunchedEffect(exoPlayer, isPlaying, isScrollInProgress) { while (isPlaying && !isScrollInProgress) { if (exoPlayer.playbackState == Player.STATE_READY) onProgressChanged(exoPlayer.currentPosition, exoPlayer.duration.coerceAtLeast(0)); delay(16) } }
     DisposableEffect(Unit) {
         onDispose {
@@ -2629,7 +2637,7 @@ fun VideoPlayer(
                     it.setBackgroundColor(android.graphics.Color.BLACK)
                     it.player = exoPlayer
                     exoPlayer.playWhenReady = isPlaying
-                    exoPlayer.volume = if (isMuted) 0f else 1f
+                    exoPlayer.volume = if (isMuted) 0f else appVolumeGain
                 },
                 modifier = Modifier.fillMaxSize()
             )

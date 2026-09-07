@@ -56,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -103,6 +104,7 @@ import com.example.gallery.ui.state.GalleryState
 import com.example.gallery.ui.theme.GalleryThemeTokens
 import com.example.gallery.util.RollingFrameCacheManager
 import com.example.gallery.util.VideoFrameCacheManager
+import com.example.gallery.util.VideoVolumeAnalyzer
 import com.example.gallery.ui.component.GalleryVideoSeekBar
 import com.example.gallery.ui.component.TapZoneGuideOverlay
 import com.example.gallery.ui.component.isViewerOverflowActionName
@@ -237,6 +239,8 @@ fun VideoFullscreenViewerScreen(
     var lastTapUptime by remember { mutableLongStateOf(0L) }
     var lastTapPosition by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
     var tapGeneration by remember { mutableIntStateOf(0) }
+    var autoVolumeReductionActive by remember(currentVideo?.uri) { mutableStateOf(false) }
+    var appVolumeGain by remember(currentVideo?.uri) { mutableFloatStateOf(1f) }
 
     LaunchedEffect(isSeekBarDragging, isPlayerBuffering) {
         if (isSeekBarDragging && isPlayerBuffering) {
@@ -402,8 +406,25 @@ fun VideoFullscreenViewerScreen(
         }
     }
 
-    LaunchedEffect(exoPlayer, playerVolume) {
-        exoPlayer?.volume = 1f
+    LaunchedEffect(exoPlayer, appVolumeGain) {
+        exoPlayer?.volume = appVolumeGain
+    }
+
+    LaunchedEffect(currentVideo?.uri) {
+        val uri = currentVideo?.uri ?: return@LaunchedEffect
+        val analysis = VideoVolumeAnalyzer.analyze(context, uri)
+        autoVolumeReductionActive = analysis?.shouldReduce == true
+        appVolumeGain = if (autoVolumeReductionActive) 0.5f else 1f
+        if (autoVolumeReductionActive) {
+            // Volume gestures for an automatically reduced track operate on this
+            // 50% baseline instead of changing the device-wide music volume.
+            playerVolume = appVolumeGain
+        } else {
+            // Restore the live device volume indicator when returning from a
+            // loud video to a normal track.
+            val current = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: maxMediaVolume
+            playerVolume = (current.toFloat() / maxMediaVolume.toFloat()).coerceIn(0f, 1f)
+        }
     }
 
     LaunchedEffect(window, screenBrightness, hasCustomBrightness) {
@@ -566,6 +587,7 @@ fun VideoFullscreenViewerScreen(
                                         else -> "seek"
                                     }
                                     val startVolume = playerVolume
+                                    val startAppGain = appVolumeGain
                                     val startBrightness = screenBrightness
 
                                     while (true) {
@@ -587,18 +609,33 @@ fun VideoFullscreenViewerScreen(
                                         }
 
                                         if (activeGesture == "volume") {
-                                            playerVolume = (startVolume - totalY / (size.height * 0.25f)).coerceIn(0f, 1f)
-                                            val streamVolume = (playerVolume * maxMediaVolume)
-                                                .roundToInt()
-                                                .coerceIn(0, maxMediaVolume)
-                                            audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, streamVolume, 0)
-                                            val actualStreamVolume =
-                                                audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: streamVolume
-                                            player.volume = 1f
-                                            Log.d(
-                                                VIDEO_FULLSCREEN_SEEK_TRACE,
-                                                "volume_adjust value=${(playerVolume * 100).roundToInt()} requested=$streamVolume actual=$actualStreamVolume max=$maxMediaVolume"
-                                            )
+                                            val volumeDelta = -totalY / (size.height * 0.25f)
+                                            if (autoVolumeReductionActive) {
+                                                // Keep the system volume untouched for loud
+                                                // videos. The app gain is adjusted from the
+                                                // initial 50% reduction, so up/down gestures
+                                                // remain relative to the reduced starting level.
+                                                appVolumeGain = (startAppGain + volumeDelta).coerceIn(0f, 1f)
+                                                playerVolume = appVolumeGain
+                                                player.volume = appVolumeGain
+                                                Log.d(
+                                                    VIDEO_FULLSCREEN_SEEK_TRACE,
+                                                    "volume_adjust appGain=${(appVolumeGain * 100).roundToInt()} baseline=${(startAppGain * 100).roundToInt()}"
+                                                )
+                                            } else {
+                                                playerVolume = (startVolume + volumeDelta).coerceIn(0f, 1f)
+                                                val streamVolume = (playerVolume * maxMediaVolume)
+                                                    .roundToInt()
+                                                    .coerceIn(0, maxMediaVolume)
+                                                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, streamVolume, 0)
+                                                val actualStreamVolume =
+                                                    audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: streamVolume
+                                                player.volume = appVolumeGain
+                                                Log.d(
+                                                    VIDEO_FULLSCREEN_SEEK_TRACE,
+                                                    "volume_adjust value=${(playerVolume * 100).roundToInt()} requested=$streamVolume actual=$actualStreamVolume max=$maxMediaVolume"
+                                                )
+                                            }
                                             showAdjustment(volumeLabel, playerVolume)
                                             showControlsTemporarily()
                                             change.consume()
