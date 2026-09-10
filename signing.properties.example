@@ -1,0 +1,6 @@
+# Copy this file to signing.properties and fill in the local release keystore values.
+# Never commit signing.properties or the keystore itself.
+storeFile=gallery-release
+storePassword=
+keyAlias=gallery
+keyPassword=

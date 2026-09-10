@@ -28,3 +28,6 @@ local.properties
 /gallery-release
 /artifacts/
 /jks_info.txt
+/signing.properties
+*.jks
+*.keystore

@@ -1,9 +1,37 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.parcelize)
 }
+
+val releaseSigningProperties = Properties().apply {
+    val propertiesFile = rootProject.file("signing.properties")
+    if (propertiesFile.isFile) {
+        propertiesFile.inputStream().use(::load)
+    }
+}
+
+val releaseStoreFile = releaseSigningProperties.getProperty("storeFile")
+    ?: providers.gradleProperty("RELEASE_STORE_FILE").orNull
+    ?: System.getenv("RELEASE_STORE_FILE")
+val releaseStorePassword = releaseSigningProperties.getProperty("storePassword")
+    ?: providers.gradleProperty("RELEASE_STORE_PASSWORD").orNull
+    ?: System.getenv("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = releaseSigningProperties.getProperty("keyAlias")
+    ?: providers.gradleProperty("RELEASE_KEY_ALIAS").orNull
+    ?: System.getenv("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningProperties.getProperty("keyPassword")
+    ?: providers.gradleProperty("RELEASE_KEY_PASSWORD").orNull
+    ?: System.getenv("RELEASE_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.example.gallery"
@@ -13,16 +41,30 @@ android {
         applicationId = "com.example.gallery"
         minSdk = 24
         targetSdk = 35
-        versionCode = 16
-        versionName = "2.0.5"
+        versionCode = 17
+        versionName = "2.0.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+            storePassword = requireNotNull(releaseStorePassword)
+            keyAlias = requireNotNull(releaseKeyAlias)
+            keyPassword = requireNotNull(releaseKeyPassword)
+        }
+    }
     buildTypes {
         release {
+            if (!hasReleaseSigning) {
+                throw GradleException(
+                    "Release signing is not configured. Create signing.properties or set RELEASE_* properties."
+                )
+            }
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
