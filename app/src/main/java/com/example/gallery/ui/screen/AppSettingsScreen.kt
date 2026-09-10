@@ -620,7 +620,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.globalSettingsItems(
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
         var smoothing by remember { mutableStateOf(prefs.getString("smoothing", "BILINEAR") ?: "BILINEAR") }
-        var fullscreenMode by remember { mutableStateOf(prefs.getString("fullscreenMode", "DISABLED") ?: "DISABLED") }
         var orientation by remember { mutableStateOf(prefs.getString("orientation", "AUTO") ?: "AUTO") }
         var showClockBattery by remember { mutableStateOf(prefs.getBoolean("showClockBattery", false)) }
         var homeShowVideos by remember { mutableStateOf(prefs.getBoolean("homeShowVideos", false)) }
@@ -639,7 +638,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.globalSettingsItems(
 
         SettingsSectionCard(stringResource(R.string.settings_section_viewer_display), stringResource(R.string.settings_section_viewer_display_desc)) {
             SettingsChoiceRow(stringResource(R.string.settings_smoothing), smoothingOptions, smoothing, description = stringResource(R.string.desc_smoothing)) { smoothing = it; saveString("smoothing", it) }
-            SettingsChoiceRow(stringResource(R.string.settings_fullscreen), fullscreenOptions, fullscreenMode, description = stringResource(R.string.desc_fullscreen)) { fullscreenMode = it; saveString("fullscreenMode", it) }
             SettingsChoiceRow(stringResource(R.string.settings_orientation), orientationOptions, orientation, description = stringResource(R.string.desc_orientation)) { orientation = it; saveString("orientation", it) }
             SwitchSetting(stringResource(R.string.settings_show_clock_battery), showClockBattery, description = stringResource(R.string.desc_show_clock_battery)) { showClockBattery = it; saveBoolean("showClockBattery", it) }
             SwitchSetting(stringResource(R.string.settings_show_date_headers), showDateHeaders, description = stringResource(R.string.desc_show_date_headers)) { showDateHeaders = it; saveBoolean("showDateHeaders", it) }
@@ -986,7 +984,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.mediaViewerSettingsIt
         var swipeUpRecs by remember { mutableStateOf(prefs.getBoolean("swipeUpRecs", true)) }
         var swipeDownClose by remember { mutableStateOf(prefs.getBoolean("swipeDownClose", true)) }
         var doubleTapZoom by remember { mutableStateOf(prefs.getBoolean("doubleTapZoom", true)) }
-        var showSystemBars by remember { mutableStateOf(prefs.getBoolean("showSystemBars", false)) }
         var seekInterval by remember { mutableStateOf(prefs.getString("seekInterval", "10") ?: "10") }
 
         fun saveBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
@@ -1017,7 +1014,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.mediaViewerSettingsIt
             SwitchSetting(stringResource(R.string.label_swipe_up_rec), swipeUpRecs, description = stringResource(R.string.desc_swipe_up_rec)) { swipeUpRecs = it; saveBoolean("swipeUpRecs", it) }
             SwitchSetting(stringResource(R.string.label_swipe_down_close), swipeDownClose, description = stringResource(R.string.desc_swipe_down_close)) { swipeDownClose = it; saveBoolean("swipeDownClose", it) }
             SwitchSetting(stringResource(R.string.label_double_tap_zoom), doubleTapZoom, description = stringResource(R.string.desc_double_tap_zoom_viewer)) { doubleTapZoom = it; saveBoolean("doubleTapZoom", it) }
-            SwitchSetting(stringResource(R.string.label_show_system_bars), showSystemBars, description = stringResource(R.string.desc_show_system_bars)) { showSystemBars = it; saveBoolean("showSystemBars", it) }
         }
     }
     val mediaPrefs = context.getSharedPreferences(MEDIA_VIEWER_PREFS, Context.MODE_PRIVATE)
@@ -2146,12 +2142,6 @@ private val smoothingOptions = listOf(
     R.string.opt_bilinear to "BILINEAR",
     R.string.opt_bicubic to "BICUBIC",
     R.string.opt_lanczos3 to "LANCZOS3"
-)
-private val fullscreenOptions = listOf(
-    R.string.opt_disabled to "DISABLED",
-    R.string.opt_fullscreen to "FULLSCREEN",
-    R.string.opt_hide_status_bar to "HIDE_STATUS_BAR",
-    R.string.opt_hide_nav_bar to "HIDE_NAV_BAR"
 )
 private val orientationOptions = listOf(
     R.string.opt_auto to "AUTO",

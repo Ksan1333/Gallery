@@ -373,23 +373,12 @@ fun BookViewerScreen(
         window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
-    LaunchedEffect(insetsController, viewerSettings.fullscreenMode, isUiVisible, effectiveScreenOrientation) {
-        insetsController?.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        val hiddenTypes = when (viewerSettings.fullscreenMode) {
-            BookFullscreenMode.DISABLED -> 0
-            BookFullscreenMode.FULLSCREEN -> WindowInsetsCompat.Type.systemBars()
-            BookFullscreenMode.HIDE_STATUS_BAR -> WindowInsetsCompat.Type.statusBars()
-            BookFullscreenMode.HIDE_NAV_BAR -> WindowInsetsCompat.Type.navigationBars()
-        }
-        if (hiddenTypes == 0) {
-            insetsController?.show(WindowInsetsCompat.Type.systemBars())
-        } else {
-            insetsController?.hide(hiddenTypes)
-            if (isUiVisible) {
-                insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-            }
-        }
+    LaunchedEffect(insetsController, isUiVisible, effectiveScreenOrientation) {
+        // Keep both Android system bars visible while reading.  The viewer's
+        // own controls may auto-hide, but system navigation/status must remain
+        // available at all times.
+        insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        insetsController?.show(WindowInsetsCompat.Type.systemBars())
     }
 
     SideEffect {
@@ -405,13 +394,7 @@ fun BookViewerScreen(
     val originalKeepScreenOn = remember(view) { view.keepScreenOn }
     SideEffect {
         view.keepScreenOn = viewerSettings.keepScreenOn
-        (context as? Activity)?.window?.let { window ->
-            if (viewerSettings.fullscreenMode == BookFullscreenMode.DISABLED) {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            } else {
-                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            }
-        }
+        (context as? Activity)?.window?.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
     }
     LaunchedEffect(book.id) {
         BookPageCacheManager.prepareCache(book, repository)

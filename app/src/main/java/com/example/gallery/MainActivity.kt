@@ -590,41 +590,20 @@ fun AppNavigation(
         if (window != null) {
             val insetsController =
                 androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            // System bars are part of the normal app chrome.  Keep them visible
+            // even while a media/book/video viewer is open so navigation and
+            // status information never disappear after a route transition.
             insetsController.systemBarsBehavior =
-                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
             window.statusBarColor = android.graphics.Color.TRANSPARENT
             window.navigationBarColor = android.graphics.Color.TRANSPARENT
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 window.isStatusBarContrastEnforced = false
                 window.isNavigationBarContrastEnforced = false
             }
-
-            val isAlwaysShowNavBarRoute = currentRoute == "about" || currentRoute == AppRoutes.SETTINGS || currentRoute == AppRoutes.MEDIA_VIEWER_SETTINGS || currentRoute == AppRoutes.BOOK_VIEWER_SETTINGS || currentRoute == AppRoutes.VIDEO_VIEWER_SETTINGS || currentRoute == AppRoutes.SEARCH || currentRoute == "mass_edit" || currentRoute == "book_bookmarks" ||
-                currentRoute == "references" || currentRoute?.startsWith("reference_detail") == true || currentRoute?.startsWith("reference_search") == true
-
-            if (isAlwaysShowNavBarRoute) {
-                window.statusBarColor = systemBarTopColor
-                window.navigationBarColor = systemBarBackgroundColor
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-                return
-            }
-
-            val isViewerHostRoute = currentRoute in setOf(
-                AppRoutes.HOME,
-                AppRoutes.FOLDERS,
-                AppRoutes.TRASH,
-                AppRoutes.VIDEOS,
-                AppRoutes.BOOKS
-            )
-            if (isViewerVisible && isViewerHostRoute) {
-                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
-                insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            } else {
-                window.navigationBarColor = systemBarBackgroundColor
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            }
+            window.statusBarColor = systemBarTopColor
+            window.navigationBarColor = systemBarBackgroundColor
+            insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
     }
 

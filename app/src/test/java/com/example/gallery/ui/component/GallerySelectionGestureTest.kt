@@ -51,4 +51,40 @@ class GallerySelectionGestureTest {
             )
         )
     }
+
+    @Test
+    fun selectedTileTogglesInsteadOfOpeningWhileSelectionModeIsActive() {
+        assertEquals(
+            true,
+            shouldToggleGalleryMediaTap(
+                selectionEnabled = true,
+                isSelectionMode = true,
+                selectOnTap = false
+            )
+        )
+    }
+
+    @Test
+    fun normalTapStillOpensWhenSelectionModeIsInactive() {
+        assertEquals(
+            false,
+            shouldToggleGalleryMediaTap(
+                selectionEnabled = true,
+                isSelectionMode = false,
+                selectOnTap = false
+            )
+        )
+    }
+
+    @Test
+    fun selectOnTapEnablesSelectionOutsideSelectionMode() {
+        assertEquals(
+            true,
+            shouldToggleGalleryMediaTap(
+                selectionEnabled = true,
+                isSelectionMode = false,
+                selectOnTap = true
+            )
+        )
+    }
 }

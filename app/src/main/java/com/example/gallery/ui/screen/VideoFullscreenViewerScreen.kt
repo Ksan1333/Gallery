@@ -416,20 +416,15 @@ fun VideoFullscreenViewerScreen(
     }
 
     LaunchedEffect(isControlsVisible, interactionToken, isVideoStripVisible, isControlInteractionActive, isOverflowMenuOpen, isPlaying) {
-        if (isControlsVisible) {
-            window?.navigationBarColor = AndroidColor.TRANSPARENT
-            window?.statusBarColor = AndroidColor.BLACK
-            window?.decorView?.setBackgroundColor(AndroidColor.BLACK)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window?.isNavigationBarContrastEnforced = false
-            }
-            window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
-            insetsController?.hide(WindowInsetsCompat.Type.statusBars())
-            insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-        } else {
-            window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
-            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+        window?.navigationBarColor = AndroidColor.TRANSPARENT
+        window?.statusBarColor = AndroidColor.BLACK
+        window?.decorView?.setBackgroundColor(AndroidColor.BLACK)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window?.isNavigationBarContrastEnforced = false
         }
+        window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
+        insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        insetsController?.show(WindowInsetsCompat.Type.systemBars())
         if (isControlsVisible && isPlaying && !isVideoStripVisible && !isControlInteractionActive && !isOverflowMenuOpen) {
             delay(controlPanelAutoHideMs.toLong())
             if (!isControlInteractionActive && !isOverflowMenuOpen) {
@@ -465,10 +460,8 @@ fun VideoFullscreenViewerScreen(
             window?.isNavigationBarContrastEnforced = false
         }
         window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
-        insetsController?.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-        insetsController?.hide(WindowInsetsCompat.Type.statusBars())
+        insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        insetsController?.show(WindowInsetsCompat.Type.systemBars())
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             restoreBrightness()

@@ -14,6 +14,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -247,7 +248,6 @@ fun MediaViewerScreen(
     val tapZoneLayout = globalSettingsPrefs.getString("tapZoneLayout", "THREE") ?: "THREE"
     val tapZoneCount = tapZoneCountForLayout(tapZoneLayout)
     val showClockBattery = globalSettingsPrefs.getBoolean("showClockBattery", false)
-    val fullscreenMode = remember { globalSettingsPrefs.getString("fullscreenMode", "HIDE_STATUS_BAR") ?: "HIDE_STATUS_BAR" }
     val orientationMode = remember { globalSettingsPrefs.getString("orientation", "AUTO") ?: "AUTO" }
     remember {
         when (globalSettingsPrefs.getString("smoothing", "BILINEAR")) {
@@ -270,7 +270,6 @@ fun MediaViewerScreen(
     val swipeUpRecs = mediaViewerPrefs.getBoolean("swipeUpRecs", true)
     val swipeDownClose = mediaViewerPrefs.getBoolean("swipeDownClose", true)
     val doubleTapZoomEnabled = mediaViewerPrefs.getBoolean("doubleTapZoom", true)
-    val showSystemBarsPref = mediaViewerPrefs.getBoolean("showSystemBars", false)
     val videoSeekIntervalMediaPref = remember { mediaViewerPrefs.getString("seekInterval", "10")?.toIntOrNull() ?: 10 }
 
     val videoPrefs = remember { context.getSharedPreferences("video_viewer_settings", Context.MODE_PRIVATE) }
@@ -350,6 +349,16 @@ fun MediaViewerScreen(
     val recommendationDragOffset = remember { Animatable(0f) }
 
     val currentMedia = remember(pagerState.currentPage, imageList) { imageList.getOrNull(pagerState.currentPage) }
+
+    // Recommendations are a temporary in-viewer layer.  Consume Back before
+    // the activity navigates away from the media viewer.
+    BackHandler(enabled = showRecommendationTagEditor || isRecommendationVisible) {
+        if (showRecommendationTagEditor) {
+            showRecommendationTagEditor = false
+        } else {
+            isRecommendationVisible = false
+        }
+    }
 
     val currentMetadata by remember(currentMedia?.uri) {
         galleryState?.repository?.mediaDao?.getMetadataSummaryFlow(currentMedia?.uri ?: "")
@@ -446,10 +455,8 @@ fun MediaViewerScreen(
         isUiVisible,
         insetsController,
         keepNavigationBarsHidden,
-        fullscreenMode,
         screenOrientation,
         configuration.orientation,
-        showSystemBarsPref,
         shouldShowNavigationBarForRecommendation
     ) {
         window?.navigationBarColor = android.graphics.Color.TRANSPARENT
@@ -457,28 +464,8 @@ fun MediaViewerScreen(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window?.isNavigationBarContrastEnforced = false
         }
-        insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-
-        if (showSystemBarsPref) {
-            insetsController?.show(WindowInsetsCompat.Type.systemBars())
-        } else {
-            val hiddenTypes = when (fullscreenMode) {
-                "DISABLED" -> 0
-                "FULLSCREEN" -> WindowInsetsCompat.Type.systemBars()
-                "HIDE_NAV_BAR" -> WindowInsetsCompat.Type.navigationBars()
-                else -> WindowInsetsCompat.Type.statusBars()
-            }
-            if (hiddenTypes == 0) {
-                insetsController?.show(WindowInsetsCompat.Type.statusBars())
-            } else {
-                insetsController?.hide(hiddenTypes)
-            }
-            if (isUiVisible || shouldShowNavigationBarForRecommendation) {
-                insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-            } else {
-                insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
-            }
-        }
+        insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        insetsController?.show(WindowInsetsCompat.Type.systemBars())
     }
 
     DisposableEffect(Unit) {
@@ -1076,14 +1063,6 @@ fun MediaViewerScreen(
                     )
                 }
 
-
-                LaunchedEffect(showTagDialog) {
-                    if (showTagDialog) {
-                        delay(100)
-                        insetsController?.hide(WindowInsetsCompat.Type.statusBars())
-                        insetsController?.show(WindowInsetsCompat.Type.navigationBars())
-                    }
-                }
 
                 Column(
                     modifier = Modifier

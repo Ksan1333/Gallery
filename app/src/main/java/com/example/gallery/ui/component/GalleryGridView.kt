@@ -453,7 +453,7 @@ private suspend fun PointerInputScope.detectDragGesturesAfterLongPressTimeout(
         var lastPosition = down.position
         val longPressReached = withTimeoutOrNull(timeoutMs) {
             while (true) {
-                val event = awaitPointerEvent()
+                val event = awaitPointerEvent(PointerEventPass.Initial)
                 if (event.changes.count { it.pressed } > 1) return@withTimeoutOrNull false
                 val change = event.changes.firstOrNull { it.id == down.id }
                     ?: return@withTimeoutOrNull false
@@ -504,6 +504,17 @@ internal fun gallerySelectionLongPressTimeoutMs(
             .coerceAtMost(2000L)
     }
 }
+
+/**
+ * Taps stay selection actions while selection mode is active.  Opening an
+ * already-selected tile from this state is surprising (and made drag-select
+ * appear to lose its selection), so the viewer is only opened outside it.
+ */
+internal fun shouldToggleGalleryMediaTap(
+    selectionEnabled: Boolean,
+    isSelectionMode: Boolean,
+    selectOnTap: Boolean
+): Boolean = selectionEnabled && (selectOnTap || isSelectionMode)
 
 /**
  * A URI-based restore needs the complete item list. Paging may not have loaded
@@ -2047,7 +2058,7 @@ private fun GalleryGridContent(
 
     fun stopDragAutoScroll() {
         val wasDragSelectionActive = dragSelectionActive
-        val shouldActivateSelectionMode = wasDragSelectionActive && selectedUris.isNotEmpty()
+        val shouldActivateSelectionMode = selectedUris.isNotEmpty()
         if (dragSelectionActive || dragSelectionStartIndex >= 0 || dragAutoScrollDelta != 0f) {
             logSelectionTrace(
                 "drag_end start=$dragSelectionStartIndex last=$dragSelectionLastIndex " +
@@ -2064,7 +2075,7 @@ private fun GalleryGridContent(
         dragAutoScrollDirection = 0
         dragAutoScrollEdgeDistance = 0f
         dragAutoScrollOutsideDistance = 0f
-        if (wasDragSelectionActive) {
+        if (wasDragSelectionActive || selectedUris.isNotEmpty()) {
             logSelectionTrace(
                 "drag_commit mode=${if (shouldActivateSelectionMode) "activate" else "clear"} " +
                     "count=${selectedUris.size}"
@@ -2163,8 +2174,11 @@ private fun GalleryGridContent(
     }
 
     fun handleTap(media: GridItem.Media) {
-        val shouldOpenSelected = isSelectionMode && !selectOnTap && selectedUris.containsKey(media.data.uri)
-        val shouldToggle = selectionEnabled && (selectOnTap || isSelectionMode) && !shouldOpenSelected
+        val shouldToggle = shouldToggleGalleryMediaTap(
+            selectionEnabled = selectionEnabled,
+            isSelectionMode = isSelectionMode,
+            selectOnTap = selectOnTap
+        )
         logSelectionTrace(
             "tap uri=${traceUri(media.data.uri)} index=${media.index} action=${if (shouldToggle) "toggle" else "open"} " +
                 "mode=$isSelectionMode count=${selectedUris.size} selectOnTap=$selectOnTap"
@@ -2405,7 +2419,10 @@ private fun GalleryGridContent(
                     )
                     val longPressReached = withTimeoutOrNull(activeLongPressMs) {
                         while (true) {
-                            val event = awaitPointerEvent()
+                            // Observe before child clickable/pager handlers consume the
+                            // gesture; otherwise a short tap can occasionally prevent the
+                            // long-press transition from being detected.
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
                             if (event.changes.count { it.pressed } > 1) {
                                 return@withTimeoutOrNull false
                             }
