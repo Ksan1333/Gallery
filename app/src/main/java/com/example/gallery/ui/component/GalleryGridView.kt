@@ -2238,6 +2238,10 @@ private fun GalleryGridContent(
             "drag_begin",
             activateSelectionMode = false
         )
+        // Enter selection mode at the moment the long press is accepted.  This
+        // freezes the collapsing top bar while the pointer is dragged, so the
+        // grid does not move underneath the range-selection coordinates.
+        onSelectionModeChanged(true)
         return baseSelection to shouldSelect
     }
 
@@ -2395,7 +2399,9 @@ private fun GalleryGridContent(
             }
             .then(
                 if (selectionEnabled) {
-                    Modifier.pointerInput(maxLineSpan, selectionLongPressMs, isScrollbarDragging) {
+                    // Keep the detector alive when the long press itself enters
+                    // selection mode; the timeout is calculated per gesture below.
+                    Modifier.pointerInput(maxLineSpan, configuredSelectionLongPressMs, isScrollbarDragging) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val scrollWasActiveAtDown = gridState.isScrollInProgress || isScrollbarDragging

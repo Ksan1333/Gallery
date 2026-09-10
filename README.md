@@ -18,7 +18,7 @@ Gallery は、端末内の画像・GIF・動画・ZIP/PDF の本・X 由来メ�
 ## 設計・試験ドキュメント
 
 - [更新履歴](CHANGELOG.md)
-- [アプリ仕様書 v2.0.4](docs/APP_SPECIFICATION_v2.0.4.md)
+- [アプリ仕様書 v2.0.5](docs/APP_SPECIFICATION_v2.0.5.md)
 - [基本設計書](基本設計書.md)
 - [画面遷移図](docs/画面遷移図.md)
 - [共通 UI 仕様](docs/common_ui_spec.md)
