@@ -1,7 +1,11 @@
 package com.example.gallery.util
 
+import android.app.Activity
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -12,6 +16,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 data class AppUpdateRelease(
     val version: String,
@@ -21,6 +26,8 @@ data class AppUpdateRelease(
     val assetUrl: String,
     val releaseUrl: String
 )
+
+class AppUpdateSignatureMismatchException(message: String) : IllegalStateException(message)
 
 object AppUpdateManager {
     const val EXTRA_OPEN_UPDATE = "com.example.gallery.extra.OPEN_UPDATE"
@@ -92,15 +99,21 @@ object AppUpdateManager {
                 val totalBytes = body.contentLength()
                 body.byteStream().use { input ->
                     partial.outputStream().use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        val buffer = ByteArray(64 * 1024)
                         var copied = 0L
+                        var lastReportedPercent = -1
                         while (true) {
                             val read = input.read(buffer)
                             if (read < 0) break
                             output.write(buffer, 0, read)
                             copied += read
                             if (totalBytes > 0L) {
-                                onProgress((copied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f))
+                                val progress = (copied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                                val percent = (progress * 100).toInt()
+                                if (percent != lastReportedPercent) {
+                                    lastReportedPercent = percent
+                                    onProgress(progress)
+                                }
                             }
                         }
                     }
@@ -113,6 +126,7 @@ object AppUpdateManager {
             return target
         } catch (error: Exception) {
             partial.delete()
+            target.delete()
             throw error
         }
     }
@@ -122,7 +136,7 @@ object AppUpdateManager {
      * Returns false when the user must grant permission before the download can start.
      */
     fun requestInstallPermission(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+        if (!hasInstallPermission(context)) {
             context.startActivity(
                 Intent(
                     Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
@@ -134,17 +148,41 @@ object AppUpdateManager {
         return true
     }
 
-    /** Opens Android's package installer. Android requires the user's confirmation for this final step. */
-    fun installApk(context: Context, apk: File): Boolean {
-        if (!requestInstallPermission(context)) return false
+    fun hasInstallPermission(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
 
+    /**
+     * Builds an installer intent that reports cancellation/failure to an Activity Result launcher.
+     * Android still requires the user's confirmation on the system installer screen.
+     */
+    @Suppress("DEPRECATION") // Required for a result-returning installer UI across the app's API 24+ range.
+    fun createInstallIntent(context: Context, apk: File): Intent {
+        validateSigningCompatibility(context, apk)
         val apkUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(apkUri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        )
-        return true
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE)
+            .setData(apkUri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            .apply {
+                clipData = ClipData.newRawUri("Gallery update", apkUri)
+            }
+        check(intent.resolveActivity(context.packageManager) != null) {
+            context.getString(com.example.gallery.R.string.update_installer_unavailable)
+        }
+        return intent
+    }
+
+    /** Returns a localized failure description, or null when the installer reported success. */
+    fun installResultError(context: Context, resultCode: Int): String? {
+        if (resultCode == Activity.RESULT_OK) return null
+        return if (resultCode == Activity.RESULT_CANCELED) {
+            context.getString(com.example.gallery.R.string.update_install_cancelled)
+        } else {
+            context.getString(
+                com.example.gallery.R.string.update_install_failed,
+                resultCode.toString()
+            )
+        }
     }
 
     /** A release is mandatory only when its semantic-version major number increases. */
@@ -240,7 +278,10 @@ object AppUpdateManager {
 
     private fun validateApk(context: Context, apk: File, expectedVersion: String) {
         @Suppress("DEPRECATION")
-        val packageInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+        val packageInfo = context.packageManager.getPackageArchiveInfo(
+            apk.absolutePath,
+            signingInfoFlags()
+        )
             ?: error("Downloaded file is not an Android APK")
         check(packageInfo.packageName == context.packageName) {
             "APK package (${packageInfo.packageName}) does not match installed app (${context.packageName})"
@@ -250,6 +291,95 @@ object AppUpdateManager {
         }
         check(normalizeVersion(packageInfo.versionName.orEmpty()) == expectedVersion) {
             "APK version does not match the selected release"
+        }
+        validateSigningCompatibility(context, packageInfo)
+    }
+
+    private fun validateSigningCompatibility(context: Context, apk: File) {
+        @Suppress("DEPRECATION")
+        val candidate = context.packageManager.getPackageArchiveInfo(apk.absolutePath, signingInfoFlags())
+            ?: error(context.getString(com.example.gallery.R.string.update_invalid_apk))
+        validateSigningCompatibility(context, candidate)
+    }
+
+    private fun validateSigningCompatibility(context: Context, candidate: PackageInfo) {
+        @Suppress("DEPRECATION")
+        val installed = context.packageManager.getPackageInfo(context.packageName, signingInfoFlags())
+        val installedCurrent = currentSignerDigests(installed)
+        val candidateCurrent = currentSignerDigests(candidate)
+        val candidateHistory = signerHistoryDigests(candidate) + candidateCurrent
+        val candidateHasMultipleSigners = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            candidate.signingInfo?.hasMultipleSigners() == true
+        } else {
+            candidateCurrent.size > 1
+        }
+        if (installedCurrent.isEmpty() || candidateCurrent.isEmpty()) {
+            error(context.getString(com.example.gallery.R.string.update_signature_unverified))
+        }
+        if (
+            !areSigningCertificatesCompatible(
+                installedCurrent = installedCurrent,
+                candidateCurrent = candidateCurrent,
+                candidateHistory = candidateHistory,
+                candidateHasMultipleSigners = candidateHasMultipleSigners
+            )
+        ) {
+            throw AppUpdateSignatureMismatchException(
+                context.getString(com.example.gallery.R.string.update_signature_migration_guide)
+            )
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signingInfoFlags(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            PackageManager.GET_SIGNATURES
+        }
+
+    @Suppress("DEPRECATION")
+    private fun currentSignerDigests(packageInfo: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.signingInfo?.apkContentsSigners?.toList().orEmpty()
+        } else {
+            packageInfo.signatures?.toList().orEmpty()
+        }
+        return signatures.mapTo(linkedSetOf()) { signatureDigest(it.toByteArray()) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signerHistoryDigests(packageInfo: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.signingInfo?.let { signingInfo ->
+                if (signingInfo.hasMultipleSigners()) {
+                    signingInfo.apkContentsSigners?.toList().orEmpty()
+                } else {
+                    signingInfo.signingCertificateHistory?.toList().orEmpty()
+                }
+            }.orEmpty()
+        } else {
+            packageInfo.signatures?.toList().orEmpty()
+        }
+        return signatures.mapTo(linkedSetOf()) { signatureDigest(it.toByteArray()) }
+    }
+
+    private fun signatureDigest(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+    internal fun areSigningCertificatesCompatible(
+        installedCurrent: Set<String>,
+        candidateCurrent: Set<String>,
+        candidateHistory: Set<String>,
+        candidateHasMultipleSigners: Boolean
+    ): Boolean {
+        if (installedCurrent.isEmpty() || candidateCurrent.isEmpty()) return false
+        return if (candidateHasMultipleSigners || installedCurrent.size > 1) {
+            installedCurrent == candidateCurrent
+        } else {
+            candidateHistory.containsAll(installedCurrent)
         }
     }
 

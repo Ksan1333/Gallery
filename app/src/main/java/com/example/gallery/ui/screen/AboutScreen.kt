@@ -1,5 +1,6 @@
 package com.example.gallery.ui.screen
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,12 +20,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import com.example.gallery.ui.component.GalleryTopAppBar
 import com.example.gallery.ui.theme.GalleryThemeTokens
@@ -35,6 +41,7 @@ import com.example.gallery.R
 import com.example.gallery.BuildConfig
 import com.example.gallery.util.AppUpdateManager
 import com.example.gallery.util.AppUpdateRelease
+import com.example.gallery.util.AppUpdateSignatureMismatchException
 
 class ChangelogViewModel : ViewModel() {
     var changelogText by mutableStateOf<String?>(null)
@@ -96,13 +103,16 @@ class AppUpdateViewModel : ViewModel() {
             }.onSuccess { latest ->
                 release = latest
             }.onFailure { cause ->
-                error = cause.localizedMessage ?: cause.javaClass.simpleName
+                error = context.getString(
+                    R.string.update_error,
+                    cause.localizedMessage ?: cause.javaClass.simpleName
+                )
             }
             isChecking = false
         }
     }
 
-    fun downloadAndInstall(context: Context) {
+    fun downloadAndInstall(context: Context, onInstallReady: (Intent) -> Unit) {
         val target = release ?: return
         if (isDownloading) return
         if (!AppUpdateManager.requestInstallPermission(context)) {
@@ -121,11 +131,33 @@ class AppUpdateViewModel : ViewModel() {
                     }
                 }
             }.onSuccess { apk ->
-                needsInstallPermission = !AppUpdateManager.installApk(context, apk)
+                runCatching { AppUpdateManager.createInstallIntent(context, apk) }
+                    .onSuccess(onInstallReady)
+                    .onFailure { cause -> setDownloadError(context, cause) }
             }.onFailure { cause ->
-                error = cause.localizedMessage ?: cause.javaClass.simpleName
+                setDownloadError(context, cause)
             }
             isDownloading = false
+        }
+    }
+
+    fun resumeAfterInstallPermission(context: Context, onInstallReady: (Intent) -> Unit) {
+        if (!needsInstallPermission || !AppUpdateManager.hasInstallPermission(context)) return
+        downloadAndInstall(context, onInstallReady)
+    }
+
+    fun onInstallerResult(context: Context, resultCode: Int) {
+        error = AppUpdateManager.installResultError(context, resultCode)
+    }
+
+    private fun setDownloadError(context: Context, cause: Throwable) {
+        error = if (cause is AppUpdateSignatureMismatchException) {
+            cause.localizedMessage ?: context.getString(R.string.update_signature_migration_guide)
+        } else {
+            context.getString(
+                R.string.update_download_error,
+                cause.localizedMessage ?: cause.javaClass.simpleName
+            )
         }
     }
 }
@@ -137,7 +169,29 @@ fun AboutScreen(
     updateViewModel: AppUpdateViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val colors = GalleryThemeTokens.colors
+    val installLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        updateViewModel.onInstallerResult(context, result.resultCode)
+    }
+    val launchInstaller: (Intent) -> Unit = { intent -> installLauncher.launch(intent) }
+
+    DisposableEffect(lifecycleOwner, updateViewModel.needsInstallPermission) {
+        fun resumeUpdateIfAllowed() {
+            updateViewModel.resumeAfterInstallPermission(context, launchInstaller)
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumeUpdateIfAllowed()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            resumeUpdateIfAllowed()
+        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.fetchChangelog(context)
         updateViewModel.load(context)
@@ -210,7 +264,7 @@ fun AboutScreen(
                     }
                     Spacer(Modifier.height(dimensionResource(R.dimen.spacing_small)))
                     Button(
-                        onClick = { updateViewModel.downloadAndInstall(context) },
+                        onClick = { updateViewModel.downloadAndInstall(context, launchInstaller) },
                         enabled = !updateViewModel.isDownloading,
                         colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
                     ) {
@@ -248,7 +302,7 @@ fun AboutScreen(
             }
             updateViewModel.error?.let { error ->
                 Text(
-                    stringResource(R.string.update_error, error),
+                    error,
                     style = galleryTypography.small.copy(color = colors.danger),
                     modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_small))
                 )

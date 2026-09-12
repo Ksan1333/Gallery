@@ -22,4 +22,56 @@ class AppUpdateManagerTest {
     fun malformedVersionsAreNotMandatory() {
         assertFalse(AppUpdateManager.isMandatoryUpdate("latest", "1.0.0"))
     }
+
+    @Test
+    fun sameOrRotatedSigningCertificateIsAccepted() {
+        assertTrue(
+            AppUpdateManager.areSigningCertificatesCompatible(
+                installedCurrent = setOf("old"),
+                candidateCurrent = setOf("old"),
+                candidateHistory = setOf("old"),
+                candidateHasMultipleSigners = false
+            )
+        )
+        assertTrue(
+            AppUpdateManager.areSigningCertificatesCompatible(
+                installedCurrent = setOf("old"),
+                candidateCurrent = setOf("new"),
+                candidateHistory = setOf("old", "new"),
+                candidateHasMultipleSigners = false
+            )
+        )
+    }
+
+    @Test
+    fun unrelatedSigningCertificateIsRejected() {
+        assertFalse(
+            AppUpdateManager.areSigningCertificatesCompatible(
+                installedCurrent = setOf("debug"),
+                candidateCurrent = setOf("release"),
+                candidateHistory = setOf("release"),
+                candidateHasMultipleSigners = false
+            )
+        )
+    }
+
+    @Test
+    fun multipleSignersRequireAnExactCurrentSet() {
+        assertTrue(
+            AppUpdateManager.areSigningCertificatesCompatible(
+                installedCurrent = setOf("a", "b"),
+                candidateCurrent = setOf("a", "b"),
+                candidateHistory = setOf("a", "b"),
+                candidateHasMultipleSigners = true
+            )
+        )
+        assertFalse(
+            AppUpdateManager.areSigningCertificatesCompatible(
+                installedCurrent = setOf("a", "b"),
+                candidateCurrent = setOf("a", "c"),
+                candidateHistory = setOf("a", "b", "c"),
+                candidateHasMultipleSigners = true
+            )
+        )
+    }
 }

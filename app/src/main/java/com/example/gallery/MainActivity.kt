@@ -68,6 +68,7 @@ import com.example.gallery.service.ThumbnailGenerationService
 import com.example.gallery.ui.AppConstants
 import com.example.gallery.util.AppUpdateManager
 import com.example.gallery.util.AppUpdateRelease
+import com.example.gallery.util.AppUpdateSignatureMismatchException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -295,6 +296,66 @@ fun AppNavigation(
     var isStartupUpdateDownloading by remember { mutableStateOf(false) }
     var startupUpdateDownloadProgress by remember { mutableFloatStateOf(0f) }
     var startupUpdateError by remember { mutableStateOf<String?>(null) }
+    var startupUpdateWaitingForInstallPermission by rememberSaveable { mutableStateOf(false) }
+
+    val startupInstallLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val installError = AppUpdateManager.installResultError(context, result.resultCode)
+        startupUpdateError = installError
+        if (installError == null) startupUpdate = null
+    }
+
+    fun downloadAndLaunchStartupUpdate(release: AppUpdateRelease) {
+        if (isStartupUpdateDownloading) return
+        startupUpdateWaitingForInstallPermission = false
+        scope.launch {
+            isStartupUpdateDownloading = true
+            startupUpdateDownloadProgress = 0f
+            startupUpdateError = null
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    AppUpdateManager.downloadApk(context, release) { progress ->
+                        scope.launch { startupUpdateDownloadProgress = progress }
+                    }
+                }
+            }.onSuccess { apk ->
+                runCatching { AppUpdateManager.createInstallIntent(context, apk) }
+                    .onSuccess { intent -> startupInstallLauncher.launch(intent) }
+                    .onFailure { cause ->
+                        startupUpdateError = if (cause is AppUpdateSignatureMismatchException) {
+                            cause.localizedMessage
+                                ?: context.getString(R.string.update_signature_migration_guide)
+                        } else {
+                            context.getString(
+                                R.string.update_download_error,
+                                cause.localizedMessage ?: cause.javaClass.simpleName
+                            )
+                        }
+                    }
+            }.onFailure { cause ->
+                startupUpdateError = if (cause is AppUpdateSignatureMismatchException) {
+                    cause.localizedMessage
+                        ?: context.getString(R.string.update_signature_migration_guide)
+                } else {
+                    context.getString(
+                        R.string.update_download_error,
+                        cause.localizedMessage ?: cause.javaClass.simpleName
+                    )
+                }
+            }
+            isStartupUpdateDownloading = false
+        }
+    }
+
+    fun beginStartupUpdate(release: AppUpdateRelease) {
+        if (!AppUpdateManager.requestInstallPermission(context)) {
+            startupUpdateWaitingForInstallPermission = true
+            startupUpdateError = context.getString(R.string.update_allow_install_source)
+            return
+        }
+        downloadAndLaunchStartupUpdate(release)
+    }
 
     val navController = rememberNavController()
     galleryState.navController = navController
@@ -581,9 +642,22 @@ fun AppNavigation(
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(
+        lifecycleOwner,
+        startupUpdateWaitingForInstallPermission,
+        startupUpdate
+    ) {
+        fun resumePendingUpdateIfAllowed() {
+            if (
+                startupUpdateWaitingForInstallPermission &&
+                AppUpdateManager.hasInstallPermission(context)
+            ) {
+                startupUpdate?.let(::downloadAndLaunchStartupUpdate)
+            }
+        }
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && isStartupUnlocked) {
+                resumePendingUpdateIfAllowed()
                 logScrollRestoreTrace(
                     "main_on_resume_refresh before=${galleryState.refreshTrigger} " +
                         "route=${navController.currentBackStackEntry?.destination?.route}"
@@ -593,6 +667,12 @@ fun AppNavigation(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        if (
+            isStartupUnlocked &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        ) {
+            resumePendingUpdateIfAllowed()
+        }
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
@@ -1568,34 +1648,10 @@ fun AppNavigation(
                     error = startupUpdateError,
                     onUpdate = onUpdate@{
                         if (isStartupUpdateDownloading) return@onUpdate
-                        if (!AppUpdateManager.requestInstallPermission(context)) {
-                            startupUpdateError = context.getString(R.string.update_allow_install_source)
-                            return@onUpdate
-                        }
-                        scope.launch {
-                            isStartupUpdateDownloading = true
-                            startupUpdateDownloadProgress = 0f
-                            startupUpdateError = null
-                            runCatching {
-                                withContext(Dispatchers.IO) {
-                                    AppUpdateManager.downloadApk(context, release) { progress ->
-                                        scope.launch { startupUpdateDownloadProgress = progress }
-                                    }
-                                }
-                            }.onSuccess { apk ->
-                                if (!AppUpdateManager.installApk(context, apk)) {
-                                    startupUpdateError = context.getString(R.string.update_allow_install_source)
-                                }
-                            }.onFailure { cause ->
-                                startupUpdateError = context.getString(
-                                    R.string.update_download_error,
-                                    cause.localizedMessage ?: cause.javaClass.simpleName
-                                )
-                            }
-                            isStartupUpdateDownloading = false
-                        }
+                        beginStartupUpdate(release)
                     },
                     onCancel = {
+                        startupUpdateWaitingForInstallPermission = false
                         dismissedStartupUpdateVersion = release.version
                         startupUpdate = null
                     }

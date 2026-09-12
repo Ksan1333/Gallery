@@ -599,7 +599,13 @@
     <string name="update_downloading">ダウンロード中 %1$d%%</string>
     <string name="update_error">更新を確認できませんでした: %1$s</string>
     <string name="update_download_error">更新のダウンロードに失敗しました: %1$s</string>
-    <string name="update_allow_install_source">端末の設定でこのアプリからのインストールを許可した後、もう一度更新を実行してください。</string>
+    <string name="update_allow_install_source">端末の設定でこのアプリからのインストールを許可してください。アプリへ戻ると更新を自動的に再開します。</string>
+    <string name="update_installer_unavailable">端末のパッケージインストーラーを起動できませんでした。</string>
+    <string name="update_signature_unverified">更新APKの署名を確認できないため、安全のためインストールを中止しました。</string>
+    <string name="update_signature_migration_guide">現在のアプリと更新APKの署名が異なるため上書きできません。設定画面でバックアップを保存してから現在のアプリをアンインストールし、GitHub Releaseの署名済みAPKを新規インストールした後、バックアップを読み込んでください。</string>
+    <string name="update_invalid_apk">更新ファイルが有効なAndroid APKではありません。</string>
+    <string name="update_install_cancelled">システムのインストール画面で更新がキャンセルされました。</string>
+    <string name="update_install_failed">更新をインストールできませんでした（エラーコード: %1$s）。</string>
     <string name="update_dialog_title">アップデートがあります</string>
     <string name="update_required_dialog_title">アップデートが必要です</string>
     <string name="update_required_description">この更新には重要な変更が含まれるため、続行するにはアップデートが必要です。</string>
