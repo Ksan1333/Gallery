@@ -132,6 +132,7 @@
     <string name="msg_added_to_favorites">お気に入りに追加しました</string>
     <string name="msg_removed_from_favorites">お気に入りを解除しました</string>
     <string name="msg_deleted_count">%1$d 件を削除しました</string>
+    <string name="msg_delete_partially_failed">%1$d件を削除し、%2$d件は削除できませんでした</string>
     <string name="msg_storage_access_desc">端末内のすべてのフォルダから本を探すには、「全ファイルへのアクセス」権限が必要です。</string>
     <string name="msg_move_books_to_trash">選択した本をアプリ内のゴミ箱フォルダへ移動します。</string>
     <string name="msg_delete_books_permanently">選択した本を完全に削除します。この操作は元に戻せません。</string>
@@ -158,6 +159,9 @@
     <string name="msg_move_partially_failed">%1$d件を移動し、%2$d件は移動できませんでした</string>
     <string name="msg_move_permission_cancelled">書き込みが許可されなかったため、移動を完了できませんでした</string>
     <string name="msg_move_failed">フォルダ移動を完了できませんでした。再度お試しください</string>
+    <string name="move_undo">元に戻す</string>
+    <string name="msg_move_undone">%1$d件の移動を元に戻しました</string>
+    <string name="msg_move_undo_failed">%1$d件は元に戻せませんでした</string>
     <string name="msg_initializing">準備中…</string>
     <string name="msg_generating_thumbnails">サムネイル作成中: %1$d / %2$d</string>
     <string name="msg_analyzing_vectors">解析中: %1$d / %2$d</string>
@@ -273,6 +277,8 @@
     <string name="book_no_books">本が見つかりませんでした</string>
     <string name="book_check_permission">フォルダの権限や保存場所を確認してください</string>
     <string name="book_delete_confirm">本を削除しますか？</string>
+    <string name="book_folder_delete_confirm_title">本のフォルダを削除しますか？</string>
+    <string name="book_folder_delete_confirm_message">選択したフォルダ内の%1$d冊をゴミ箱へ移動します。</string>
     <string name="book_grant_permission">設定を開いて許可する</string>
 
     <!-- Bookmarks -->
@@ -342,6 +348,10 @@
     <string name="folder_reorder">フォルダを並び替え</string>
     <string name="folder_move_up">上へ移動</string>
     <string name="folder_move_down">下へ移動</string>
+    <string name="folder_delete">フォルダを削除</string>
+    <string name="folder_delete_confirm_title">フォルダを削除しますか？</string>
+    <string name="folder_delete_confirm_message">選択したフォルダ内の%1$d件をゴミ箱へ移動します。</string>
+    <string name="folder_delete_empty_message">選択した空のフォルダを一覧から削除します。</string>
 
     <!-- Media Edit -->
     <string name="edit_target_age">対象年齢</string>

@@ -96,6 +96,7 @@ fun CategoryScreen(
     onPageChangedInViewer: (String) -> Unit = {},
     onBulkEdit: ((List<String>) -> Unit)? = null,
     onBulkMove: ((List<String>) -> Unit)? = null,
+    onDeleteCategories: ((List<CategoryData>) -> Unit)? = null,
     onScrollConsumed: () -> Unit = {},
     onNavigateToTag: ((String) -> Unit)? = null,
     onCategoryLongClick: ((CategoryData) -> Unit)? = null,
@@ -301,6 +302,22 @@ fun CategoryScreen(
                                 }
                             }
                         }
+                        if (onDeleteCategories != null) {
+                            IconButton(
+                                onClick = {
+                                    showSelectionMenu = false
+                                    onDeleteCategories(previewCategories.filter { it.id in selectedCategoryIds })
+                                    selectedCategoryIds.clear()
+                                    isCategorySelectionMode = false
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = stringResource(R.string.folder_delete),
+                                    tint = colors.danger
+                                )
+                            }
+                        }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (onMenuClick != null) {
@@ -467,7 +484,7 @@ fun CategoryScreen(
                                             }
                                         },
                                         onLongClick = {
-                                            if (!isCategoryReorderMode && !isCategorySelectionMode && category.groupMembers.isEmpty()) {
+                                            if (!isCategoryReorderMode && !isCategorySelectionMode) {
                                                 isCategorySelectionMode = true
                                                 selectedCategoryIds.add(category.id)
                                             }
@@ -663,7 +680,12 @@ fun CategoryScreen(
             LaunchedEffect(selectedCategoryIds) {
                 val uris = mutableListOf<String>()
                 val all = galleryState.repository.getAllMedia()
-                selectedCategoryIds.forEach { catId ->
+                val selectedFolderIds = selectedCategoryIds.flatMap { catId ->
+                    previewCategories.firstOrNull { it.id == catId }?.groupMembers
+                        ?.map { member -> member.id }
+                        ?: listOf(catId)
+                }.distinct()
+                selectedFolderIds.forEach { catId ->
                     uris.addAll(all.filter { it.folderName == catId || it.uri.contains("Tag:$catId") }
                         .map { it.uri })
                 }

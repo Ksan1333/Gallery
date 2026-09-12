@@ -94,6 +94,7 @@ fun FolderGalleryScreen(
     var isSubCategorySelected by rememberSaveable { mutableStateOf(false) }
 
     var showFolderMenu by remember { mutableStateOf<CategoryData?>(null) }
+    var pendingDeleteCategories by remember { mutableStateOf<List<CategoryData>>(emptyList()) }
 
     fun loadAllMedia(isRefresh: Boolean = false) {
         android.util.Log.d("FolderGallery", "loadAllMedia started")
@@ -407,6 +408,9 @@ fun FolderGalleryScreen(
             onPageChangedInViewer = { galleryState.lastViewedUri = it },
             onBulkEdit = onBulkEdit,
             onBulkMove = onBulkMove,
+            onDeleteCategories = { selected ->
+                if (selected.isNotEmpty()) pendingDeleteCategories = selected
+            },
             onScrollConsumed = { galleryState.lastViewedUri = null },
             gridExtraBottomPadding = dimensionResource(R.dimen.spacing_micro) - dimensionResource(R.dimen.spacing_micro) // 0.dp
         )
@@ -513,6 +517,62 @@ fun FolderGalleryScreen(
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { showFolderMenu = null }) { Text(stringResource(R.string.btn_close)) } }
+        )
+    }
+
+    if (pendingDeleteCategories.isNotEmpty()) {
+        val selectedFolderIds = remember(pendingDeleteCategories) {
+            pendingDeleteCategories.flatMap { category ->
+                if (category.groupMembers.isNotEmpty()) category.groupMembers.map { it.id }
+                else listOf(category.id)
+            }.distinct()
+        }
+        val selectedMediaUris = remember(pendingDeleteCategories, folderDataVersion) {
+            selectedFolderIds.flatMap { folderData[it].orEmpty() }
+                .map { it.uri }
+                .distinct()
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDeleteCategories = emptyList() },
+            title = { Text(stringResource(R.string.folder_delete_confirm_title)) },
+            text = {
+                Text(
+                    if (selectedMediaUris.isEmpty()) {
+                        stringResource(R.string.folder_delete_empty_message)
+                    } else {
+                        stringResource(R.string.folder_delete_confirm_message, selectedMediaUris.size)
+                    }
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val folderIds = selectedFolderIds
+                    val mediaUris = selectedMediaUris
+                    pendingDeleteCategories = emptyList()
+                    scope.launch {
+                        if (mediaUris.isNotEmpty()) {
+                            galleryState.repository.moveToTrash(mediaUris)
+                        }
+                        folderIds.forEach { galleryState.repository.removeManagedFolder(it) }
+                        val remainingGroups = folderGroups.mapNotNull { group ->
+                            val remaining = group.folderIds.filterNot { it in folderIds }
+                            group.copy(folderIds = remaining).takeIf { remaining.size >= 2 }
+                        }
+                        persistFolderGroups(remainingGroups)
+                        loadAllMedia(isRefresh = true)
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.msg_deleted_count, mediaUris.size),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }) { Text(stringResource(R.string.folder_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteCategories = emptyList() }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
         )
     }
 }

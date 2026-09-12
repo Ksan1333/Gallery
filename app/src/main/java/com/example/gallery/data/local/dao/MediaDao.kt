@@ -225,6 +225,9 @@ interface MediaDao {
     @Query("SELECT folderName FROM managed_folders")
     fun getAllManagedFolderNames(): Flow<List<String>>
 
+    @Query("DELETE FROM managed_folders WHERE folderName = :folderName")
+    suspend fun deleteManagedFolder(folderName: String)
+
     // タグ翻訳用
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTagTranslation(translation: com.example.gallery.data.local.entity.TagTranslationEntity)

@@ -75,11 +75,24 @@ class MediaRepository(
         val minimumSimilarity: Float
     )
 
+    data class UndoMoveResult(
+        val restoredCount: Int,
+        val failedCount: Int
+    )
+
+    private data class MoveUndoItem(
+        val uri: String,
+        val previousRelativePath: String?,
+        val previousFolderName: String
+    )
+
     private var cachedMediaList: List<MediaData>? = null
     private var lastCacheTime: Long = 0
     private val cacheMutex = Mutex()
     private val syncStateMutex = Mutex()
     private var activeMediaStoreSync: CompletableDeferred<Unit>? = null
+    private var lastMoveUndo: List<MoveUndoItem> = emptyList()
+    private var pendingMoveUndo: List<MoveUndoItem> = emptyList()
 
     fun getGridItemPagingFlow(
         mediaType: MediaTypeFilter,
@@ -741,6 +754,7 @@ class MediaRepository(
             var totalFailed = 0
             val failedUris = mutableListOf<String>()
             val movedPaths = mutableListOf<String>()
+            val movedUndoItems = mutableListOf<MoveUndoItem>()
 
             Log.d(
                 FOLDER_MOVE_TRACE,
@@ -751,6 +765,8 @@ class MediaRepository(
                     val uri = Uri.parse(uriString)
                     try {
                         val beforePath = queryMediaRelativePath(uri)
+                        val beforeFolderName = mediaDao.getMetadata(uriString)?.folderName
+                            ?: beforePath?.trimEnd('/')?.substringAfterLast('/').orEmpty()
                         val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             val moveValues = ContentValues().apply {
                                 put(MediaStore.MediaColumns.RELATIVE_PATH, targetRelativePath)
@@ -777,6 +793,13 @@ class MediaRepository(
                         if (success) {
                             totalSuccess++
                             mediaDao.bulkUpdateFolderName(listOf(uriString), targetFolderName)
+                            if (!sameRelativePath(beforePath, targetRelativePath)) {
+                                movedUndoItems += MoveUndoItem(
+                                    uri = uriString,
+                                    previousRelativePath = beforePath,
+                                    previousFolderName = beforeFolderName
+                                )
+                            }
                         } else {
                             totalFailed++
                             failedUris.add(uriString)
@@ -794,6 +817,10 @@ class MediaRepository(
                             securityException
                         )
                         if (intentSender != null) {
+                            synchronized(this@MediaRepository) {
+                                pendingMoveUndo = (pendingMoveUndo + movedUndoItems)
+                                    .distinctBy { it.uri }
+                            }
                             return@withContext MoveMediaResult.PermissionRequired(
                                 intentSender = intentSender,
                                 pendingUris = pendingUris,
@@ -822,6 +849,11 @@ class MediaRepository(
                     MediaScannerConnection.scanFile(context, movedPaths.distinct().toTypedArray(), null, null)
                 }
                 cachedMediaList = null
+                synchronized(this@MediaRepository) {
+                    lastMoveUndo = (pendingMoveUndo + movedUndoItems)
+                        .distinctBy { it.uri }
+                    pendingMoveUndo = emptyList()
+                }
                 Log.d(
                     FOLDER_MOVE_TRACE,
                     "complete requested=${uris.size} moved=$totalSuccess failed=$totalFailed target=$targetRelativePath"
@@ -832,6 +864,77 @@ class MediaRepository(
                 GlobalOperationService.finishOperation(opId)
             }
         }
+    }
+
+    /**
+     * 直前に完了したフォルダ移動を元のフォルダへ戻す。
+     * 端末再起動後はメモリ上の履歴が失われるため、対象は直前の操作に限定する。
+     */
+    suspend fun undoLastMove(): UndoMoveResult = withContext(Dispatchers.IO) {
+        val undoItems = synchronized(this@MediaRepository) {
+            lastMoveUndo.also { lastMoveUndo = emptyList() }
+        }
+        if (undoItems.isEmpty()) return@withContext UndoMoveResult(0, 0)
+
+        val operationId = GlobalOperationService.startOperation(context.getString(R.string.msg_restoring))
+        val failedItems = mutableListOf<MoveUndoItem>()
+        var restoredCount = 0
+        try {
+            undoItems.forEachIndexed { index, item ->
+                val previousPath = item.previousRelativePath
+                val restored = if (previousPath.isNullOrBlank()) {
+                    false
+                } else {
+                    runCatching {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val values = ContentValues().apply {
+                                put(MediaStore.MediaColumns.RELATIVE_PATH, normalizeRelativePath(previousPath))
+                            }
+                            val rows = context.contentResolver.update(Uri.parse(item.uri), values, null, null)
+                            rows > 0 && sameRelativePath(
+                                queryMediaRelativePath(Uri.parse(item.uri)),
+                                previousPath
+                            )
+                        } else {
+                            moveLegacyMedia(Uri.parse(item.uri), normalizeRelativePath(previousPath), mutableListOf())
+                        }
+                    }.getOrDefault(false)
+                }
+                if (restored) {
+                    val folderName = item.previousFolderName.ifBlank {
+                        previousPath?.trimEnd('/')?.substringAfterLast('/').orEmpty()
+                    }
+                    mediaDao.bulkUpdateFolderName(listOf(item.uri), folderName)
+                    restoredCount++
+                } else {
+                    failedItems += item
+                }
+                GlobalOperationService.updateProgress(
+                    (index + 1).toFloat() / undoItems.size,
+                    id = operationId
+                )
+            }
+            if (failedItems.isNotEmpty()) {
+                synchronized(this@MediaRepository) { lastMoveUndo = failedItems.toList() }
+            }
+            cachedMediaList = null
+            galleryState?.refresh()
+            return@withContext UndoMoveResult(restoredCount, failedItems.size)
+        } finally {
+            GlobalOperationService.finishOperation(operationId)
+        }
+    }
+
+    /**
+     * 権限確認が中断された場合でも、確認前に移動済みの項目を元に戻せるように履歴を確定する。
+     */
+    fun finalizePendingMoveUndo(): Int = synchronized(this@MediaRepository) {
+        val finalizedItems = pendingMoveUndo.distinctBy { it.uri }
+        if (finalizedItems.isNotEmpty()) {
+            lastMoveUndo = finalizedItems
+            pendingMoveUndo = emptyList()
+        }
+        finalizedItems.size
     }
 
     suspend fun resolveDownloadTargetRelativePath(targetFolder: String): String =
@@ -1090,6 +1193,11 @@ class MediaRepository(
         else mediaDao.updateFolderThumbnail(folderName, uri)
     }
     suspend fun addManagedFolder(name: String) = mediaDao.insertManagedFolder(com.example.gallery.data.local.entity.ManagedFolderEntity(name))
+
+    suspend fun removeManagedFolder(name: String) {
+        mediaDao.deleteManagedFolder(name)
+        mediaDao.deleteFolderOrder(name)
+    }
     fun scanAllFolders(): List<String> {
         val folders = mutableSetOf<String>()
         try {

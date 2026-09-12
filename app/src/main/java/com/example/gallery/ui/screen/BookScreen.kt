@@ -37,8 +37,10 @@ import android.widget.Toast
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
 import androidx.compose.ui.res.dimensionResource
@@ -99,8 +101,10 @@ fun BookScreen(
     var isLoading by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     var selectedBookIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedFolderPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
     var favoriteVersion by remember { mutableIntStateOf(0) }
     var pendingDeleteBooks by remember { mutableStateOf<List<BookData>>(emptyList()) }
+    var pendingDeleteFolders by remember { mutableStateOf<List<FolderData>>(emptyList()) }
     val bookmarksPrefs = remember { context.getSharedPreferences(BOOKMARKS_PREFS, Context.MODE_PRIVATE) }
     var bookmarksCount by remember { mutableIntStateOf(bookmarksPrefs.all.size) }
     val colors = GalleryThemeTokens.colors
@@ -183,11 +187,14 @@ fun BookScreen(
     }
 
     // 戻るボタンの制御
-    androidx.activity.compose.BackHandler(selectedBook != null || selectedFolderPath != null) {
+    androidx.activity.compose.BackHandler(selectedBook != null || selectedFolderPath != null || selectedFolderPaths.isNotEmpty()) {
         if (selectedBook != null) {
             selectedBook = null
         } else if (selectedFolderPath != null) {
             selectedFolderPath = null
+            selectedBookIds = emptySet()
+        } else if (selectedFolderPaths.isNotEmpty()) {
+            selectedFolderPaths = emptySet()
         }
     }
 
@@ -269,6 +276,12 @@ fun BookScreen(
         books = sortBooks(books, fileSort)
     }
 
+    LaunchedEffect(books, selectedFolderPath) {
+        if (selectedFolderPath != null && books.none { it.folderPath == selectedFolderPath }) {
+            selectedFolderPath = null
+        }
+    }
+
     if (selectedBook != null) {
         val currentBook = selectedBook!!
         val siblingBooks = remember(books, currentBook.folderPath) {
@@ -339,6 +352,40 @@ fun BookScreen(
                     }) {
                         Icon(Icons.Default.Delete, stringResource(R.string.btn_delete), tint = colors.primaryText)
                     }
+                    if (selectedFolderPath != null) {
+                        IconButton(onClick = {
+                            selectedBookIds = books
+                                .filter { it.folderPath == selectedFolderPath }
+                                .map { it.id }
+                                .toSet()
+                        }) {
+                            Icon(Icons.Default.SelectAll, stringResource(R.string.label_select_all), tint = colors.primaryText)
+                        }
+                    }
+                } else if (selectedFolderPaths.isNotEmpty()) {
+                    IconButton(onClick = { selectedFolderPaths = emptySet() }) {
+                        Icon(Icons.Default.Close, stringResource(R.string.btn_deselect), tint = colors.primaryText)
+                    }
+                    Text(
+                        stringResource(R.string.trash_item_count, selectedFolderPaths.size),
+                        style = galleryTypography.bodySecondary.copy(color = colors.primaryText)
+                    )
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = {
+                        pendingDeleteFolders = books
+                            .filter { it.folderPath in selectedFolderPaths }
+                            .groupBy { it.folderPath }
+                            .map { (path, folderBooks) ->
+                                FolderData(
+                                    path = path,
+                                    name = folderBooks.firstOrNull()?.folderName ?: path,
+                                    count = folderBooks.size,
+                                    thumbnailPath = pickFolderThumbnail(path, folderBooks, bookshelfThumbnail, bookSettingsPrefs)
+                                )
+                            }
+                    }) {
+                        Icon(Icons.Default.Delete, stringResource(R.string.folder_delete), tint = colors.danger)
+                    }
                 } else {
                     IconButton(onClick = onMenuClick) {
                         Icon(Icons.Default.Menu, stringResource(R.string.btn_open), tint = colors.primaryText)
@@ -401,7 +448,10 @@ fun BookScreen(
                     Text(
                         text = "${stringResource(R.string.label_books_root)} > ",
                         style = galleryTypography.smallMuted,
-                        modifier = Modifier.clickable { selectedFolderPath = null }
+                        modifier = Modifier.clickable {
+                            selectedFolderPath = null
+                            selectedBookIds = emptySet()
+                        }
                     )
                     Text(
                         text = folderName,
@@ -498,11 +548,31 @@ fun BookScreen(
                         horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_base)),
                         verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
                     ) {
-                        item {
-                            BookBookmarksItem(count = bookmarksCount, onClick = onNavigateToBookmarks)
+                        if (selectedFolderPaths.isEmpty()) {
+                            item {
+                                BookBookmarksItem(count = bookmarksCount, onClick = onNavigateToBookmarks)
+                            }
                         }
                         items(folderGroups) { folder ->
-                            FolderItem(folder = folder, showThumbnail = showThumbnail, onClick = { selectedFolderPath = folder.path })
+                            FolderItem(
+                                folder = folder,
+                                showThumbnail = showThumbnail,
+                                isSelected = folder.path in selectedFolderPaths,
+                                onClick = {
+                                    if (selectedFolderPaths.isNotEmpty()) {
+                                        selectedFolderPaths = if (folder.path in selectedFolderPaths) {
+                                            selectedFolderPaths - folder.path
+                                        } else {
+                                            selectedFolderPaths + folder.path
+                                        }
+                                    } else {
+                                        selectedFolderPath = folder.path
+                                    }
+                                },
+                                onLongClick = {
+                                    selectedFolderPaths = selectedFolderPaths + folder.path
+                                }
+                            )
                         }
                     }
                 } else {
@@ -550,6 +620,63 @@ fun BookScreen(
                 }
             }
         }
+    }
+
+    if (pendingDeleteFolders.isNotEmpty()) {
+        val folders = pendingDeleteFolders
+        val totalBooks = folders.sumOf { it.count }
+        AlertDialog(
+            onDismissRequest = { pendingDeleteFolders = emptyList() },
+            containerColor = colors.surfaceVariant,
+            title = { Text(stringResource(R.string.book_folder_delete_confirm_title), color = colors.primaryText) },
+            text = {
+                Text(
+                    if (totalBooks > 0) {
+                        stringResource(R.string.book_folder_delete_confirm_message, totalBooks)
+                    } else {
+                        stringResource(R.string.folder_delete_empty_message)
+                    },
+                    color = colors.primaryText
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val folderPaths = folders.map { it.path }.toSet()
+                    pendingDeleteFolders = emptyList()
+                    scope.launch {
+                        var successCount = 0
+                        val deletedBookIds = mutableSetOf<String>()
+                        books.filter { it.folderPath in folderPaths }.forEach { book ->
+                            if (repository.moveBookToTrash(book)) {
+                                successCount++
+                                deletedBookIds += book.id
+                            }
+                        }
+                        val failedCount = books.count { it.folderPath in folderPaths } - successCount
+                        books = books.filterNot { it.id in deletedBookIds }
+                        selectedFolderPaths = emptySet()
+                        Toast.makeText(
+                            context,
+                            if (failedCount > 0) {
+                                context.getString(
+                                    R.string.msg_delete_partially_failed,
+                                    successCount,
+                                    failedCount
+                                )
+                            } else {
+                                context.getString(R.string.msg_deleted_count, successCount)
+                            },
+                            if (failedCount > 0) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }) { Text(stringResource(R.string.folder_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteFolders = emptyList() }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
     }
 
     if (pendingDeleteBooks.isNotEmpty()) {
@@ -675,12 +802,24 @@ private fun BookBookmarksItem(count: Int, onClick: () -> Unit) {
 }
 
 @Composable
-fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+fun FolderItem(
+    folder: FolderData,
+    showThumbnail: Boolean,
+    isSelected: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
+) {
     val colors = GalleryThemeTokens.colors
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .background(
+                if (isSelected) colors.accent.copy(alpha = 0.16f) else Color.Transparent,
+                RoundedCornerShape(dimensionResource(R.dimen.radius_medium))
+            )
+            .padding(dimensionResource(R.dimen.spacing_tiny))
     ) {
         if (showThumbnail) {
                     Box(
@@ -705,6 +844,21 @@ fun FolderItem(folder: FolderData, showThumbnail: Boolean, onClick: () -> Unit) 
                     tint = colors.primaryText.copy(alpha = 0.8f),
                     modifier = Modifier.size(dimensionResource(R.dimen.viewer_bottom_bar_height)).align(Alignment.Center)
                 )
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(colors.accent.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = stringResource(R.string.btn_done),
+                            tint = colors.primaryText,
+                            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_extra_large))
+                        )
+                    }
+                }
                 Surface(
                     color = colors.background.copy(alpha = 0.6f),
                     shape = RoundedCornerShape(dimensionResource(R.dimen.radius_small)),

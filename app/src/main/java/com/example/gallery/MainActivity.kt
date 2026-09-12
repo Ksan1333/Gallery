@@ -266,6 +266,7 @@ fun AppNavigation(
     val galleryState = (context.applicationContext as GalleryApplication).galleryState
     remember { PreferenceManager(context) }
     val scope = rememberCoroutineScope()
+    val moveUndoSnackbarHostState = remember { SnackbarHostState() }
     val startDestination = remember { loadStartupRoute(context) }
     val globalSettingsPrefs = remember { context.getSharedPreferences(GLOBAL_SETTINGS_PREFS, Context.MODE_PRIVATE) }
     var edgeSwipeForDrawer by remember(globalSettingsPrefs) {
@@ -302,6 +303,38 @@ fun AppNavigation(
     var isFolderGalleryOpen by rememberSaveable { mutableStateOf(false) }
     var isVideoFolderOpen by rememberSaveable { mutableStateOf(false) }
     var isBookFolderOpen by rememberSaveable { mutableStateOf(false) }
+
+    fun showMoveUndoSnackbar(message: String, movedCount: Int) {
+        if (movedCount <= 0) {
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            return
+        }
+        scope.launch {
+            moveUndoSnackbarHostState.currentSnackbarData?.dismiss()
+            val result = moveUndoSnackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = context.getString(R.string.move_undo),
+                duration = SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                val undoResult = galleryState.repository.undoLastMove()
+                if (undoResult.restoredCount > 0) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.msg_move_undone, undoResult.restoredCount),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                if (undoResult.failedCount > 0) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.msg_move_undo_failed, undoResult.failedCount),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     LaunchedEffect(openUpdateScreen, isStartupUnlocked) {
         if (openUpdateScreen && isStartupUnlocked) {
@@ -454,7 +487,11 @@ fun AppNavigation(
             )
             galleryState.urisToMove = (alreadyFailedUris + retryUris).distinct()
             galleryState.refresh()
-            Toast.makeText(context, R.string.msg_move_permission_cancelled, Toast.LENGTH_LONG).show()
+            val undoableCount = galleryState.repository.finalizePendingMoveUndo()
+            showMoveUndoSnackbar(
+                context.getString(R.string.msg_move_permission_cancelled),
+                undoableCount
+            )
             return@rememberLauncherForActivityResult
         }
 
@@ -470,21 +507,19 @@ fun AppNavigation(
                     galleryState.urisToMove = combinedFailedUris
                     galleryState.refresh()
                     if (combinedFailedUris.isNotEmpty()) {
-                        Toast.makeText(
-                            context,
+                        showMoveUndoSnackbar(
                             context.getString(
                                 R.string.msg_move_partially_failed,
                                 totalMoved,
                                 combinedFailedUris.size
                             ),
-                            Toast.LENGTH_LONG
-                        ).show()
+                            totalMoved
+                        )
                     } else {
-                        Toast.makeText(
-                            context,
+                        showMoveUndoSnackbar(
                             context.getString(R.string.msg_move_completed, totalMoved),
-                            Toast.LENGTH_SHORT
-                        ).show()
+                            totalMoved
+                        )
                     }
                     if (
                         combinedFailedUris.isEmpty() &&
@@ -502,7 +537,11 @@ fun AppNavigation(
                         alreadyFailedUris + retryResult.failedUris + retryResult.pendingUris
                     ).distinct()
                     galleryState.refresh()
-                    Toast.makeText(context, R.string.msg_move_failed, Toast.LENGTH_LONG).show()
+                    val undoableCount = galleryState.repository.finalizePendingMoveUndo()
+                    showMoveUndoSnackbar(
+                        context.getString(R.string.msg_move_failed),
+                        undoableCount
+                    )
                 }
             }
         }
@@ -1163,21 +1202,19 @@ fun AppNavigation(
                                         galleryState.urisToMove = moveResult.failedUris
                                         galleryState.refresh()
                                         if (moveResult.failedCount > 0) {
-                                            Toast.makeText(
-                                                context,
+                                            showMoveUndoSnackbar(
                                                 context.getString(
                                                     R.string.msg_move_partially_failed,
                                                     moveResult.movedCount,
                                                     moveResult.failedCount
                                                 ),
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                                moveResult.movedCount
+                                            )
                                         } else {
-                                            Toast.makeText(
-                                                context,
+                                            showMoveUndoSnackbar(
                                                 context.getString(R.string.msg_move_completed, moveResult.movedCount),
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                                moveResult.movedCount
+                                            )
                                         }
                                         if (moveResult.failedCount == 0) navController.popBackStack()
                                     }
@@ -1670,6 +1707,12 @@ fun AppNavigation(
                     )
                 }
             }
+            SnackbarHost(
+                hostState = moveUndoSnackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = if (isBottomBarVisible && !isHideRoute) 76.dp else 12.dp)
+            )
         }
     }
 }
