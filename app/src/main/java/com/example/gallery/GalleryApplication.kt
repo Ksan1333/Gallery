@@ -10,6 +10,7 @@ import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.decode.VideoFrameDecoder
+import com.github.awxkee.avifcoil.HeifDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,7 @@ class GalleryApplication : Application(), ImageLoaderFactory {
                 } else {
                     add(GifDecoder.Factory())
                 }
+                add(HeifDecoder.Factory(this@GalleryApplication))
                 add(VideoFrameDecoder.Factory())
             }
             .allowRgb565(lowMemoryMode)

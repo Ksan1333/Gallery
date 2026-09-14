@@ -68,6 +68,7 @@ import coil.memory.MemoryCache
 import coil.request.ImageRequest
 import coil.decode.VideoFrameDecoder
 import coil.request.videoFrameMillis
+import com.github.awxkee.avifcoil.HeifDecoder
 import com.example.gallery.data.model.MediaData
 import com.example.gallery.data.local.PreferenceManager
 import com.example.gallery.data.repository.MediaRepository
@@ -754,6 +755,7 @@ fun GalleryGridView(
             .interceptorDispatcher(gridImageDispatcher)
             .crossfade(false)
             .components {
+                add(HeifDecoder.Factory(context.applicationContext))
                 add(VideoFrameDecoder.Factory())
             }
             .build()
@@ -2572,7 +2574,7 @@ private fun GalleryGridContent(
                 }
                 GridItemRenderer(
                     item = item,
-                    modifier = if (maxLineSpan in 3..4) Modifier.animateItem() else Modifier,
+                    modifier = Modifier,
                     gridIndex = index,
                     selectedUris = selectedUris,
                     metadataMap = metadataMap,
@@ -2584,9 +2586,11 @@ private fun GalleryGridContent(
                     denseThumbnailStartIndex = denseThumbnailStartIndex,
                     denseThumbnailEndIndex = denseThumbnailEndIndex,
                     selectionLongPressMs = selectionLongPressMs,
+                    showViewerButton = isSelectionMode && selectionEnabled,
                     highlightUri = highlightUri,
                     onPositionInItem = ::rootPositionForGridItem,
                     onMediaClick = ::handleTap,
+                    onOpenViewer = { item -> openMedia(item) },
                     onSimilarGroupToggle = ::toggleSimilarGroup,
                     onSimilarMediaClick = ::openMediaFromSimilarGroup,
                     isSelectionInteractionActive = selectionEnabled && (isSelectionMode || selectOnTap),
@@ -2609,7 +2613,7 @@ private fun GalleryGridContent(
             ) { index, item ->
                 GridItemRenderer(
                     item = item,
-                    modifier = if (maxLineSpan in 3..4) Modifier.animateItem() else Modifier,
+                    modifier = Modifier,
                     gridIndex = index,
                     selectedUris = selectedUris,
                     metadataMap = metadataMap,
@@ -2621,9 +2625,11 @@ private fun GalleryGridContent(
                     denseThumbnailStartIndex = denseThumbnailStartIndex,
                     denseThumbnailEndIndex = denseThumbnailEndIndex,
                     selectionLongPressMs = selectionLongPressMs,
+                    showViewerButton = isSelectionMode && selectionEnabled,
                     highlightUri = highlightUri,
                     onPositionInItem = ::rootPositionForGridItem,
                     onMediaClick = ::handleTap,
+                    onOpenViewer = { item -> openMedia(item) },
                     onSimilarGroupToggle = ::toggleSimilarGroup,
                     onSimilarMediaClick = ::openMediaFromSimilarGroup,
                     isSelectionInteractionActive = selectionEnabled && (isSelectionMode || selectOnTap),
@@ -2733,9 +2739,11 @@ private fun GridItemRenderer(
     denseThumbnailStartIndex: Int,
     denseThumbnailEndIndex: Int,
     selectionLongPressMs: Long,
+    showViewerButton: Boolean,
     highlightUri: String?,
     onPositionInItem: (Int, Offset) -> Offset?,
     onMediaClick: (GridItem.Media) -> Unit,
+    onOpenViewer: (GridItem.Media) -> Unit,
     onSimilarGroupToggle: (GridItem.SimilarGroup) -> Unit,
     onSimilarMediaClick: (GridItem.SimilarGroup, MediaData) -> Unit,
     isSelectionInteractionActive: Boolean,
@@ -2786,6 +2794,8 @@ private fun GridItemRenderer(
                     isScrollbarDragging = isScrollbarDragging,
                     isHighlighted = highlightUri == item.data.uri,
                     selectionLongPressMs = itemLongPressMs,
+                    showViewerButton = showViewerButton,
+                    onOpenViewer = { onOpenViewer(item) },
                     // The grid-level detector survives item recycling during edge auto-scroll.
                     selectionEnabled = false,
                     onPositionInItem = onPositionInItem,
@@ -3060,6 +3070,8 @@ private fun MediaGridItemWrapper(
     isScrollbarDragging: Boolean,
     isHighlighted: Boolean,
     selectionLongPressMs: Long,
+    showViewerButton: Boolean,
+    onOpenViewer: () -> Unit,
     selectionEnabled: Boolean,
     onPositionInItem: (Int, Offset) -> Offset?,
     onClick: () -> Unit,
@@ -3085,8 +3097,10 @@ private fun MediaGridItemWrapper(
         isSelected = isSelected,
         gridIndex = gridIndex,
         selectionLongPressMs = selectionLongPressMs,
-                    // The grid-level detector survives item recycling during edge auto-scroll.
-                    selectionEnabled = false,
+        showViewerButton = showViewerButton,
+        onOpenViewer = onOpenViewer,
+        // The grid-level detector survives item recycling during edge auto-scroll.
+        selectionEnabled = false,
         onPositionInItem = onPositionInItem,
         onClick = onClick,
         onDragSelectionStart = onDragSelectionStart,
@@ -3114,6 +3128,8 @@ private fun MediaGridItem(
     isSelected: Boolean,
     gridIndex: Int,
     selectionLongPressMs: Long,
+    showViewerButton: Boolean,
+    onOpenViewer: () -> Unit,
     selectionEnabled: Boolean,
     onPositionInItem: (Int, Offset) -> Offset?,
     onClick: () -> Unit,
@@ -3320,8 +3336,32 @@ private fun MediaGridItem(
             }
         }
 
+        if (showViewerButton && !isDenseGrid) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(dimensionResource(R.dimen.spacing_tiny))
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(colors.background.copy(alpha = GalleryAlphaTokens.Muted))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenViewer
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Visibility,
+                    contentDescription = stringResource(R.string.gallery_open_viewer),
+                    tint = colors.primaryText,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
         if (columnCount < 28) {
-            if (isFavorite) {
+            if (isFavorite && !showViewerButton) {
                 Icon(Icons.Default.Favorite, null, tint = colors.danger, modifier = Modifier.align(Alignment.BottomStart).padding(dimensionResource(R.dimen.spacing_tiny) / 2).size(if (columnCount > 7) dimensionResource(R.dimen.icon_size_favorite_small) else dimensionResource(R.dimen.icon_size_favorite)))
             }
             if (label != null && columnCount <= 7) {

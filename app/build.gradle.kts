@@ -35,14 +35,14 @@ val hasReleaseSigning = listOf(
 
 android {
     namespace = "com.example.gallery"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.gallery"
         minSdk = 24
         targetSdk = 35
-        versionCode = 21
-        versionName = "2.0.10"
+        versionCode = 22
+        versionName = "2.0.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -113,6 +113,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
     implementation(libs.coil.video)
+    implementation(libs.avif.coder.coil)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation("androidx.compose.foundation:foundation")
