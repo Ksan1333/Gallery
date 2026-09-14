@@ -167,14 +167,14 @@ class MediaRepository(
                         if (after == null) return@insertSeparators null
                         
                         val dateObj = Date()
-                        dateObj.time = after.data.dateAdded
+                        dateObj.time = after.data.galleryDateMillis
                         val afterHeader = sdf.format(dateObj)
                         
                         if (before == null) {
                             return@insertSeparators GridItem.Header(afterHeader)
                         }
                         
-                        dateObj.time = before.data.dateAdded
+                        dateObj.time = before.data.galleryDateMillis
                         val beforeHeader = sdf.format(dateObj)
                         
                         if (beforeHeader != afterHeader) {
@@ -1235,7 +1235,7 @@ class MediaRepository(
 
         val chronological = mediaItems
             .distinctBy { it.uri }
-            .sortedWith(compareBy<MediaData> { it.dateAdded }.thenBy { it.uri })
+            .sortedWith(compareBy<MediaData> { it.galleryDateMillis }.thenBy { it.uri })
         val groups = buildAdjacentSimilarityGroups(
             items = chronological,
             threshold = safeThreshold

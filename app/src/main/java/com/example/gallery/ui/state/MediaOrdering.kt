@@ -15,7 +15,7 @@ fun sortMediaForGallery(
     ascending: Boolean
 ): List<MediaData> {
     val sorted = when (sortMode) {
-        SortMode.DATE_ADDED -> media.sortedWith(compareBy<MediaData> { it.dateAdded }.thenBy { it.uri })
+        SortMode.DATE_ADDED -> media.sortedWith(compareBy<MediaData> { it.galleryDateMillis }.thenBy { it.uri })
         SortMode.SIZE -> media.sortedWith(compareBy<MediaData> { it.fileSize }.thenBy { it.uri })
         SortMode.NAME -> media.sortedWith(
             compareBy<MediaData>(

@@ -161,6 +161,7 @@ object AppUpdateManager {
         val apkUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
         val intent = Intent(Intent.ACTION_INSTALL_PACKAGE)
             .setData(apkUri)
+            .setType("application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             .putExtra(Intent.EXTRA_RETURN_RESULT, true)
             .apply {

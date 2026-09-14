@@ -18,6 +18,8 @@ data class MediaData(
     val fileName: String = "",
     val folderName: String = "" // フォルダ名を保持
 ) {
+    /** Canonical gallery date: MediaStore DATE_MODIFIED synchronized by MediaRepository. */
+    val galleryDateMillis: Long get() = dateAdded
     val id: Long get() = uri.substringAfterLast("/").toLongOrNull() ?: -1L
     val isGif: Boolean get() = mimeType == "image/gif" || uri.lowercase().endsWith(".gif") || uri.contains("gif", ignoreCase = true)
     val isVideo: Boolean get() = mimeType?.startsWith("video") == true || uri.contains("video", ignoreCase = true)

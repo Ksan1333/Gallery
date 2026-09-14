@@ -375,7 +375,7 @@ private fun buildScrollbarDateLabels(gridItems: List<GridItem>, context: Context
     gridItems.forEachIndexed { index, item ->
         val media = item.displayMedia()
         if (media != null) {
-            date.time = media.dateAdded
+            date.time = media.galleryDateMillis
             labels[index] = formatter.format(date)
         }
     }
@@ -1235,7 +1235,7 @@ fun GalleryGridView(
                 val displaySdf = SimpleDateFormat(formatYear, Locale.JAPAN)
 
                 for (media in sortedSnapshot) {
-                    dateObj.time = media.dateAdded
+                    dateObj.time = media.galleryDateMillis
                     val headerText = displaySdf.format(dateObj)
                     if (headerText != lastHeaderText) {
                         result.add(GridItem.Header(headerText, headerText))
@@ -1306,7 +1306,7 @@ fun GalleryGridView(
                     displayItems.forEach { displayItem ->
                         val media = displayItem.displayMedia() ?: return@forEach
                         if (displaySdf != null) {
-                            dateObj.time = media.dateAdded
+                            dateObj.time = media.galleryDateMillis
                             val headerText = displaySdf.format(dateObj)
                             if (headerText != lastHeaderText) {
                                 result.add(GridItem.Header(headerText, headerText))
