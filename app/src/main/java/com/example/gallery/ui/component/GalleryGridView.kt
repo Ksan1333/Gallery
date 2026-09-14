@@ -2498,7 +2498,10 @@ private fun GalleryGridContent(
                         )
                         return@awaitEachGesture
                     }
-                    val startGridIndex = mediaIndexAtRootPosition(dragRootDown, allowNearest = false)
+                    // Use the exact grid-local hit computed from the down event. Re-resolving
+                    // through root bounds here can be stale for one frame after returning from
+                    // the viewer, which makes the long-press start on a neighboring item.
+                    val startGridIndex = pressedGridIndex
                     if (startGridIndex == null) {
                         logSelectionTrace(
                             "grid_long_press_miss rootY=${dragRootDown.y.roundToInt()} " +
@@ -3181,11 +3184,6 @@ private fun MediaGridItem(
     // 強調表示と選択状態を graphicsLayer で処理し、レイアウト計算を避ける。
     val highlightCornerRadius = if (columnCount > 1) dimensionResource(R.dimen.radius_small) / 2 else dimensionResource(R.dimen.radius_large)
     val currentOnClick by rememberUpdatedState(onClick)
-    val dragBaseSelectionRef = remember(gridIndex) { arrayOfNulls<Set<String>>(1) }
-    val dragShouldSelectRef = remember(gridIndex) { BooleanArray(1) }
-    val dragLastIndexRef = remember(gridIndex) { IntArray(1) { gridIndex } }
-    val dragMoveCountRef = remember(gridIndex) { IntArray(1) }
-    val suppressTapRef = remember(gridIndex) { BooleanArray(1) }
     val interactionSource = remember { MutableInteractionSource() }
 
     Box(
@@ -3220,84 +3218,12 @@ private fun MediaGridItem(
                     }
                 }
             }
-            .then(
-                if (selectionEnabled) {
-                    Modifier.pointerInput(gridIndex, selectionLongPressMs) {
-                detectDragGesturesAfterLongPressTimeout(
-                    timeoutMs = selectionLongPressMs,
-                    onDragStart = { position ->
-                        val (baseSelection, shouldSelect) = onDragSelectionStart(gridIndex)
-                        dragBaseSelectionRef[0] = baseSelection
-                        dragShouldSelectRef[0] = shouldSelect
-                        dragLastIndexRef[0] = gridIndex
-                        dragMoveCountRef[0] = 0
-                        suppressTapRef[0] = true
-                        val rootPosition = onPositionInItem(gridIndex, position)
-                        logSelectionTrace(
-                            "tile_drag_start index=$gridIndex uri=${traceUri(media.uri)} " +
-                                "root=${rootPosition?.let { "${it.x.roundToInt()},${it.y.roundToInt()}" }} " +
-                                "longPressMs=$selectionLongPressMs"
-                        )
-                    },
-                    onDrag = { change, _ ->
-                        val baseSelection = dragBaseSelectionRef[0] ?: return@detectDragGesturesAfterLongPressTimeout
-                        val rootPosition = onPositionInItem(gridIndex, change.position)
-                        if (rootPosition != null) {
-                            val previousIndex = dragLastIndexRef[0]
-                            dragLastIndexRef[0] = onDragSelectionMove(
-                                rootPosition,
-                                baseSelection,
-                                gridIndex,
-                                previousIndex,
-                                dragShouldSelectRef[0]
-                            )
-                            dragMoveCountRef[0] += 1
-                            if (dragMoveCountRef[0] == 1 || dragLastIndexRef[0] != previousIndex) {
-                                logSelectionTrace(
-                                    "tile_drag_move index=$gridIndex event=${dragMoveCountRef[0]} " +
-                                        "root=${rootPosition.x.roundToInt()},${rootPosition.y.roundToInt()} " +
-                                        "target=${dragLastIndexRef[0]} previous=$previousIndex consumed=${change.isConsumed}"
-                                )
-                            }
-                        } else {
-                            logSelectionTrace("tile_drag_missing_bounds index=$gridIndex")
-                        }
-                        change.consume()
-                    },
-                    onDragEnd = {
-                        logSelectionTrace(
-                            "tile_drag_end index=$gridIndex events=${dragMoveCountRef[0]} " +
-                                "last=${dragLastIndexRef[0]} selected=${dragBaseSelectionRef[0]?.size ?: -1}"
-                        )
-                        dragBaseSelectionRef[0] = null
-                        onDragSelectionEnd()
-                    },
-                    onDragCancel = {
-                        logSelectionTrace(
-                            "tile_drag_cancel index=$gridIndex events=${dragMoveCountRef[0]} " +
-                                "last=${dragLastIndexRef[0]}"
-                        )
-                        dragBaseSelectionRef[0] = null
-                        suppressTapRef[0] = false
-                        onDragSelectionEnd()
-                    }
-                )
-                    }
-                } else {
-                    Modifier
-                }
-            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null
             ) {
-                if (suppressTapRef[0]) {
-                    logSelectionTrace("tile_click_suppressed index=$gridIndex")
-                    suppressTapRef[0] = false
-                } else {
-                    logSelectionTrace("tile_click index=$gridIndex uri=${traceUri(media.uri)}")
-                    currentOnClick()
-                }
+                logSelectionTrace("tile_click index=$gridIndex uri=${traceUri(media.uri)}")
+                currentOnClick()
             }
             .background(itemBackgroundColor)
             .highlightFrame(isHighlighted, colors.accent, dimensionResource(R.dimen.spacing_tiny) / 2, highlightCornerRadius)
