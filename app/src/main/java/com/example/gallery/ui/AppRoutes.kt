@@ -43,7 +43,7 @@ object AppDefaults {
     const val AI_TAGGER_MODEL_NORMAL = "NORMAL"
     const val AI_TAGGER_MODEL_HIGH = "HIGH"
     const val CONTROL_PANEL_AUTO_HIDE_MS = 3200
-    const val SELECTION_LONG_PRESS_MS = 500
+    const val SELECTION_LONG_PRESS_MS = 380
     const val DRAWER_WIDTH_DP = 260
     const val DRAWER_ITEM_HEIGHT_DP = 44
     const val DRAWER_EDGE_HIT_WIDTH_DP = 25

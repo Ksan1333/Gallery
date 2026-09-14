@@ -7,7 +7,7 @@ class GallerySelectionGestureTest {
     @Test
     fun normalGalleryAddsIntentDelayBeforeEnteringSelection() {
         assertEquals(
-            720L,
+            500L,
             gallerySelectionLongPressTimeoutMs(
                 configuredTimeoutMs = 500L,
                 isSelectionMode = false,
@@ -43,7 +43,7 @@ class GallerySelectionGestureTest {
     @Test
     fun normalGalleryDelayNeverExceedsTheSupportedMaximum() {
         assertEquals(
-            2000L,
+            1900L,
             gallerySelectionLongPressTimeoutMs(
                 configuredTimeoutMs = 1900L,
                 isSelectionMode = false,

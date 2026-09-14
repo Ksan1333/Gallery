@@ -113,7 +113,7 @@
     <string name="label_all_media">すべて</string>
     <string name="label_favorites">お気に入り</string>
     <string name="label_sort">並び替え</string>
-    <string name="label_date_added">追加日</string>
+    <string name="label_date_added">変更日</string>
     <string name="label_size">サイズ</string>
     <string name="label_name">名前</string>
     <string name="label_ascending">昇順</string>

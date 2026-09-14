@@ -83,6 +83,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
@@ -1830,23 +1831,6 @@ private fun GalleryGridContent(
         pressedItemSelected = false
     )
     var previousLineSpan by remember { mutableIntStateOf(maxLineSpan) }
-    LaunchedEffect(maxLineSpan) {
-        val previous = previousLineSpan
-        if (previous != maxLineSpan) {
-            val resetUniformLanes = previous == 2 && maxLineSpan in 3..4
-            val anchorIndex = gridState.firstVisibleItemIndex
-            val anchorOffset = gridState.firstVisibleItemScrollOffset
-            if (resetUniformLanes) {
-                gridState.requestScrollToItem(anchorIndex, anchorOffset)
-            }
-            Log.d(
-                GRID_LAYOUT_TRACE,
-                "columns_changed from=$previous to=$maxLineSpan anchor=$anchorIndex " +
-                    "offset=$anchorOffset resetLanes=$resetUniformLanes"
-            )
-            previousLineSpan = maxLineSpan
-        }
-    }
 
     // Sample scroll velocity (items per second) to support speed-based loading decisions.
     val scrollVelocity = remember { mutableFloatStateOf(0f) }
@@ -1970,6 +1954,41 @@ private fun GalleryGridContent(
         } else {
             flatGridItems.getOrNull(index)
         }
+    }
+
+    // A column change rebuilds the staggered lanes. Restore the same media URI
+    // after that rebuild instead of reusing the old index, which can point at a
+    // different row/item when headers or lane heights changed.
+    LaunchedEffect(maxLineSpan, flatGridItems.size, pagingItems?.itemCount) {
+        val previous = previousLineSpan
+        if (previous == maxLineSpan) return@LaunchedEffect
+
+        val anchorIndex = gridState.firstVisibleItemIndex
+        val anchorOffset = gridState.firstVisibleItemScrollOffset
+        val anchorUri = gridItemAtIndex(anchorIndex)?.displayMedia()?.uri
+        previousLineSpan = maxLineSpan
+        yield()
+
+        val targetIndex = anchorUri?.let { uri ->
+            if (pagingItems != null) {
+                (0 until pagingItems.itemCount).firstOrNull { index ->
+                    pagingItems.peek(index)?.displayMedia()?.uri == uri
+                }
+            } else {
+                flatGridItems.indexOfFirst { it.displayMedia()?.uri == uri }
+                    .takeIf { it >= 0 }
+            }
+        }
+        if (targetIndex != null && targetIndex >= 0) {
+            gridState.requestScrollToItem(targetIndex, anchorOffset.coerceAtLeast(0))
+        } else {
+            gridState.requestScrollToItem(anchorIndex.coerceAtLeast(0), anchorOffset.coerceAtLeast(0))
+        }
+        Log.d(
+            GRID_LAYOUT_TRACE,
+            "columns_changed from=$previous to=$maxLineSpan anchor=$anchorIndex " +
+                "target=$targetIndex uriHash=${anchorUri?.hashCode()} offset=$anchorOffset"
+        )
     }
 
     fun selectableUrisAtGridIndex(index: Int): List<String> = when (val item = gridItemAtIndex(index)) {
@@ -2694,8 +2713,8 @@ private fun gridItemGapPadding(columnCount: Int): Dp {
 }
 
 private fun mediaGridAspectRatio(media: MediaData, columnCount: Int): Float {
-    // Multiple aspect ratios make LazyVerticalStaggeredGrid recalculate lane heights while
-    // thumbnails resolve. A fixed cell height keeps reverse scrolling stable, especially at 2 columns.
+    // Keep the cell geometry stable while thumbnails resolve; this also makes the
+    // URI-based scroll anchor reliable when the column count changes.
     return 1f
 }
 
@@ -3128,11 +3147,9 @@ private fun MediaGridItem(
         )
         .padding(if (columnCount > 1) gridItemGapPadding(columnCount) else 0.dp)
         .then(
-            if (columnCount in 3..4) {
-                Modifier.animateContentSize(animationSpec = tween(durationMillis = 220))
-            } else {
-                Modifier
-            }
+            // Staggered-grid size animations move neighboring images while a column
+            // change or thumbnail measurement is settling. Keep cell geometry stable.
+            Modifier
         )
         .then(if (columnCount in 2..27) Modifier.clip(RoundedCornerShape(dimensionResource(R.dimen.radius_small) / 4)) else Modifier)
 
@@ -3277,7 +3294,11 @@ private fun MediaGridItem(
                 imageLoader = imageLoader,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = if (columnCount == 1) ContentScale.FillWidth else ContentScale.Crop
+                contentScale = when {
+                    columnCount == 1 -> ContentScale.FillWidth
+                    columnCount == 2 -> ContentScale.Fit
+                    else -> ContentScale.Crop
+                }
             )
         }
 

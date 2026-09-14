@@ -2,7 +2,7 @@ package com.example.gallery.ui
 
 object AppConstants {
     const val GRID_IMAGE_LOAD_PAUSE_VELOCITY_ITEMS_PER_SEC = 90f
-    const val GALLERY_SELECTION_LONG_PRESS_EXTRA_MS = 220L
+    const val GALLERY_SELECTION_LONG_PRESS_EXTRA_MS = 0L
 
     // Age Ratings
     const val RATING_SFW = "SFW"

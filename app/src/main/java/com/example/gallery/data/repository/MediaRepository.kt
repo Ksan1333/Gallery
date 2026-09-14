@@ -298,14 +298,11 @@ class MediaRepository(
             metadataSnapshotElapsedMs = SystemClock.elapsedRealtime() - metadataSnapshotStartedAt
             val foundUris = HashSet<String>(10000)
             val newEntities = mutableListOf<MediaMetadataEntity>()
-            val videoDownloadRelativePath = context
-                .getString(R.string.video_dl_rel_path_movies)
-                .normalizeMediaStoreRelativePath()
-
             val projection = buildList {
                 add(MediaStore.MediaColumns._ID)
                 add(MediaStore.MediaColumns.DATA)
                 add(MediaStore.MediaColumns.DATE_ADDED)
+                add(MediaStore.MediaColumns.DATE_MODIFIED)
                 add(MediaStore.MediaColumns.DATE_TAKEN)
                 add(MediaStore.MediaColumns.MIME_TYPE)
                 add(MediaStore.MediaColumns.DURATION)
@@ -346,7 +343,7 @@ class MediaRepository(
                             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                             val dataColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
-                            val dateTakenColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+                            val modifiedDateColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
                             val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
                             val durationColumn = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
                             val widthColumn = cursor.getColumnIndex(MediaStore.MediaColumns.WIDTH)
@@ -385,8 +382,10 @@ class MediaRepository(
 
                                 val existing = existingMetadata[contentUri]
                                 
-                                val dateTaken = if (dateTakenColumn != -1) cursor.getLong(dateTakenColumn) else 0L
                                 val dateAdded = cursor.getLong(dateColumn) * 1000
+                                val dateModified = if (modifiedDateColumn != -1) {
+                                    cursor.getLong(modifiedDateColumn) * 1000
+                                } else 0L
                                 val mime = cursor.getString(mimeColumn)
                                 val duration = if (durationColumn != -1) cursor.getLong(durationColumn) else 0L
                                 val width = if (widthColumn != -1) cursor.getInt(widthColumn) else 0
@@ -395,14 +394,8 @@ class MediaRepository(
                                 val name = if (nameColumn != -1) cursor.getString(nameColumn) ?: "" else ""
                                 val path = if (dataColumn != -1) cursor.getString(dataColumn) else null
                                 val relativePath = if (relativePathColumn != -1) cursor.getString(relativePathColumn) else null
-                                // X downloads are saved into this app's Movies/Gallery folder.
-                                // MediaStore extracts DATE_TAKEN from the MP4 header and can retain
-                                // the original post's time even when DATE_ADDED/MODIFIED are the
-                                // actual download time. For this owned download location, use the
-                                // filesystem/MediaStore download time consistently in the gallery.
-                                val isVideoDownload = mime?.startsWith("video/") == true &&
-                                    relativePath?.normalizeMediaStoreRelativePath() == videoDownloadRelativePath
-                                val date = if (isVideoDownload) dateAdded else if (dateTaken > 0L) dateTaken else dateAdded
+                                // Gallery ordering/display follows the file's modification date.
+                                val date = dateModified.takeIf { it > 0L } ?: dateAdded
                                 val isMediaStoreTrashed = trashedColumn != -1 && cursor.getInt(trashedColumn) == 1
                                 
                                 val folderName = if (!relativePath.isNullOrBlank()) {
