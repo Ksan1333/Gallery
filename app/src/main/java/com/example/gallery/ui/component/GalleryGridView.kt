@@ -2001,12 +2001,11 @@ private fun GalleryGridContent(
 
     fun mediaIndexAtGridPosition(position: Offset, allowNearest: Boolean = false): Int? {
         val visibleItems = gridState.layoutInfo.visibleItemsInfo
-        // LazyStaggeredGrid item offsets are expressed from viewportStartOffset. With a
-        // top content padding (the gallery bars), pointer coordinates are viewport-local,
-        // so comparing them directly shifts the hit target downward by roughly two rows.
-        val layoutPosition = position.copy(
-            y = position.y + gridState.layoutInfo.viewportStartOffset
-        )
+        // LazyStaggeredGrid item offsets and pointer coordinates are both local to the
+        // grid viewport. viewportStartOffset is metadata about the scroll viewport, not
+        // an offset to apply to pointer coordinates; applying it shifts long-press hits
+        // into a different row when the gallery has top content padding.
+        val layoutPosition = position
         val hit = visibleItems.firstOrNull { item ->
             layoutPosition.x >= item.offset.x &&
                 layoutPosition.x <= item.offset.x + item.size.width &&
