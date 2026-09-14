@@ -159,18 +159,23 @@ object AppUpdateManager {
     fun createInstallIntent(context: Context, apk: File): Intent {
         validateSigningCompatibility(context, apk)
         val apkUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
-        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE)
-            .setData(apkUri)
-            .setType("application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            .putExtra(Intent.EXTRA_RETURN_RESULT, true)
-            .apply {
-                clipData = ClipData.newRawUri("Gallery update", apkUri)
-            }
-        check(intent.resolveActivity(context.packageManager) != null) {
-            context.getString(com.example.gallery.R.string.update_installer_unavailable)
+        val installerIntents = listOf(
+            Intent(Intent.ACTION_INSTALL_PACKAGE),
+            // Some vendor package installers register ACTION_VIEW but not
+            // ACTION_INSTALL_PACKAGE for content:// APKs.
+            Intent(Intent.ACTION_VIEW)
+        ).map { action ->
+            Intent(action)
+                .setDataAndType(apkUri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                .apply {
+                    clipData = ClipData.newRawUri("Gallery update", apkUri)
+                }
         }
-        return intent
+        return installerIntents.firstOrNull { candidate ->
+            candidate.resolveActivity(context.packageManager) != null
+        } ?: error(context.getString(com.example.gallery.R.string.update_installer_unavailable))
     }
 
     /** Returns a localized failure description, or null when the installer reported success. */
